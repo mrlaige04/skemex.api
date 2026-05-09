@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="src/Skemex.Application/Skemex.Application.csproj" />
+  <Project Path="src/Skemex.Domain/Skemex.Domain.csproj" />
+  <Project Path="src/Skemex.Infrastructure/Skemex.Infrastructure.csproj" />
+  <Project Path="src/Skemex.Web/Skemex.Web.csproj" />
+</Solution>
