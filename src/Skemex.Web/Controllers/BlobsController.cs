@@ -1,0 +1,56 @@
+using System.IO;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Skemex.Application.Services;
+
+namespace Skemex.Web.Controllers;
+
+/// <summary>Serves stored blobs for public URLs when using local disk storage (per-bucket paths).</summary>
+[ApiController]
+public sealed class BlobsController(IStorageService storage) : ControllerBase
+{
+    [HttpGet("/api/blobs/branding/{**blobPath}")]
+    [HttpGet("/blobs/branding/{**blobPath}")]
+    [AllowAnonymous]
+    [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any)]
+    public Task<IActionResult> GetBranding(string blobPath, CancellationToken cancellationToken) =>
+        Get(StorageBucketKind.Branding, blobPath, cancellationToken);
+
+    [HttpGet("/api/blobs/files/{**blobPath}")]
+    [HttpGet("/blobs/files/{**blobPath}")]
+    [AllowAnonymous]
+    [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any)]
+    public Task<IActionResult> GetFiles(string blobPath, CancellationToken cancellationToken) =>
+        Get(StorageBucketKind.Files, blobPath, cancellationToken);
+
+    /// <summary>Legacy path: treated as branding (profile images, logos).</summary>
+    [HttpGet("/api/blobs/{**blobPath}")]
+    [HttpGet("/blobs/{**blobPath}")]
+    [AllowAnonymous]
+    [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any)]
+    public Task<IActionResult> GetLegacy(string blobPath, CancellationToken cancellationToken) =>
+        Get(StorageBucketKind.Branding, blobPath, cancellationToken);
+
+    private async Task<IActionResult> Get(StorageBucketKind bucket, string blobPath, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(blobPath))
+        {
+            return NotFound();
+        }
+
+        try
+        {
+            var (stream, contentType) =
+                await storage.DownloadAsync(bucket, blobPath, cancellationToken).ConfigureAwait(false);
+            return File(stream, contentType, enableRangeProcessing: true);
+        }
+        catch (ArgumentException)
+        {
+            return BadRequest();
+        }
+        catch (FileNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+}

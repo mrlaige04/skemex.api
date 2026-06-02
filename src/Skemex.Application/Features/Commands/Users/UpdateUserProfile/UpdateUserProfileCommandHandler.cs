@@ -1,0 +1,167 @@
+using ErrorOr;
+using Microsoft.AspNetCore.Identity;
+using Skemex.Application.Features.Abstractions;
+using Skemex.Application.Services;
+using Skemex.Domain.Entities.Users;
+using Skemex.Domain.Services;
+
+namespace Skemex.Application.Features.Commands.Users.UpdateUserProfile;
+
+public sealed class UpdateUserProfileCommandHandler(
+    ICurrentUser currentUser,
+    UserManager<User> userManager,
+    IStorageService storage,
+    IUrlService urlService)
+    : ICommandHandler<UpdateUserProfileCommand, UpdateUserProfileResponse>
+{
+    private const long MaxImageBytes = 5 * 1024 * 1024;
+
+    private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg", "image/png", "image/webp", "image/gif",
+    };
+
+    public async Task<ErrorOr<UpdateUserProfileResponse>> Handle(
+        UpdateUserProfileCommand request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await HandleCore(request, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            request.ProfileImage?.Dispose();
+        }
+    }
+
+    private async Task<ErrorOr<UpdateUserProfileResponse>> HandleCore(
+        UpdateUserProfileCommand request,
+        CancellationToken cancellationToken)
+    {
+        var userId = currentUser.GetUserId();
+        if (userId is null)
+        {
+            return Error.Unauthorized("Auth.Unauthenticated", "Authentication required.");
+        }
+
+        var user = await userManager.FindByIdAsync(userId.Value.ToString()).ConfigureAwait(false);
+        if (user is null)
+        {
+            return Error.NotFound("User.NotFound", "User was not found.");
+        }
+
+        if (request.ProfileImage is not null)
+        {
+            if (!AllowedContentTypes.Contains(request.ProfileImageContentType ?? string.Empty))
+            {
+                return Error.Validation(
+                    "Profile.InvalidImageType",
+                    "Image must be JPEG, PNG, WebP, or GIF.");
+            }
+
+            if (request.ProfileImage is not MemoryStream && !request.ProfileImage.CanSeek)
+            {
+                return Error.Validation("Profile.ImageNotReadable", "Could not read the uploaded image.");
+            }
+
+            try
+            {
+                if (request.ProfileImage.Length > MaxImageBytes)
+                {
+                    return Error.Validation("Profile.ImageTooLarge", "Image must be at most 5 MB.");
+                }
+            }
+            catch (NotSupportedException)
+            {
+                return Error.Validation("Profile.ImageNotReadable", "Could not read the uploaded image.");
+            }
+        }
+
+        var changed = false;
+
+        if (request.FirstName is not null)
+        {
+            var t = request.FirstName.Trim();
+            if (t.Length > 0 && t != user.FirstName)
+            {
+                user.FirstName = t;
+                changed = true;
+            }
+        }
+
+        if (request.LastName is not null)
+        {
+            var t = request.LastName.Trim();
+            if (t.Length > 0 && t != user.LastName)
+            {
+                user.LastName = t;
+                changed = true;
+            }
+        }
+
+        if (request.ProfileImage is not null)
+        {
+            var ext = NormalizeExtension(request.ProfileImageFileName, request.ProfileImageContentType);
+            var blobId = $"users/{user.Id:N}/profile-{Guid.NewGuid():N}{ext}";
+            request.ProfileImage.Position = 0;
+            var contentType = request.ProfileImageContentType ?? "application/octet-stream";
+            await storage.UploadAsync(StorageBucketKind.Branding, blobId, request.ProfileImage, contentType,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            var previous = user.PhotoBlobId;
+            user.PhotoBlobId = blobId;
+            changed = true;
+
+            if (!string.IsNullOrEmpty(previous) && !string.Equals(previous, blobId, StringComparison.Ordinal))
+            {
+                try
+                {
+                    await storage.DeleteAsync(StorageBucketKind.Branding, previous, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch
+                {
+                    /* best-effort cleanup */
+                }
+            }
+        }
+
+        if (changed)
+        {
+            var update = await userManager.UpdateAsync(user).ConfigureAwait(false);
+            if (!update.Succeeded)
+            {
+                return Error.Validation(
+                    "User.UpdateFailed",
+                    string.Join(' ', update.Errors.Select(e => e.Description)));
+            }
+        }
+
+        return new UpdateUserProfileResponse
+        {
+            FirstName = user.FirstName,
+            LastName = user.LastName,
+            AvatarUrl = urlService.GetUserProfilePictureUrl(user.PhotoBlobId),
+        };
+    }
+
+    private static string NormalizeExtension(string? fileName, string? contentType)
+    {
+        var ext = Path.GetExtension(fileName ?? string.Empty).ToLowerInvariant();
+        if (ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif")
+        {
+            return ext;
+        }
+
+        return contentType?.ToLowerInvariant() switch
+        {
+            "image/jpeg" => ".jpg",
+            "image/png" => ".png",
+            "image/webp" => ".webp",
+            "image/gif" => ".gif",
+            _ => ".jpg",
+        };
+    }
+}
