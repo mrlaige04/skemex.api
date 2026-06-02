@@ -40,6 +40,7 @@ services:
     build:
       context: .
       dockerfile: src/Skemex.Web/Dockerfile
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -50,7 +51,8 @@ services:
     environment:
       ASPNETCORE_URLS: http://+:8080
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__DefaultConnection: >-
+      # Must match GetConnectionString("Default") in RegisterDependencies.cs
+      ConnectionStrings__Default: >-
         Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Auth__ValidIssuer: Skemex
       Auth__ValidAudience: Skemex
