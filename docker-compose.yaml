@@ -1,0 +1,74 @@
+﻿# Skemex API stack. Requires external network (create once):
+#   docker network create skemex-network
+#
+# Optional .env: MINIO_ROOT_USER, MINIO_ROOT_PASSWORD, JWT_SECRET, etc.
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - skemex_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - skemex
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - skemex_minio:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - skemex
+
+  api:
+    build:
+      context: .
+      dockerfile: src/Skemex.Web/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: >-
+        Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Auth__ValidIssuer: Skemex
+      Auth__ValidAudience: Skemex
+      Auth__JwtSecret: ${JWT_SECRET}
+      Auth__TokenType: Bearer
+      Auth__ExpiresInMinutes: "60"
+      SuperAdmin__Email: ${SUPERADMIN_EMAIL}
+      SuperAdmin__Password: ${SUPERADMIN_PASSWORD}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    networks:
+      - skemex
+
+networks:
+  skemex:
+    name: skemex-network
+    external: true
+
+volumes:
+  skemex_pgdata:
+  skemex_minio:

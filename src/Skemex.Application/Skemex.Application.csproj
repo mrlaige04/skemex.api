@@ -10,4 +10,17 @@
       <ProjectReference Include="..\Skemex.Domain\Skemex.Domain.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+      <PackageReference Include="ErrorOr" Version="2.1.1-rc.3" />
+      <PackageReference Include="FluentValidation" Version="12.1.1" />
+      <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
+      <PackageReference Include="Hangfire.PostgreSql" Version="1.21.1" />
+      <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.5" />
+      <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.5" />
+      <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="11.0.0-preview.3.26207.106" />
+      <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.7" />
+      <PackageReference Include="Newtonsoft.Json" Version="13.0.5-beta1" />
+      <PackageReference Include="Scrutor" Version="7.0.0" />
+    </ItemGroup>
+
 </Project>
