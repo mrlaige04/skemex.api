@@ -1,14 +1,17 @@
 using System.IO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
+using Skemex.Application.Configuration;
 using Skemex.Application.Services;
 
 namespace Skemex.Web.Controllers;
 
-/// <summary>Serves stored blobs for public URLs when using local disk storage (per-bucket paths).</summary>
 [ApiController]
-public sealed class BlobsController(IStorageService storage) : ControllerBase
+public sealed class BlobsController(IBlobStorageService storage, IOptions<StorageOptions> options) : ControllerBase
 {
+    private readonly StorageOptions _options = options.Value;
+
     [HttpGet("/api/blobs/branding/{**blobPath}")]
     [HttpGet("/blobs/branding/{**blobPath}")]
     [AllowAnonymous]
@@ -23,7 +26,6 @@ public sealed class BlobsController(IStorageService storage) : ControllerBase
     public Task<IActionResult> GetFiles(string blobPath, CancellationToken cancellationToken) =>
         Get(StorageBucketKind.Files, blobPath, cancellationToken);
 
-    /// <summary>Legacy path: treated as branding (profile images, logos).</summary>
     [HttpGet("/api/blobs/{**blobPath}")]
     [HttpGet("/blobs/{**blobPath}")]
     [AllowAnonymous]
@@ -38,10 +40,12 @@ public sealed class BlobsController(IStorageService storage) : ControllerBase
             return NotFound();
         }
 
+        var bucketName = StorageBucketNames.Resolve(_options, bucket);
+
         try
         {
             var (stream, contentType) =
-                await storage.DownloadAsync(bucket, blobPath, cancellationToken).ConfigureAwait(false);
+                await storage.DownloadAsync(bucketName, blobPath, cancellationToken).ConfigureAwait(false);
             return File(stream, contentType, enableRangeProcessing: true);
         }
         catch (ArgumentException)

@@ -50,8 +50,24 @@ public static class RegisterDependencies
     private static void AddStorage(IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
+        services.AddOptions<ProfileImageStorageOptions>()
+            .Bind(configuration.GetSection(ProfileImageStorageOptions.SectionName))
+            .PostConfigure<IOptions<StorageOptions>>((profile, storage) =>
+            {
+                if (!string.IsNullOrWhiteSpace(profile.Bucket))
+                {
+                    return;
+                }
+
+                var s = storage.Value;
+                profile.Bucket = string.Equals(s.Provider, StorageProviderNames.Production,
+                    StringComparison.OrdinalIgnoreCase)
+                    ? s.Minio.BrandingBucket
+                    : StorageBucketNames.Resolve(s, StorageBucketKind.Branding);
+            });
 
         services.AddScoped<IUrlService, StorageUrlService>();
+        services.AddScoped<IProfileImageService, ProfileImageService>();
 
         var provider = configuration.GetValue<string>($"{StorageOptions.SectionName}:Provider")
                        ?? StorageProviderNames.Local;
@@ -102,11 +118,11 @@ public static class RegisterDependencies
                     .Build();
             });
             
-            services.AddScoped<IStorageService, MinioBlobStorageService>();
+            services.AddScoped<IBlobStorageService, MinioBlobStorageService>();
         }
         else if (string.Equals(provider, StorageProviderNames.Local, StringComparison.OrdinalIgnoreCase))
         {
-            services.AddScoped<IStorageService, LocalDiskStorageService>();
+            services.AddScoped<IBlobStorageService, LocalDiskBlobStorageService>();
         }
         else
         {

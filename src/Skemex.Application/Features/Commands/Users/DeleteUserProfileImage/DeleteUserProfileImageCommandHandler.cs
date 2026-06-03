@@ -11,7 +11,7 @@ namespace Skemex.Application.Features.Commands.Users.DeleteUserProfileImage;
 public sealed class DeleteUserProfileImageCommandHandler(
     ICurrentUser currentUser,
     UserManager<User> userManager,
-    IStorageService storage,
+    IProfileImageService profileImages,
     IUrlService urlService)
     : ICommandHandler<DeleteUserProfileImageCommand, UpdateUserProfileResponse>
 {
@@ -53,7 +53,7 @@ public sealed class DeleteUserProfileImageCommandHandler(
 
         try
         {
-            await storage.DeleteAsync(StorageBucketKind.Branding, previous, cancellationToken).ConfigureAwait(false);
+            await profileImages.DeleteAsync(previous, cancellationToken).ConfigureAwait(false);
         }
         catch
         {

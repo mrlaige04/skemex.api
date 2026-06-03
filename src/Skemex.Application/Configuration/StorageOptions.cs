@@ -22,11 +22,6 @@ public static class StorageProviderNames
 
 public sealed class LocalDiskStorageOptions
 {
-    /// <summary>
-    /// Root directory for local blobs. When empty, uses
-    /// <c>%TEMP%/Skemex/storage</c> (<see cref="Path.GetTempPath"/>).
-    /// Absolute paths are used as-is; relative paths are under the app content root.
-    /// </summary>
     public string BasePath { get; set; } = string.Empty;
 }
 

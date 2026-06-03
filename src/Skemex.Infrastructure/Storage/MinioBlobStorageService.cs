@@ -2,35 +2,43 @@ using Minio;
 using Minio.DataModel;
 using Minio.DataModel.Args;
 using Minio.Exceptions;
-using Microsoft.Extensions.Options;
-using Skemex.Application.Configuration;
 using Skemex.Application.Services;
 
 namespace Skemex.Infrastructure.Storage;
 
-public sealed class MinioBlobStorageService(IMinioClient client, IOptions<StorageOptions> options) : IStorageService
+public sealed class MinioBlobStorageService(IMinioClient client) : IBlobStorageService
 {
     private readonly IMinioClient _client = client;
-    private readonly MinioStorageOptions _minio = options.Value.Minio;
 
-    private string Bucket(StorageBucketKind kind) =>
-        kind switch
+    public async Task EnsureBucketExistsAsync(string bucket, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(bucket);
+
+        var exists = await _client.BucketExistsAsync(
+                new BucketExistsArgs().WithBucket(bucket),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (exists)
         {
-            StorageBucketKind.Branding => _minio.BrandingBucket,
-            StorageBucketKind.Files => _minio.FilesBucket,
-            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
-        };
+            return;
+        }
 
-    public async Task UploadAsync(StorageBucketKind bucket, string objectKey, Stream content, string contentType,
+        await _client.MakeBucketAsync(new MakeBucketArgs().WithBucket(bucket), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task UploadAsync(string bucket, string storageKey, Stream content, string contentType,
         CancellationToken cancellationToken = default)
     {
-        var key = ObjectStoragePath.ValidateAndNormalize(objectKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(bucket);
+        var key = ObjectStoragePath.ValidateAndNormalize(storageKey);
         var (stream, disposeStream) = await MaterializeStreamAsync(content, cancellationToken).ConfigureAwait(false);
         try
         {
             await _client.PutObjectAsync(
                 new PutObjectArgs()
-                    .WithBucket(Bucket(bucket))
+                    .WithBucket(bucket)
                     .WithObject(key)
                     .WithStreamData(stream)
                     .WithObjectSize(stream.Length)
@@ -46,17 +54,17 @@ public sealed class MinioBlobStorageService(IMinioClient client, IOptions<Storag
         }
     }
 
-    public async Task<(Stream Stream, string ContentType)> DownloadAsync(StorageBucketKind bucket, string objectKey,
+    public async Task<(Stream Stream, string ContentType)> DownloadAsync(string bucket, string storageKey,
         CancellationToken cancellationToken = default)
     {
-        var key = ObjectStoragePath.ValidateAndNormalize(objectKey);
-        var bucketName = Bucket(bucket);
+        ArgumentException.ThrowIfNullOrWhiteSpace(bucket);
+        var key = ObjectStoragePath.ValidateAndNormalize(storageKey);
 
         ObjectStat stat;
         try
         {
             stat = await _client.StatObjectAsync(
-                new StatObjectArgs().WithBucket(bucketName).WithObject(key),
+                new StatObjectArgs().WithBucket(bucket).WithObject(key),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (ObjectNotFoundException ex)
@@ -69,7 +77,7 @@ public sealed class MinioBlobStorageService(IMinioClient client, IOptions<Storag
         {
             await _client.GetObjectAsync(
                 new GetObjectArgs()
-                    .WithBucket(bucketName)
+                    .WithBucket(bucket)
                     .WithObject(key)
                     .WithCallbackStream(stream => stream.CopyTo(ms)),
                 cancellationToken).ConfigureAwait(false);
@@ -87,13 +95,14 @@ public sealed class MinioBlobStorageService(IMinioClient client, IOptions<Storag
         return (ms, contentType);
     }
 
-    public async Task DeleteAsync(StorageBucketKind bucket, string objectKey, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(string bucket, string storageKey, CancellationToken cancellationToken = default)
     {
-        var key = ObjectStoragePath.ValidateAndNormalize(objectKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(bucket);
+        var key = ObjectStoragePath.ValidateAndNormalize(storageKey);
         try
         {
             await _client.RemoveObjectAsync(
-                new RemoveObjectArgs().WithBucket(Bucket(bucket)).WithObject(key),
+                new RemoveObjectArgs().WithBucket(bucket).WithObject(key),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (ObjectNotFoundException)
@@ -102,13 +111,14 @@ public sealed class MinioBlobStorageService(IMinioClient client, IOptions<Storag
         }
     }
 
-    public async Task<bool> ExistsAsync(StorageBucketKind bucket, string objectKey, CancellationToken cancellationToken = default)
+    public async Task<bool> ExistsAsync(string bucket, string storageKey, CancellationToken cancellationToken = default)
     {
-        var key = ObjectStoragePath.ValidateAndNormalize(objectKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(bucket);
+        var key = ObjectStoragePath.ValidateAndNormalize(storageKey);
         try
         {
             await _client.StatObjectAsync(
-                new StatObjectArgs().WithBucket(Bucket(bucket)).WithObject(key),
+                new StatObjectArgs().WithBucket(bucket).WithObject(key),
                 cancellationToken).ConfigureAwait(false);
             return true;
         }

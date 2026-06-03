@@ -5,15 +5,23 @@ using Skemex.Application.Services;
 
 namespace Skemex.Infrastructure.Storage;
 
-public sealed class LocalDiskStorageService(IOptions<StorageOptions> options, IHostEnvironment hostEnvironment)
-    : IStorageService
+public sealed class LocalDiskBlobStorageService(IOptions<StorageOptions> options, IHostEnvironment hostEnvironment)
+    : IBlobStorageService
 {
+    private readonly StorageOptions _options = options.Value;
     private readonly string _root = LocalDiskStoragePath.ResolveRoot(hostEnvironment, options.Value.Local);
 
-    public async Task UploadAsync(StorageBucketKind bucket, string objectKey, Stream content, string contentType,
+    public Task EnsureBucketExistsAsync(string bucket, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(bucket);
+        Directory.CreateDirectory(Path.Combine(_root, bucket));
+        return Task.CompletedTask;
+    }
+
+    public async Task UploadAsync(string bucket, string storageKey, Stream content, string contentType,
         CancellationToken cancellationToken = default)
     {
-        var key = ObjectStoragePath.ValidateAndNormalize(objectKey);
+        var key = ObjectStoragePath.ValidateAndNormalize(storageKey);
         var fullPath = GetPhysicalPath(bucket, key);
         var dir = Path.GetDirectoryName(fullPath);
         if (!string.IsNullOrEmpty(dir))
@@ -30,10 +38,10 @@ public sealed class LocalDiskStorageService(IOptions<StorageOptions> options, IH
         await File.WriteAllTextAsync(MetaPath(fullPath), contentType, cancellationToken);
     }
 
-    public Task<(Stream Stream, string ContentType)> DownloadAsync(StorageBucketKind bucket, string objectKey,
+    public Task<(Stream Stream, string ContentType)> DownloadAsync(string bucket, string storageKey,
         CancellationToken cancellationToken = default)
     {
-        var key = ObjectStoragePath.ValidateAndNormalize(objectKey);
+        var key = ObjectStoragePath.ValidateAndNormalize(storageKey);
         if (!TryResolveExistingPath(bucket, key, out var fullPath) || fullPath is null)
         {
             throw new FileNotFoundException("Blob not found.", key);
@@ -45,11 +53,11 @@ public sealed class LocalDiskStorageService(IOptions<StorageOptions> options, IH
         return Task.FromResult((stream, contentType));
     }
 
-    public Task DeleteAsync(StorageBucketKind bucket, string objectKey, CancellationToken cancellationToken = default)
+    public Task DeleteAsync(string bucket, string storageKey, CancellationToken cancellationToken = default)
     {
-        var key = ObjectStoragePath.ValidateAndNormalize(objectKey);
+        var key = ObjectStoragePath.ValidateAndNormalize(storageKey);
         DeleteOne(GetPhysicalPath(bucket, key));
-        if (bucket == StorageBucketKind.Branding)
+        if (IsBrandingBucket(bucket))
         {
             var legacy = LegacyFlatBrandingPath(key);
             if (legacy is not null)
@@ -61,9 +69,9 @@ public sealed class LocalDiskStorageService(IOptions<StorageOptions> options, IH
         return Task.CompletedTask;
     }
 
-    public Task<bool> ExistsAsync(StorageBucketKind bucket, string objectKey, CancellationToken cancellationToken = default)
+    public Task<bool> ExistsAsync(string bucket, string storageKey, CancellationToken cancellationToken = default)
     {
-        var key = ObjectStoragePath.ValidateAndNormalize(objectKey);
+        var key = ObjectStoragePath.ValidateAndNormalize(storageKey);
         return Task.FromResult(TryResolveExistingPath(bucket, key, out _));
     }
 
@@ -81,7 +89,7 @@ public sealed class LocalDiskStorageService(IOptions<StorageOptions> options, IH
         }
     }
 
-    private bool TryResolveExistingPath(StorageBucketKind bucket, string normalizedKey, out string? fullPath)
+    private bool TryResolveExistingPath(string bucket, string normalizedKey, out string? fullPath)
     {
         fullPath = GetPhysicalPath(bucket, normalizedKey);
         if (File.Exists(fullPath))
@@ -89,7 +97,7 @@ public sealed class LocalDiskStorageService(IOptions<StorageOptions> options, IH
             return true;
         }
 
-        if (bucket == StorageBucketKind.Branding)
+        if (IsBrandingBucket(bucket))
         {
             var legacy = LegacyFlatBrandingPath(normalizedKey);
             if (legacy is not null && File.Exists(legacy))
@@ -102,6 +110,10 @@ public sealed class LocalDiskStorageService(IOptions<StorageOptions> options, IH
         fullPath = null;
         return false;
     }
+
+    private bool IsBrandingBucket(string bucket) =>
+        string.Equals(bucket, StorageBucketNames.Resolve(_options, StorageBucketKind.Branding),
+            StringComparison.OrdinalIgnoreCase);
 
     private string? LegacyFlatBrandingPath(string normalizedKey)
     {
@@ -116,14 +128,14 @@ public sealed class LocalDiskStorageService(IOptions<StorageOptions> options, IH
         return combined;
     }
 
-    private string GetPhysicalPath(StorageBucketKind bucket, string normalizedKey)
+    private string GetPhysicalPath(string bucket, string normalizedKey)
     {
         if (!Directory.Exists(_root))
         {
             Directory.CreateDirectory(_root);
         }
 
-        var prefix = StorageBucketSegments.LocalFolderName(bucket);
+        var prefix = bucket;
         var relative = Path.Combine(prefix, normalizedKey.Replace('/', Path.DirectorySeparatorChar));
         var combined = Path.GetFullPath(Path.Combine(_root, relative));
         var rel = Path.GetRelativePath(_root, combined);
