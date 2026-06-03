@@ -23,6 +23,7 @@ jobs:
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
       SUPERADMIN_EMAIL: ${{ secrets.SUPERADMIN_EMAIL }}
       SUPERADMIN_PASSWORD: ${{ secrets.SUPERADMIN_PASSWORD }}
+      CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
 
     steps:
       - name: Checkout
@@ -38,6 +39,7 @@ jobs:
           : "${JWT_SECRET:?Set repository secret JWT_SECRET}"
           : "${SUPERADMIN_EMAIL:?Set repository secret SUPERADMIN_EMAIL}"
           : "${SUPERADMIN_PASSWORD:?Set repository secret SUPERADMIN_PASSWORD}"
+          : "${CORS_ALLOWED_ORIGINS:?Set repository secret CORS_ALLOWED_ORIGINS (UI origin(s), comma-separated)}"
 
       - name: Ensure Docker network exists
         run: |

@@ -28,19 +28,36 @@ public static class RegisterDependencies
         services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
         services.AddControllers();
 
-        var origins = configuration.GetSection("AllowedOrigins").Get<string[]>();
+        var origins = ResolveAllowedOrigins(configuration);
         services.AddCors(cors =>
         {
             cors.AddDefaultPolicy(policy =>
             {
                 policy
-                    .WithOrigins(origins ?? ["http://localhost:4200"])
+                    .WithOrigins(origins)
                     .AllowAnyHeader()
                     .AllowAnyMethod()
                     .AllowCredentials();
             });
         });
-        
+
         return services;
+    }
+    
+    private static string[] ResolveAllowedOrigins(IConfiguration configuration)
+    {
+        var csv = configuration["CORS_ALLOWED_ORIGINS"];
+        if (!string.IsNullOrWhiteSpace(csv))
+        {
+            return csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
+
+        var fromConfig = configuration.GetSection("AllowedOrigins").Get<string[]>();
+        if (fromConfig is { Length: > 0 })
+        {
+            return fromConfig;
+        }
+
+        return ["http://localhost:4200"];
     }
 }
