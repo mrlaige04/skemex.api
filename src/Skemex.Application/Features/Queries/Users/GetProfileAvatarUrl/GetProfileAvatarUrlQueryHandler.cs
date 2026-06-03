@@ -5,16 +5,16 @@ using Skemex.Application.Services;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Services;
 
-namespace Skemex.Application.Features.Queries.Users.GetCurrentUserProfile;
+namespace Skemex.Application.Features.Queries.Users.GetProfileAvatarUrl;
 
-public sealed class GetCurrentUserProfileQueryHandler(
+public sealed class GetProfileAvatarUrlQueryHandler(
     ICurrentUser currentUser,
     UserManager<User> userManager,
-    IUrlService urlService)
-    : IQueryHandler<GetCurrentUserProfileQuery, CurrentUserProfileResponse>
+    IProfileImageService profileImages)
+    : IQueryHandler<GetProfileAvatarUrlQuery, ProfileAvatarUrlResponse>
 {
-    public async Task<ErrorOr<CurrentUserProfileResponse>> Handle(
-        GetCurrentUserProfileQuery query,
+    public async Task<ErrorOr<ProfileAvatarUrlResponse>> Handle(
+        GetProfileAvatarUrlQuery query,
         CancellationToken cancellationToken)
     {
         var userId = currentUser.GetUserId();
@@ -29,12 +29,9 @@ public sealed class GetCurrentUserProfileQueryHandler(
             return Error.NotFound("User.NotFound", "User was not found.");
         }
 
-        return new CurrentUserProfileResponse
+        return new ProfileAvatarUrlResponse
         {
-            FirstName = user.FirstName,
-            LastName = user.LastName,
-            Email = user.Email ?? string.Empty,
-            AvatarUrl = await urlService.GetUserProfilePictureUrlAsync(user.PhotoBlobId, cancellationToken)
+            AvatarUrl = await profileImages.GetAvatarUrlAsync(user.PhotoBlobId, cancellationToken)
                 .ConfigureAwait(false),
         };
     }

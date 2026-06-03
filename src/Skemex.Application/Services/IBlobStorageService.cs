@@ -13,4 +13,10 @@ public interface IBlobStorageService
     Task DeleteAsync(string bucket, string storageKey, CancellationToken cancellationToken = default);
 
     Task<bool> ExistsAsync(string bucket, string storageKey, CancellationToken cancellationToken = default);
+
+    Task<string> GetPresignedDownloadUrlAsync(
+        string bucket,
+        string storageKey,
+        TimeSpan expiry,
+        CancellationToken cancellationToken = default);
 }

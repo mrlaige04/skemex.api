@@ -29,9 +29,13 @@ public sealed class MinioStorageOptions
 {
     public string Endpoint { get; set; } = string.Empty;
 
+    public string? PublicEndpoint { get; set; }
+
     public string AccessKey { get; set; } = string.Empty;
     public string SecretKey { get; set; } = string.Empty;
 
     public string BrandingBucket { get; set; } = string.Empty;
     public string FilesBucket { get; set; } = string.Empty;
+
+    public int PresignedDownloadExpirySeconds { get; set; } = 3600;
 }

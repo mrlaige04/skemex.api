@@ -1,14 +1,34 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Minio;
 using Minio.DataModel;
 using Minio.DataModel.Args;
 using Minio.Exceptions;
+using Skemex.Application.Configuration;
 using Skemex.Application.Services;
 
 namespace Skemex.Infrastructure.Storage;
 
-public sealed class MinioBlobStorageService(IMinioClient client) : IBlobStorageService
+public sealed class MinioBlobStorageService : IBlobStorageService
 {
-    private readonly IMinioClient _client = client;
+    private readonly IMinioClient _client;
+    private readonly Lazy<IMinioClient> _presignClient;
+
+    public MinioBlobStorageService(
+        IMinioClient client,
+        IOptions<StorageOptions> storageOptions,
+        IConfiguration configuration)
+    {
+        _client = client;
+        var storage = storageOptions.Value;
+        _presignClient = new Lazy<IMinioClient>(() =>
+        {
+            var endpoint = string.IsNullOrWhiteSpace(storage.Minio.PublicEndpoint)
+                ? storage.Minio.Endpoint
+                : storage.Minio.PublicEndpoint!;
+            return SkemexMinioClientFactory.Create(storage, configuration, endpoint);
+        });
+    }
 
     public async Task EnsureBucketExistsAsync(string bucket, CancellationToken cancellationToken = default)
     {
@@ -126,6 +146,25 @@ public sealed class MinioBlobStorageService(IMinioClient client) : IBlobStorageS
         {
             return false;
         }
+    }
+
+    public async Task<string> GetPresignedDownloadUrlAsync(
+        string bucket,
+        string storageKey,
+        TimeSpan expiry,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(bucket);
+        var key = ObjectStoragePath.ValidateAndNormalize(storageKey);
+        var seconds = (int)Math.Clamp(expiry.TotalSeconds, 1, 7 * 24 * 3600);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return await _presignClient.Value.PresignedGetObjectAsync(
+            new PresignedGetObjectArgs()
+                .WithBucket(bucket)
+                .WithObject(key)
+                .WithExpiry(seconds)).ConfigureAwait(false);
     }
 
     private static async Task<(Stream Stream, bool DisposeStream)> MaterializeStreamAsync(

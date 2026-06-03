@@ -4,6 +4,7 @@ using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Features.Commands.Users.DeleteUserProfileImage;
 using Skemex.Application.Features.Commands.Users.UpdateUserProfile;
 using Skemex.Application.Features.Queries.Users.GetCurrentUserProfile;
+using Skemex.Application.Features.Queries.Users.GetProfileAvatarUrl;
 using Skemex.Infrastructure.Authentication.Login;
 using Skemex.Infrastructure.Authentication.RefreshToken;
 using Skemex.Infrastructure.Authentication.Register;
@@ -20,6 +21,14 @@ public class AuthController(ISender sender) : BaseController
     public async Task<IActionResult> GetCurrentUser(CancellationToken cancellationToken)
     {
         var result = await sender.Send(new GetCurrentUserProfileQuery(), cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpGet("profile/avatar-url")]
+    [Authorize]
+    public async Task<IActionResult> GetProfileAvatarUrl(CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(new GetProfileAvatarUrlQuery(), cancellationToken);
         return result.Match(Ok, Problem);
     }
 

@@ -88,7 +88,8 @@ public class LoginHandler(
             FirstName = userFromRepo.FirstName,
             LastName = userFromRepo.LastName,
             IsSuperAdmin = isSuperAdmin,
-            AvatarUrl = urlService.GetUserProfilePictureUrl(userFromRepo.PhotoBlobId),
+            AvatarUrl = await urlService.GetUserProfilePictureUrlAsync(userFromRepo.PhotoBlobId, cancellationToken)
+                .ConfigureAwait(false),
             Tenants = tenants,
             Roles = platformRoles,
             Permissions = [],

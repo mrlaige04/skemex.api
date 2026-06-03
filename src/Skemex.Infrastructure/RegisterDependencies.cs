@@ -95,27 +95,10 @@ public static class RegisterDependencies
                         "Storage:Minio:FilesBucket is required when Storage:Provider is Production.");
                 }
 
-                var accessKey = string.IsNullOrWhiteSpace(opts.AccessKey)
-                    ? configuration["MINIO_ROOT_USER"]
-                    : opts.AccessKey;
-                
-                var secretKey = string.IsNullOrWhiteSpace(opts.SecretKey)
-                    ? configuration["MINIO_ROOT_PASSWORD"]
-                    : opts.SecretKey;
-
-                if (string.IsNullOrWhiteSpace(accessKey) || string.IsNullOrWhiteSpace(secretKey))
-                {
-                    throw new InvalidOperationException(
-                        "Set Storage:Minio:AccessKey/SecretKey or MINIO_ROOT_USER/MINIO_ROOT_PASSWORD.");
-                }
-
-                var (hostPort, useSsl) = MinioEndpoint.Parse(opts.Endpoint);
-                
-                return new MinioClient()
-                    .WithEndpoint(hostPort)
-                    .WithCredentials(accessKey, secretKey)
-                    .WithSSL(useSsl)
-                    .Build();
+                return SkemexMinioClientFactory.Create(
+                    sp.GetRequiredService<IOptions<StorageOptions>>().Value,
+                    configuration,
+                    opts.Endpoint);
             });
             
             services.AddScoped<IBlobStorageService, MinioBlobStorageService>();

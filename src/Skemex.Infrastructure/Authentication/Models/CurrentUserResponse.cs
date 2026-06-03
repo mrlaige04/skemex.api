@@ -8,7 +8,6 @@ public class CurrentUserResponse
     public string LastName { get; set; } = string.Empty;
     public bool IsSuperAdmin { get; set; }
 
-    /// <summary>Public URL for the profile photo (from <c>PhotoBlobId</c> and <c>Storage:PublicBlobBaseUrl</c>), if configured.</summary>
     public string? AvatarUrl { get; set; }
     public IList<TenantSummaryResponse> Tenants { get; set; } = [];
     public IList<RoleBaseResponse> Roles { get; set; } = [];
