@@ -24,6 +24,7 @@ jobs:
       SUPERADMIN_EMAIL: ${{ secrets.SUPERADMIN_EMAIL }}
       SUPERADMIN_PASSWORD: ${{ secrets.SUPERADMIN_PASSWORD }}
       CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
+      MINIO_PUBLIC_ENDPOINT: ${{ secrets.MINIO_PUBLIC_ENDPOINT }}
 
     steps:
       - name: Checkout
@@ -40,6 +41,7 @@ jobs:
           : "${SUPERADMIN_EMAIL:?Set repository secret SUPERADMIN_EMAIL}"
           : "${SUPERADMIN_PASSWORD:?Set repository secret SUPERADMIN_PASSWORD}"
           : "${CORS_ALLOWED_ORIGINS:?Set repository secret CORS_ALLOWED_ORIGINS (UI origin(s), comma-separated)}"
+          : "${MINIO_PUBLIC_ENDPOINT:?Set repository secret MINIO_PUBLIC_ENDPOINT (browser-reachable MinIO URL for presigned links)}"
 
       - name: Ensure Docker network exists
         run: |

@@ -1,4 +1,3 @@
-using System.IO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -35,6 +34,11 @@ public sealed class BlobsController(IBlobStorageService storage, IOptions<Storag
 
     private async Task<IActionResult> Get(StorageBucketKind bucket, string blobPath, CancellationToken cancellationToken)
     {
+        if (string.Equals(_options.Provider, StorageProviderNames.Production, StringComparison.OrdinalIgnoreCase))
+        {
+            return NotFound();
+        }
+
         if (string.IsNullOrWhiteSpace(blobPath))
         {
             return NotFound();

@@ -132,7 +132,8 @@ public sealed class UpdateUserProfileCommandHandler(
         {
             FirstName = user.FirstName,
             LastName = user.LastName,
-            AvatarUrl = urlService.GetUserProfilePictureUrl(user.PhotoBlobId),
+            AvatarUrl = await urlService.GetUserProfilePictureUrlAsync(user.PhotoBlobId, cancellationToken)
+                .ConfigureAwait(false),
         };
     }
 }

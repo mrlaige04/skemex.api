@@ -6,13 +6,15 @@ using Skemex.Infrastructure.Storage;
 
 namespace Skemex.Infrastructure.Services;
 
-public sealed class StorageUrlService(IOptions<StorageOptions> options, IHttpContextAccessor httpContextAccessor)
-    : IUrlService
+public sealed class StorageUrlService(
+    IOptions<StorageOptions> options,
+    IHttpContextAccessor httpContextAccessor,
+    IProfileImageService profileImages) : IUrlService
 {
     private readonly StorageOptions _options = options.Value;
 
-    public string? GetUserProfilePictureUrl(string? photoBlobId) =>
-        BuildBrandingUrl(photoBlobId);
+    public Task<string?> GetUserProfilePictureUrlAsync(string? photoBlobId, CancellationToken cancellationToken = default) =>
+        profileImages.GetAvatarUrlAsync(photoBlobId, cancellationToken);
 
     public string? GetTenantLogoUrl(string? logoBlobId) =>
         BuildBrandingUrl(logoBlobId);
@@ -37,7 +39,8 @@ public sealed class StorageUrlService(IOptions<StorageOptions> options, IHttpCon
 
         if (string.Equals(_options.Provider, StorageProviderNames.Local, StringComparison.OrdinalIgnoreCase))
         {
-            return BuildLocalBlobUrl(StorageBucketKind.Branding, path);
+            var bucket = StorageBucketNames.Resolve(_options, StorageBucketKind.Branding);
+            return LocalBlobPublicUrlBuilder.Build(httpContextAccessor, _options, bucket, path);
         }
 
         return null;
@@ -60,28 +63,10 @@ public sealed class StorageUrlService(IOptions<StorageOptions> options, IHttpCon
 
         if (string.Equals(_options.Provider, StorageProviderNames.Local, StringComparison.OrdinalIgnoreCase))
         {
-            return BuildLocalBlobUrl(StorageBucketKind.Files, path);
+            var bucket = StorageBucketNames.Resolve(_options, StorageBucketKind.Files);
+            return LocalBlobPublicUrlBuilder.Build(httpContextAccessor, _options, bucket, path);
         }
 
         return null;
-    }
-
-    private string? BuildLocalBlobUrl(StorageBucketKind bucket, string path)
-    {
-        var segment = StorageBucketSegments.LocalFolderName(bucket);
-        var prefix = (_options.LocalPublicRequestPath ?? "/api/blobs").TrimEnd('/');
-        if (!prefix.StartsWith('/'))
-        {
-            prefix = "/" + prefix;
-        }
-
-        var relative = $"{prefix}/{segment}/{path}";
-        var http = httpContextAccessor.HttpContext?.Request;
-        if (http is null)
-        {
-            return relative;
-        }
-
-        return $"{http.Scheme}://{http.Host}{relative}";
     }
 }

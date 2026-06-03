@@ -6,9 +6,12 @@ namespace Skemex.Infrastructure.Services;
 
 public sealed class ProfileImageService(
     IBlobStorageService blobs,
-    IOptions<ProfileImageStorageOptions> options) : IProfileImageService
+    IOptions<ProfileImageStorageOptions> profileOptions,
+    IOptions<StorageOptions> storageOptions) : IProfileImageService
 {
-    private readonly string _bucket = options.Value.Bucket;
+    private readonly ProfileImageStorageOptions _profile = profileOptions.Value;
+    private readonly StorageOptions _storage = storageOptions.Value;
+    private readonly string _bucket = profileOptions.Value.Bucket;
 
     public async Task<string> CreateAsync(
         Guid userId,
@@ -59,6 +62,35 @@ public sealed class ProfileImageService(
     {
         await EnsureBucketExistsAsync(cancellationToken).ConfigureAwait(false);
         await blobs.DeleteAsync(_bucket, storageKey, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string?> GetAvatarUrlAsync(string? storageKey, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(storageKey))
+        {
+            return null;
+        }
+
+        var expiry = ResolvePresignedExpiry();
+        return await blobs
+            .GetPresignedDownloadUrlAsync(_bucket, storageKey, expiry, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private TimeSpan ResolvePresignedExpiry()
+    {
+        var seconds = _profile.PresignedDownloadExpirySeconds;
+        if (seconds <= 0)
+        {
+            seconds = _storage.Minio.PresignedDownloadExpirySeconds;
+        }
+
+        if (seconds <= 0)
+        {
+            seconds = 3600;
+        }
+
+        return TimeSpan.FromSeconds(seconds);
     }
 
     private Task EnsureBucketExistsAsync(CancellationToken cancellationToken) =>

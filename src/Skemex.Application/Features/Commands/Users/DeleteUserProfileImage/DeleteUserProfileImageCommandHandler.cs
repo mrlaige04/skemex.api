@@ -38,7 +38,8 @@ public sealed class DeleteUserProfileImageCommandHandler(
             {
                 FirstName = user.FirstName,
                 LastName = user.LastName,
-                AvatarUrl = urlService.GetUserProfilePictureUrl(user.PhotoBlobId),
+                AvatarUrl = await urlService.GetUserProfilePictureUrlAsync(user.PhotoBlobId, cancellationToken)
+                    .ConfigureAwait(false),
             };
         }
 
@@ -64,7 +65,8 @@ public sealed class DeleteUserProfileImageCommandHandler(
         {
             FirstName = user.FirstName,
             LastName = user.LastName,
-            AvatarUrl = urlService.GetUserProfilePictureUrl(user.PhotoBlobId),
+            AvatarUrl = await urlService.GetUserProfilePictureUrlAsync(user.PhotoBlobId, cancellationToken)
+                .ConfigureAwait(false),
         };
     }
 }

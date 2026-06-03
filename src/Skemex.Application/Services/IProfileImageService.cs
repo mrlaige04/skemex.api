@@ -18,4 +18,6 @@ public interface IProfileImageService
         CancellationToken cancellationToken = default);
 
     Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default);
+
+    Task<string?> GetAvatarUrlAsync(string? storageKey, CancellationToken cancellationToken = default);
 }

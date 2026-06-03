@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Skemex.Application.Configuration;
@@ -5,8 +6,10 @@ using Skemex.Application.Services;
 
 namespace Skemex.Infrastructure.Storage;
 
-public sealed class LocalDiskBlobStorageService(IOptions<StorageOptions> options, IHostEnvironment hostEnvironment)
-    : IBlobStorageService
+public sealed class LocalDiskBlobStorageService(
+    IOptions<StorageOptions> options,
+    IHostEnvironment hostEnvironment,
+    IHttpContextAccessor httpContextAccessor) : IBlobStorageService
 {
     private readonly StorageOptions _options = options.Value;
     private readonly string _root = LocalDiskStoragePath.ResolveRoot(hostEnvironment, options.Value.Local);
@@ -172,5 +175,17 @@ public sealed class LocalDiskBlobStorageService(IOptions<StorageOptions> options
             ".ico" => "image/x-icon",
             _ => "application/octet-stream",
         };
+    }
+
+    public Task<string> GetPresignedDownloadUrlAsync(
+        string bucket,
+        string storageKey,
+        TimeSpan expiry,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(bucket);
+        var key = ObjectStoragePath.ValidateAndNormalize(storageKey);
+        var url = LocalBlobPublicUrlBuilder.Build(httpContextAccessor, _options, bucket, key);
+        return Task.FromResult(url);
     }
 }
