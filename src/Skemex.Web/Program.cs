@@ -19,12 +19,10 @@ await app.EnsureSuperAdminCreated();
 app.MapOpenApi();
 app.MapScalarApiReference();
 
-app.UseHttpsRedirection();
-app.UseCors();
-
 app.UseExceptionHandler(opt => {});
 
 app.UseRouting();
+app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 
