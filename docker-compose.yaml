@@ -63,6 +63,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      # Browser-reachable MinIO base URL for presigned avatar/download links (e.g. https://storage.example.com or http://host:9000).
+      Storage__Minio__PublicEndpoint: ${MINIO_PUBLIC_ENDPOINT}
     networks:
       - skemex
 

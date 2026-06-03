@@ -74,6 +74,13 @@ public static class RegisterDependencies
 
         if (string.Equals(provider, StorageProviderNames.Production, StringComparison.OrdinalIgnoreCase))
         {
+            var publicEndpoint = configuration["Storage:Minio:PublicEndpoint"];
+            if (string.IsNullOrWhiteSpace(publicEndpoint))
+            {
+                throw new InvalidOperationException(
+                    "Set Storage:Minio:PublicEndpoint (GitHub secret MINIO_PUBLIC_ENDPOINT): browser-reachable MinIO URL used in presigned download links.");
+            }
+
             services.AddSingleton<IMinioClient>(sp =>
             {
                 var opts = sp.GetRequiredService<IOptions<StorageOptions>>().Value.Minio;
