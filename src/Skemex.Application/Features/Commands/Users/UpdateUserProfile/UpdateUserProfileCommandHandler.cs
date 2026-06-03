@@ -10,7 +10,7 @@ namespace Skemex.Application.Features.Commands.Users.UpdateUserProfile;
 public sealed class UpdateUserProfileCommandHandler(
     ICurrentUser currentUser,
     UserManager<User> userManager,
-    IStorageService storage,
+    IProfileImageService profileImages,
     IUrlService urlService)
     : ICommandHandler<UpdateUserProfileCommand, UpdateUserProfileResponse>
 {
@@ -102,30 +102,19 @@ public sealed class UpdateUserProfileCommandHandler(
 
         if (request.ProfileImage is not null)
         {
-            var ext = NormalizeExtension(request.ProfileImageFileName, request.ProfileImageContentType);
-            var blobId = $"users/{user.Id:N}/profile-{Guid.NewGuid():N}{ext}";
             request.ProfileImage.Position = 0;
             var contentType = request.ProfileImageContentType ?? "application/octet-stream";
-            await storage.UploadAsync(StorageBucketKind.Branding, blobId, request.ProfileImage, contentType,
+            var blobId = await profileImages.ReplaceAsync(
+                    user.Id,
+                    user.PhotoBlobId,
+                    request.ProfileImage,
+                    contentType,
+                    request.ProfileImageFileName,
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            var previous = user.PhotoBlobId;
             user.PhotoBlobId = blobId;
             changed = true;
-
-            if (!string.IsNullOrEmpty(previous) && !string.Equals(previous, blobId, StringComparison.Ordinal))
-            {
-                try
-                {
-                    await storage.DeleteAsync(StorageBucketKind.Branding, previous, cancellationToken)
-                        .ConfigureAwait(false);
-                }
-                catch
-                {
-                    /* best-effort cleanup */
-                }
-            }
         }
 
         if (changed)
@@ -144,24 +133,6 @@ public sealed class UpdateUserProfileCommandHandler(
             FirstName = user.FirstName,
             LastName = user.LastName,
             AvatarUrl = urlService.GetUserProfilePictureUrl(user.PhotoBlobId),
-        };
-    }
-
-    private static string NormalizeExtension(string? fileName, string? contentType)
-    {
-        var ext = Path.GetExtension(fileName ?? string.Empty).ToLowerInvariant();
-        if (ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif")
-        {
-            return ext;
-        }
-
-        return contentType?.ToLowerInvariant() switch
-        {
-            "image/jpeg" => ".jpg",
-            "image/png" => ".png",
-            "image/webp" => ".webp",
-            "image/gif" => ".gif",
-            _ => ".jpg",
         };
     }
 }
