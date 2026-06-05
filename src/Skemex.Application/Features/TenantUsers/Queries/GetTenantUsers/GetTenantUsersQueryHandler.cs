@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
+using Skemex.Application.Services;
 using Skemex.Domain.Abstractions;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
@@ -12,7 +13,8 @@ namespace Skemex.Application.Features.TenantUsers.Queries.GetTenantUsers;
 public sealed class GetTenantUsersQueryHandler(
     ICurrentUser currentUser,
     ITenantRepository<TenantUser> tenantUserRepository,
-    IBaseRepository<UserRole> userRoleRepository)
+    IBaseRepository<UserRole> userRoleRepository,
+    IProfileImageService profileImages)
     : IQueryHandler<GetTenantUsersQuery, PaginatedList<TenantUserDto>>
 {
     public async Task<ErrorOr<PaginatedList<TenantUserDto>>> Handle(
@@ -51,10 +53,18 @@ public sealed class GetTenantUsersQueryHandler(
             cancellationToken: cancellationToken);
 
         var userIds = paginated.Items.Select(tu => tu.UserId).ToHashSet();
-        var rolesByUser = await LoadRolesByUserAsync(userRoleRepository, tenantId, userIds, cancellationToken);
+        var rolesTask = LoadRolesByUserAsync(userRoleRepository, tenantId, userIds, cancellationToken);
+        var avatarsTask = LoadAvatarUrlsByBlobIdAsync(
+            paginated.Items.Select(tu => tu.User.PhotoBlobId),
+            cancellationToken);
+
+        await Task.WhenAll(rolesTask, avatarsTask).ConfigureAwait(false);
+
+        var rolesByUser = await rolesTask.ConfigureAwait(false);
+        var avatarUrlsByBlobId = await avatarsTask.ConfigureAwait(false);
 
         var items = paginated.Items
-            .Select(tu => ToDto(tu, rolesByUser))
+            .Select(tu => ToDto(tu, rolesByUser, avatarUrlsByBlobId))
             .ToList();
 
         return new PaginatedList<TenantUserDto>(
@@ -87,10 +97,55 @@ public sealed class GetTenantUsersQueryHandler(
                 g => g.Select(ur => ur.Role.Name).Where(n => n is not null).Cast<string>().Distinct().OrderBy(n => n).ToList());
     }
 
-    private static TenantUserDto ToDto(TenantUser tenantUser, Dictionary<Guid, List<string>> rolesByUser)
+    private async Task<IReadOnlyDictionary<string, string?>> LoadAvatarUrlsByBlobIdAsync(
+        IEnumerable<string?> blobIds,
+        CancellationToken cancellationToken)
+    {
+        var uniqueBlobIds = blobIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .Cast<string>()
+            .ToList();
+
+        if (uniqueBlobIds.Count == 0)
+        {
+            return new Dictionary<string, string?>(StringComparer.Ordinal);
+        }
+
+        const int maxConcurrency = 16;
+        using var semaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
+
+        var fetchTasks = uniqueBlobIds.Select(async blobId =>
+        {
+            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var url = await profileImages.GetAvatarUrlAsync(blobId, cancellationToken).ConfigureAwait(false);
+                return (BlobId: blobId, Url: url);
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        var results = await Task.WhenAll(fetchTasks).ConfigureAwait(false);
+        return results.ToDictionary(r => r.BlobId, r => r.Url, StringComparer.Ordinal);
+    }
+
+    private static TenantUserDto ToDto(
+        TenantUser tenantUser,
+        Dictionary<Guid, List<string>> rolesByUser,
+        IReadOnlyDictionary<string, string?> avatarUrlsByBlobId)
     {
         var user = tenantUser.User;
         rolesByUser.TryGetValue(user.Id, out var roles);
+
+        string? avatarUrl = null;
+        if (!string.IsNullOrWhiteSpace(user.PhotoBlobId))
+        {
+            avatarUrlsByBlobId.TryGetValue(user.PhotoBlobId, out avatarUrl);
+        }
 
         return new TenantUserDto
         {
@@ -101,6 +156,7 @@ public sealed class GetTenantUsersQueryHandler(
             CreatedAt = user.CreatedAt,
             Roles = roles ?? [],
             Status = tenantUser.Status,
+            AvatarUrl = avatarUrl,
         };
     }
 }

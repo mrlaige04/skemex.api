@@ -1,6 +1,7 @@
 using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
+using Skemex.Application.Services;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
@@ -9,7 +10,8 @@ namespace Skemex.Application.Features.TenantUsers.Queries.GetTenantUserById;
 public sealed class GetTenantUserByIdQueryHandler(
     ICurrentUser currentUser,
     ITenantRepository<TenantUser> tenantUserRepository,
-    IBaseRepository<UserRole> userRoleRepository)
+    IBaseRepository<UserRole> userRoleRepository,
+    IProfileImageService profileImages)
     : IQueryHandler<GetTenantUserByIdQuery, TenantUserDto>
 {
     public async Task<ErrorOr<TenantUserDto>> Handle(
@@ -39,6 +41,8 @@ public sealed class GetTenantUserByIdQueryHandler(
             cancellationToken: cancellationToken);
 
         var user = tenantUser.User;
+        var avatarUrl = await profileImages.GetAvatarUrlAsync(user.PhotoBlobId, cancellationToken).ConfigureAwait(false);
+
         return new TenantUserDto
         {
             Id = user.Id,
@@ -48,6 +52,7 @@ public sealed class GetTenantUserByIdQueryHandler(
             CreatedAt = user.CreatedAt,
             Roles = userRoles.Select(ur => ur.Role.Name).Where(n => n is not null).Cast<string>().OrderBy(n => n).ToList(),
             Status = tenantUser.Status,
+            AvatarUrl = avatarUrl,
         };
     }
 }
