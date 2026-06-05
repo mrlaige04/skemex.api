@@ -1,7 +1,4 @@
 using System.IdentityModel.Tokens.Jwt;
-using FluentEmail.Core;
-using FluentEmail.MailKitSmtp;
-using MailKit.Security;
 using Minio;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -212,35 +209,7 @@ public static class RegisterDependencies
 
     private static void AddEmailing(IServiceCollection services, IConfiguration configuration)
     {
-        var smtpSection = configuration.GetSection(SmtpOptions.SectionName);
-        services.Configure<SmtpOptions>(smtpSection);
-
-        var smtp = smtpSection.Get<SmtpOptions>() ?? new SmtpOptions();
-
-        services
-            .AddFluentEmail(smtp.SenderEmail, smtp.SenderName)
-            .Services.AddTransient<FluentEmail.Core.Interfaces.ISender>(sp =>
-                new MailKitSender(CreateSmtpClientOptions(sp.GetRequiredService<IOptions<SmtpOptions>>().Value)));
-
+        services.Configure<SmtpOptions>(configuration.GetSection(SmtpOptions.SectionName));
         services.AddScoped<IEmailSender, SmtpEmailSender>();
     }
-
-    private static SmtpClientOptions CreateSmtpClientOptions(SmtpOptions options) =>
-        new()
-        {
-            Server = options.Server,
-            Port = options.Port,
-            User = options.Username,
-            Password = options.Password,
-            RequiresAuthentication = !string.IsNullOrWhiteSpace(options.Username),
-            SocketOptions = ResolveSmtpSocketOptions(options),
-        };
-
-    private static SecureSocketOptions ResolveSmtpSocketOptions(SmtpOptions options) =>
-        options.Port switch
-        {
-            465 => SecureSocketOptions.SslOnConnect,
-            587 => SecureSocketOptions.StartTls,
-            _ => options.EnableSsl ? SecureSocketOptions.Auto : SecureSocketOptions.None,
-        };
 }
