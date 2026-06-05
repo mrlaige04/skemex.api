@@ -1,5 +1,4 @@
 using ErrorOr;
-using Microsoft.AspNetCore.Identity;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
@@ -9,10 +8,8 @@ namespace Skemex.Application.Features.TenantUsers.Commands.DeleteTenantUser;
 
 public sealed class DeleteTenantUserCommandHandler(
     ICurrentUser currentUser,
-    UserManager<User> userManager,
     ITenantRepository<TenantUser> tenantUserRepository,
-    IBaseRepository<UserRole> userRoleRepository,
-    IBaseRepository<TenantUser> allTenantUsersRepository)
+    IBaseRepository<UserRole> userRoleRepository)
     : ICommandHandler<DeleteTenantUserCommand>
 {
     public async Task<ErrorOr<Success>> Handle(
@@ -38,7 +35,7 @@ public sealed class DeleteTenantUserCommandHandler(
 
         if (tenantUser is null)
         {
-            return Error.NotFound("User.NotFound", "User was not found.");
+            return Error.NotFound("User.NotFound", "User was not found in this workspace.");
         }
 
         var userRoles = await userRoleRepository.GetAllAsync(
@@ -51,25 +48,6 @@ public sealed class DeleteTenantUserCommandHandler(
         }
 
         await tenantUserRepository.DeleteAsync(tenantUser, cancellationToken);
-
-        var remainingMemberships = await allTenantUsersRepository.CountAsync(
-            filter: tu => tu.UserId == request.UserId,
-            cancellationToken: cancellationToken);
-
-        if (remainingMemberships == 0)
-        {
-            var user = await userManager.FindByIdAsync(request.UserId.ToString());
-            if (user is not null)
-            {
-                var delete = await userManager.DeleteAsync(user);
-                if (!delete.Succeeded)
-                {
-                    return Error.Validation(
-                        "User.DeleteFailed",
-                        string.Join(' ', delete.Errors.Select(e => e.Description)));
-                }
-            }
-        }
 
         return Result.Success;
     }
