@@ -100,6 +100,7 @@ public sealed class GetTenantUsersQueryHandler(
             LastName = user.LastName,
             CreatedAt = user.CreatedAt,
             Roles = roles ?? [],
+            Status = tenantUser.Status,
         };
     }
 }

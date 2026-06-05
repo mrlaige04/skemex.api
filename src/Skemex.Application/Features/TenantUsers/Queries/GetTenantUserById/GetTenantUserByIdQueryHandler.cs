@@ -47,6 +47,7 @@ public sealed class GetTenantUserByIdQueryHandler(
             LastName = user.LastName,
             CreatedAt = user.CreatedAt,
             Roles = userRoles.Select(ur => ur.Role.Name).Where(n => n is not null).Cast<string>().OrderBy(n => n).ToList(),
+            Status = tenantUser.Status,
         };
     }
 }

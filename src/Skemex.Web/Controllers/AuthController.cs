@@ -5,6 +5,8 @@ using Skemex.Application.Features.Commands.Users.DeleteUserProfileImage;
 using Skemex.Application.Features.Commands.Users.UpdateUserProfile;
 using Skemex.Application.Features.Queries.Users.GetCurrentUserProfile;
 using Skemex.Application.Features.Queries.Users.GetProfileAvatarUrl;
+using Skemex.Infrastructure.Authentication.ForgotPassword;
+using Skemex.Infrastructure.Authentication.Invitations;
 using Skemex.Infrastructure.Authentication.Login;
 using Skemex.Infrastructure.Authentication.RefreshToken;
 using Skemex.Infrastructure.Authentication.Register;
@@ -51,6 +53,44 @@ public class AuthController(ISender sender) : BaseController
     [HttpPost("register")]
     [AllowAnonymous]
     public async Task<IActionResult> Register([FromBody] RegisterCommand command, CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(command, cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpGet("invitations/{token}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetInvitation(string token, CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(new GetTenantInvitationQuery { Token = token }, cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("invitations/accept")]
+    [AllowAnonymous]
+    public async Task<IActionResult> AcceptInvitation(
+        [FromBody] AcceptTenantInvitationCommand command,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(command, cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("password-reset/request")]
+    [AllowAnonymous]
+    public async Task<IActionResult> RequestPasswordReset(
+        [FromBody] RequestPasswordResetCommand command,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(command, cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("password-reset/confirm")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ConfirmPasswordReset(
+        [FromBody] ResetPasswordWithCodeCommand command,
+        CancellationToken cancellationToken)
     {
         var result = await sender.Send(command, cancellationToken);
         return result.Match(Ok, Problem);

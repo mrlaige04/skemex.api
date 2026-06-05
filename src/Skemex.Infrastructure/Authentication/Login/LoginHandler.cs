@@ -78,6 +78,7 @@ public class LoginHandler(
                 Id = tu.TenantId,
                 Name = tu.Tenant.Name,
                 LogoUrl = urlService.GetTenantLogoUrl(tu.Tenant.LogoBlobId),
+                Status = tu.Status,
             })
             .ToList();
 

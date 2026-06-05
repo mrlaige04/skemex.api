@@ -1,0 +1,51 @@
+using ErrorOr;
+using Microsoft.AspNetCore.Identity;
+using Skemex.Application.Features.Abstractions;
+using Skemex.Domain.Entities.Users;
+using Skemex.Domain.Repositories.Abstractions;
+using Skemex.Domain.Services;
+
+namespace Skemex.Application.Features.TenantUsers.Queries.LookupUserByEmail;
+
+public sealed class LookupUserByEmailQueryHandler(
+    ICurrentUser currentUser,
+    UserManager<User> userManager,
+    ITenantRepository<TenantUser> tenantUserRepository)
+    : IQueryHandler<LookupUserByEmailQuery, LookupUserByEmailResponse>
+{
+    public async Task<ErrorOr<LookupUserByEmailResponse>> Handle(
+        LookupUserByEmailQuery request,
+        CancellationToken cancellationToken)
+    {
+        var tenantIdResult = TenantUserContext.RequireTenantId(currentUser);
+        if (tenantIdResult.IsError)
+        {
+            return tenantIdResult.Errors;
+        }
+
+        var tenantId = tenantIdResult.Value;
+        var email = request.Email.Trim().ToLowerInvariant();
+        var user = await userManager.FindByEmailAsync(email);
+
+        if (user is null)
+        {
+            return new LookupUserByEmailResponse
+            {
+                Exists = false,
+                AlreadyInWorkspace = false,
+            };
+        }
+
+        var alreadyInWorkspace = await tenantUserRepository.ExistsAsync(
+            tu => tu.UserId == user.Id && tu.TenantId == tenantId,
+            cancellationToken: cancellationToken);
+
+        return new LookupUserByEmailResponse
+        {
+            Exists = true,
+            AlreadyInWorkspace = alreadyInWorkspace,
+            FirstName = user.FirstName,
+            LastName = user.LastName,
+        };
+    }
+}

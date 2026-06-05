@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Skemex.Infrastructure.Data;
@@ -11,9 +12,11 @@ using Skemex.Infrastructure.Data;
 namespace Skemex.Infrastructure.Migrations
 {
     [DbContext(typeof(SkemexDbContext))]
-    partial class SkemexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260605160749_TenantUserInvitationStatus")]
+    partial class TenantUserInvitationStatus
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

@@ -1,5 +1,7 @@
 namespace Skemex.Application.Features.TenantUsers;
 
+using Skemex.Domain.Entities.Users;
+
 public sealed class TenantUserDto
 {
     public Guid Id { get; init; }
@@ -8,6 +10,7 @@ public sealed class TenantUserDto
     public string LastName { get; init; } = string.Empty;
     public DateTime CreatedAt { get; init; }
     public IReadOnlyList<string> Roles { get; init; } = [];
+    public TenantUserStatus Status { get; init; }
 }
 
 public sealed class TenantRoleDto

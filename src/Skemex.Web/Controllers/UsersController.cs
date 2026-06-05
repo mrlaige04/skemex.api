@@ -7,6 +7,7 @@ using Skemex.Application.Features.TenantUsers.Commands.UpdateTenantUser;
 using Skemex.Application.Features.TenantUsers.Queries.GetTenantRoles;
 using Skemex.Application.Features.TenantUsers.Queries.GetTenantUserById;
 using Skemex.Application.Features.TenantUsers.Queries.GetTenantUsers;
+using Skemex.Application.Features.TenantUsers.Queries.LookupUserByEmail;
 
 namespace Skemex.Web.Controllers;
 
@@ -31,6 +32,15 @@ public class UsersController(ISender sender) : BaseController
     public async Task<IActionResult> Roles(CancellationToken cancellationToken)
     {
         var result = await sender.Send(new GetTenantRolesQuery(), cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpGet("lookup")]
+    public async Task<IActionResult> LookupByEmail(
+        [FromQuery] string email,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(new LookupUserByEmailQuery { Email = email }, cancellationToken);
         return result.Match(Ok, Problem);
     }
 
