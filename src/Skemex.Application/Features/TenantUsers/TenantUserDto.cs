@@ -11,6 +11,7 @@ public sealed class TenantUserDto
     public DateTime CreatedAt { get; init; }
     public IReadOnlyList<string> Roles { get; init; } = [];
     public TenantUserStatus Status { get; init; }
+    public string? AvatarUrl { get; init; }
 }
 
 public sealed class TenantRoleDto

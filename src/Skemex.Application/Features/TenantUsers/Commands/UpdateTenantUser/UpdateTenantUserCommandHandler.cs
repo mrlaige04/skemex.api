@@ -2,6 +2,7 @@ using ErrorOr;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
+using Skemex.Application.Services;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
@@ -13,7 +14,8 @@ public sealed class UpdateTenantUserCommandHandler(
     UserManager<User> userManager,
     ITenantRepository<TenantUser> tenantUserRepository,
     IBaseRepository<UserRole> userRoleRepository,
-    IBaseRepository<Role> roleRepository)
+    IBaseRepository<Role> roleRepository,
+    IProfileImageService profileImages)
     : ICommandHandler<UpdateTenantUserCommand, TenantUserDto>
 {
     public async Task<ErrorOr<TenantUserDto>> Handle(
@@ -128,6 +130,8 @@ public sealed class UpdateTenantUserCommandHandler(
             include: q => q.Include(ur => ur.Role),
             cancellationToken: cancellationToken);
 
+        var avatarUrl = await profileImages.GetAvatarUrlAsync(user.PhotoBlobId, cancellationToken).ConfigureAwait(false);
+
         return new TenantUserDto
         {
             Id = user.Id,
@@ -137,6 +141,7 @@ public sealed class UpdateTenantUserCommandHandler(
             CreatedAt = user.CreatedAt,
             Roles = userRoles.Select(ur => ur.Role.Name).Where(n => n is not null).Cast<string>().OrderBy(n => n).ToList(),
             Status = tenantUser.Status,
+            AvatarUrl = avatarUrl,
         };
     }
 }

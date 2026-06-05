@@ -17,6 +17,7 @@ public sealed class CreateTenantUserCommandHandler(
     IBaseRepository<Role> roleRepository,
     IBaseRepository<Tenant> tenantRepository,
     IAuthEmailService authEmailService,
+    IProfileImageService profileImages,
     ILogger<CreateTenantUserCommandHandler> logger)
     : ICommandHandler<CreateTenantUserCommand, TenantUserDto>
 {
@@ -125,6 +126,8 @@ public sealed class CreateTenantUserCommandHandler(
                 tenantId);
         }
 
+        var avatarUrl = await profileImages.GetAvatarUrlAsync(user.PhotoBlobId, cancellationToken).ConfigureAwait(false);
+
         return new TenantUserDto
         {
             Id = user.Id,
@@ -134,6 +137,7 @@ public sealed class CreateTenantUserCommandHandler(
             CreatedAt = user.CreatedAt,
             Roles = [roleName],
             Status = TenantUserStatus.Pending,
+            AvatarUrl = avatarUrl,
         };
     }
 }
