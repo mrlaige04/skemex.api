@@ -17,4 +17,6 @@ public sealed class SmtpOptions
     public string Password { get; set; } = string.Empty;
 
     public bool EnableSsl { get; set; } = true;
+
+    public int TimeoutSeconds { get; set; } = 30;
 }
