@@ -12,6 +12,14 @@ public class TenantUserConfiguration : IEntityTypeConfiguration<TenantUser>
         builder.HasKey(tu => tu.Id);
 
         builder.HasIndex(tu => new { tu.UserId, tu.TenantId }).IsUnique();
+        builder.HasIndex(tu => tu.InvitationToken).IsUnique();
+
+        builder.Property(tu => tu.Status)
+            .HasConversion<string>()
+            .HasMaxLength(32)
+            .IsRequired();
+
+        builder.Property(tu => tu.InvitationToken).HasMaxLength(128);
 
         builder
             .HasOne(tu => tu.User)

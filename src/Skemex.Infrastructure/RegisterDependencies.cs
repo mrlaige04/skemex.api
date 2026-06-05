@@ -18,6 +18,7 @@ using Skemex.Domain.Repositories;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Infrastructure.Authentication;
 using Skemex.Infrastructure.Authentication.Services;
+using Skemex.Infrastructure.Authentication.Tokens;
 using Skemex.Infrastructure.Data;
 using Skemex.Infrastructure.Data.Interceptors;
 using Skemex.Infrastructure.Email;
@@ -35,6 +36,8 @@ public static class RegisterDependencies
         AddAppAuthentication(services, configuration);
         AddBackgroundJobs(services, configuration);
         AddEmailing(services, configuration);
+        services.Configure<AppOptions>(configuration.GetSection(AppOptions.SectionName));
+        services.AddScoped<IAuthEmailService, AuthEmailService>();
         
         
         services.Scan(scan => scan.FromAssemblyOf<SkemexDbContext>()
@@ -169,14 +172,20 @@ public static class RegisterDependencies
                 options.Password.RequireUppercase = true;
                 options.Password.RequireLowercase = true;
                 options.Password.RequireNonAlphanumeric = false;
-                options.Tokens.PasswordResetTokenProvider = "NumericEmail";
+                options.Tokens.PasswordResetTokenProvider = NumericEmailTokenProvider<User>.ProviderName;
                 options.ClaimsIdentity.EmailClaimType = JwtRegisteredClaimNames.Email;
                 options.ClaimsIdentity.UserNameClaimType = JwtRegisteredClaimNames.Name;
                 options.ClaimsIdentity.UserIdClaimType = JwtRegisteredClaimNames.Sub;
             })
             .AddRoles<Role>()
             .AddEntityFrameworkStores<SkemexDbContext>()
-            .AddDefaultTokenProviders();
+            .AddDefaultTokenProviders()
+            .AddTokenProvider<NumericEmailTokenProvider<User>>(NumericEmailTokenProvider<User>.ProviderName);
+
+        services.Configure<NumericEmailTokenProviderOptions>(options =>
+        {
+            options.TokenLifespan = TimeSpan.FromMinutes(15);
+        });
 
         ReplaceGlobalRoleValidatorWithTenantScoped(services);
 

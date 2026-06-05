@@ -8,4 +8,10 @@ public class TenantUser : TenantEntity
     public Guid UserId { get; set; }
 
     public Tenant Tenant { get; set; } = null!;
+
+    public TenantUserStatus Status { get; set; } = TenantUserStatus.Pending;
+
+    public string? InvitationToken { get; set; }
+
+    public DateTimeOffset? InvitationTokenExpiresAt { get; set; }
 }

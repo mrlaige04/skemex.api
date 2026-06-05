@@ -61,9 +61,13 @@ public class SelectTenantHandler(
         var isSuperAdmin = principal.UserRoles.Any(ur =>
             ur.TenantId is null && ur.Role.Name == RoleNames.SuperAdmin);
 
-        if (!isSuperAdmin && principal.Tenants.All(tu => tu.TenantId != request.TenantId))
+        if (!isSuperAdmin)
         {
-            return Error.Forbidden(UserErrors.TenantAccessDenied, UserErrors.TenantAccessDeniedDescription);
+            var membership = principal.Tenants.FirstOrDefault(tu => tu.TenantId == request.TenantId);
+            if (membership is null || membership.Status != TenantUserStatus.Active)
+            {
+                return Error.Forbidden(UserErrors.TenantAccessDenied, UserErrors.TenantAccessDeniedDescription);
+            }
         }
 
         var token = await tokenService.GenerateTenantScopedToken(user, request.TenantId);

@@ -1,8 +1,4 @@
-﻿# Skemex API stack. Requires external network (create once):
-#   docker network create skemex-network
-#
-# CORS_ALLOWED_ORIGINS: comma-separated UI origins (e.g. http://65.21.55.197:4200)
-
+﻿
 services:
   db:
     image: postgres:17-alpine
@@ -63,8 +59,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
-      # Browser-reachable MinIO base URL for presigned avatar/download links (e.g. https://storage.example.com or http://host:9000).
       Storage__Minio__PublicEndpoint: ${MINIO_PUBLIC_ENDPOINT}
+      App__FrontendBaseUrl: ${FRONTEND_BASE_URL}
       Smtp__Username: ${SMTP_USERNAME}
       Smtp__Password: ${SMTP_PASSWORD}
     networks:

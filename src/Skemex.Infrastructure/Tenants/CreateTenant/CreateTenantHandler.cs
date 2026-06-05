@@ -93,6 +93,7 @@ public class CreateTenantHandler(
             Id = Guid.NewGuid(),
             UserId = userId.Value,
             TenantId = tenant.Id,
+            Status = TenantUserStatus.Active,
         };
         await tenantUserRepository.AddAsync(tenantUser, cancellationToken);
 

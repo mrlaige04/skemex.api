@@ -12,7 +12,6 @@ public sealed class CreateTenantUserCommandValidator : AbstractValidator<CreateT
         RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(256);
         RuleFor(x => x.FirstName).NotEmpty().MaximumLength(128);
         RuleFor(x => x.LastName).NotEmpty().MaximumLength(128);
-        RuleFor(x => x.Password).NotEmpty().MinimumLength(6);
         RuleFor(x => x.RoleName).NotEmpty().Must(r => AllowedRoles.Contains(r))
             .WithMessage($"Role must be one of: {string.Join(", ", AllowedRoles)}.");
     }
