@@ -1,4 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
+using FluentEmail.Core;
+using FluentEmail.MailKitSmtp;
+using MailKit.Security;
 using Minio;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -17,6 +20,7 @@ using Skemex.Infrastructure.Authentication;
 using Skemex.Infrastructure.Authentication.Services;
 using Skemex.Infrastructure.Data;
 using Skemex.Infrastructure.Data.Interceptors;
+using Skemex.Infrastructure.Email;
 using Skemex.Infrastructure.Services;
 using Skemex.Infrastructure.Storage;
 
@@ -29,8 +33,8 @@ public static class RegisterDependencies
         AddDatabase(services, configuration);
         AddStorage(services, configuration);
         AddAppAuthentication(services, configuration);
-        services.AddBackgroundJobs(configuration);
-        services.AddEmailing(configuration);
+        AddBackgroundJobs(services, configuration);
+        AddEmailing(services, configuration);
         
         
         services.Scan(scan => scan.FromAssemblyOf<SkemexDbContext>()
@@ -193,11 +197,41 @@ public static class RegisterDependencies
         services.AddScoped<IRoleValidator<Role>, TenantAwareRoleValidator>();
     }
 
-    private static void AddBackgroundJobs(this IServiceCollection services, IConfiguration configuration)
+    private static void AddBackgroundJobs(IServiceCollection services, IConfiguration configuration)
     {
     }
 
-    private static void AddEmailing(this IServiceCollection services, IConfiguration configuration)
+    private static void AddEmailing(IServiceCollection services, IConfiguration configuration)
     {
+        var smtpSection = configuration.GetSection(SmtpOptions.SectionName);
+        services.Configure<SmtpOptions>(smtpSection);
+
+        var smtp = smtpSection.Get<SmtpOptions>() ?? new SmtpOptions();
+
+        services
+            .AddFluentEmail(smtp.SenderEmail, smtp.SenderName)
+            .Services.AddTransient<FluentEmail.Core.Interfaces.ISender>(sp =>
+                new MailKitSender(CreateSmtpClientOptions(sp.GetRequiredService<IOptions<SmtpOptions>>().Value)));
+
+        services.AddScoped<IEmailSender, SmtpEmailSender>();
     }
+
+    private static SmtpClientOptions CreateSmtpClientOptions(SmtpOptions options) =>
+        new()
+        {
+            Server = options.Server,
+            Port = options.Port,
+            User = options.Username,
+            Password = options.Password,
+            RequiresAuthentication = !string.IsNullOrWhiteSpace(options.Username),
+            SocketOptions = ResolveSmtpSocketOptions(options),
+        };
+
+    private static SecureSocketOptions ResolveSmtpSocketOptions(SmtpOptions options) =>
+        options.Port switch
+        {
+            465 => SecureSocketOptions.SslOnConnect,
+            587 => SecureSocketOptions.StartTls,
+            _ => options.EnableSsl ? SecureSocketOptions.Auto : SecureSocketOptions.None,
+        };
 }
