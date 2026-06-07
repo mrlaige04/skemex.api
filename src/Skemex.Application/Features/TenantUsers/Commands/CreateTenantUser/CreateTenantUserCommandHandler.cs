@@ -92,13 +92,28 @@ public sealed class CreateTenantUserCommandHandler(
         else
         {
             user = existingUser;
-            if (await tenantUserRepository.ExistsAsync(
-                    tu => tu.UserId == user.Id && tu.TenantId == tenantId,
-                    cancellationToken: cancellationToken))
+        }
+
+        var existingMembership = await tenantUserRepository.GetAsync(
+            filter: tu => tu.UserId == user.Id && tu.TenantId == tenantId,
+            cancellationToken: cancellationToken);
+
+        if (existingMembership is not null)
+        {
+            if (existingMembership.Status == TenantUserStatus.Active)
             {
                 return Error.Conflict("User.AlreadyInTenant", "This user is already linked to the workspace.");
             }
+
+            return await ResendInvitationAsync(
+                existingMembership,
+                user,
+                tenant,
+                role,
+                cancellationToken);
         }
+
+        await RemoveUserRolesInTenantAsync(user.Id, tenantId, cancellationToken);
 
         var invitationToken = InvitationTokenGenerator.Create();
         var tenantUser = new TenantUser
@@ -112,15 +127,69 @@ public sealed class CreateTenantUserCommandHandler(
         };
         await tenantUserRepository.AddAsync(tenantUser, cancellationToken);
 
+        await AssignRoleAsync(user.Id, role, tenantId, cancellationToken);
+        await SendInvitationEmailAsync(user, tenant, invitationToken, cancellationToken);
+
+        return await BuildDtoAsync(user, roleName, cancellationToken);
+    }
+
+    private async Task<ErrorOr<TenantUserDto>> ResendInvitationAsync(
+        TenantUser tenantUser,
+        User user,
+        Tenant tenant,
+        Role role,
+        CancellationToken cancellationToken)
+    {
+        var invitationToken = InvitationTokenGenerator.Create();
+        tenantUser.Status = TenantUserStatus.Pending;
+        tenantUser.InvitationToken = invitationToken;
+        tenantUser.InvitationTokenExpiresAt = InvitationTokenGenerator.ExpiresAt();
+        await tenantUserRepository.UpdateAsync(tenantUser, cancellationToken);
+
+        await RemoveUserRolesInTenantAsync(user.Id, tenant.Id, cancellationToken);
+        await AssignRoleAsync(user.Id, role, tenant.Id, cancellationToken);
+        await SendInvitationEmailAsync(user, tenant, invitationToken, cancellationToken);
+
+        return await BuildDtoAsync(user, role.Name!, cancellationToken);
+    }
+
+    private async Task RemoveUserRolesInTenantAsync(
+        Guid userId,
+        Guid tenantId,
+        CancellationToken cancellationToken)
+    {
+        var userRoles = await userRoleRepository.GetAllAsync(
+            filter: ur => ur.TenantId == tenantId && ur.UserId == userId,
+            cancellationToken: cancellationToken);
+
+        if (userRoles.Count > 0)
+        {
+            await userRoleRepository.DeleteRangeAsync(userRoles, cancellationToken);
+        }
+    }
+
+    private async Task AssignRoleAsync(
+        Guid userId,
+        Role role,
+        Guid tenantId,
+        CancellationToken cancellationToken)
+    {
         var userRole = new UserRole
         {
             Id = Guid.NewGuid(),
-            UserId = user.Id,
+            UserId = userId,
             RoleId = role.Id,
             TenantId = tenantId,
         };
         await userRoleRepository.AddAsync(userRole, cancellationToken);
+    }
 
+    private async Task SendInvitationEmailAsync(
+        User user,
+        Tenant tenant,
+        string invitationToken,
+        CancellationToken cancellationToken)
+    {
         try
         {
             await authEmailService
@@ -133,9 +202,15 @@ public sealed class CreateTenantUserCommandHandler(
                 ex,
                 "User {UserId} was invited to tenant {TenantId}, but the invitation email was not sent.",
                 user.Id,
-                tenantId);
+                tenant.Id);
         }
+    }
 
+    private async Task<TenantUserDto> BuildDtoAsync(
+        User user,
+        string roleName,
+        CancellationToken cancellationToken)
+    {
         var avatarUrl = await profileImages.GetAvatarUrlAsync(user.PhotoBlobId, cancellationToken).ConfigureAwait(false);
 
         return new TenantUserDto

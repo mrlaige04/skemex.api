@@ -42,14 +42,14 @@ public sealed class LookupUserByEmailQueryHandler(
             };
         }
 
-        var alreadyInWorkspace = await tenantUserRepository.ExistsAsync(
-            tu => tu.UserId == user.Id && tu.TenantId == tenantId,
+        var membership = await tenantUserRepository.GetAsync(
+            filter: tu => tu.UserId == user.Id && tu.TenantId == tenantId,
             cancellationToken: cancellationToken);
 
         return new LookupUserByEmailResponse
         {
             Exists = true,
-            AlreadyInWorkspace = alreadyInWorkspace,
+            AlreadyInWorkspace = membership?.Status == TenantUserStatus.Active,
             CannotBeInvited = isReservedEmail,
             FirstName = user.FirstName,
             LastName = user.LastName,
