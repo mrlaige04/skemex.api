@@ -1,6 +1,8 @@
 using ErrorOr;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Users;
@@ -17,7 +19,8 @@ public class SelectTenantHandler(
     UserManager<User> userManager,
     TokenService tokenService,
     IBaseRepository<User> userRepository,
-    IBaseRepository<Tenant> tenantRepository)
+    IBaseRepository<Tenant> tenantRepository,
+    IOptions<SuperAdminOptions> superAdminOptions)
     : ICommandHandler<SelectTenantCommand, TenantSessionResponse>
 {
     public async Task<ErrorOr<TenantSessionResponse>> Handle(
@@ -34,6 +37,13 @@ public class SelectTenantHandler(
         if (user is null)
         {
             return Error.NotFound(UserErrors.NotFound, UserErrors.NotFoundDescription);
+        }
+
+        if (superAdminOptions.Value.MatchesEmail(user.Email))
+        {
+            return Error.Forbidden(
+                UserErrors.TenantAccessDenied,
+                "Platform administrators cannot select a tenant workspace.");
         }
 
         var tenant = await tenantRepository.GetAsync(t => t.Id == request.TenantId, cancellationToken: cancellationToken);

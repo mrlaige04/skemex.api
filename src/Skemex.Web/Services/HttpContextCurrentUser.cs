@@ -41,7 +41,7 @@ public class HttpContextCurrentUser(IHttpContextAccessor httpContextAccessor) : 
         }
 
         var roles = identity.Claims
-            .Where(c => c.Type is ClaimTypes.Role or "role")
+            .Where(c => c.Type is ClaimTypes.Role or "role" or CustomClaims.Roles)
             .Select(c => c.Value)
             .Distinct(StringComparer.Ordinal)
             .ToArray();

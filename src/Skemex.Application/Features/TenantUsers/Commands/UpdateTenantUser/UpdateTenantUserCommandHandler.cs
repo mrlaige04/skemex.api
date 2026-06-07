@@ -1,6 +1,8 @@
 using ErrorOr;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Services;
 using Skemex.Domain.Entities.Users;
@@ -15,7 +17,8 @@ public sealed class UpdateTenantUserCommandHandler(
     ITenantRepository<TenantUser> tenantUserRepository,
     IBaseRepository<UserRole> userRoleRepository,
     IBaseRepository<Role> roleRepository,
-    IProfileImageService profileImages)
+    IProfileImageService profileImages,
+    IOptions<SuperAdminOptions> superAdminOptions)
     : ICommandHandler<UpdateTenantUserCommand, TenantUserDto>
 {
     public async Task<ErrorOr<TenantUserDto>> Handle(
@@ -67,6 +70,13 @@ public sealed class UpdateTenantUserCommandHandler(
             var email = request.Email.Trim().ToLowerInvariant();
             if (email.Length > 0 && !string.Equals(email, user.Email, StringComparison.OrdinalIgnoreCase))
             {
+                if (superAdminOptions.Value.MatchesEmail(email))
+                {
+                    return Error.Validation(
+                        TenantUserErrors.SuperAdminEmailReserved,
+                        TenantUserErrors.SuperAdminEmailReservedDescription);
+                }
+
                 var taken = await userManager.FindByEmailAsync(email);
                 if (taken is not null && taken.Id != user.Id)
                 {

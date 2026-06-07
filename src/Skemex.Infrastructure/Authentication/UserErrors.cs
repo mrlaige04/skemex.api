@@ -19,6 +19,9 @@ public static class UserErrors
 
     public const string RegistrationFailed = "User.RegistrationFailed";
 
+    public const string SuperAdminEmailReserved = "User.SuperAdminEmailReserved";
+    public const string SuperAdminEmailReservedDescription = "This email address is reserved and cannot be used.";
+
     public const string InvalidRefreshToken = "Auth.InvalidRefreshToken";
     public const string InvalidRefreshTokenDescription = "The refresh token is invalid or expired.";
 }

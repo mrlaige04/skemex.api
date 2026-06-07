@@ -1,5 +1,7 @@
 using ErrorOr;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
+using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
@@ -10,7 +12,8 @@ namespace Skemex.Application.Features.TenantUsers.Queries.LookupUserByEmail;
 public sealed class LookupUserByEmailQueryHandler(
     ICurrentUser currentUser,
     UserManager<User> userManager,
-    ITenantRepository<TenantUser> tenantUserRepository)
+    ITenantRepository<TenantUser> tenantUserRepository,
+    IOptions<SuperAdminOptions> superAdminOptions)
     : IQueryHandler<LookupUserByEmailQuery, LookupUserByEmailResponse>
 {
     public async Task<ErrorOr<LookupUserByEmailResponse>> Handle(
@@ -25,6 +28,8 @@ public sealed class LookupUserByEmailQueryHandler(
 
         var tenantId = tenantIdResult.Value;
         var email = request.Email.Trim().ToLowerInvariant();
+        var isReservedEmail = superAdminOptions.Value.MatchesEmail(email);
+
         var user = await userManager.FindByEmailAsync(email);
 
         if (user is null)
@@ -33,6 +38,7 @@ public sealed class LookupUserByEmailQueryHandler(
             {
                 Exists = false,
                 AlreadyInWorkspace = false,
+                CannotBeInvited = isReservedEmail,
             };
         }
 
@@ -44,6 +50,7 @@ public sealed class LookupUserByEmailQueryHandler(
         {
             Exists = true,
             AlreadyInWorkspace = alreadyInWorkspace,
+            CannotBeInvited = isReservedEmail,
             FirstName = user.FirstName,
             LastName = user.LastName,
         };

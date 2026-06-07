@@ -24,4 +24,10 @@
       <ProjectReference Include="..\Skemex.Application\Skemex.Application.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+      <None Update="Templates\**\*.html">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+
 </Project>

@@ -4,6 +4,7 @@ using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Infrastructure.Data;
+using Skemex.Infrastructure.Email;
 
 namespace Skemex.Web.Extensions;
 
@@ -19,7 +20,15 @@ public static class DatabaseExtensions
             await context.Database.MigrateAsync();
             await context.Database.EnsureCreatedAsync();
             await app.EnsureSuperAdminCreated();
+            await app.EnsureEmailTemplatesSeeded();
         }
+    }
+
+    public static async Task EnsureEmailTemplatesSeeded(this WebApplication app)
+    {
+        await using var scope = app.Services.CreateAsyncScope();
+        var seeder = scope.ServiceProvider.GetRequiredService<EmailTemplateSeeder>();
+        await seeder.SeedSystemTemplatesAsync();
     }
 
     public static async Task EnsureSuperAdminCreated(this WebApplication app)
