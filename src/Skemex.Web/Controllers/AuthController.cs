@@ -11,6 +11,7 @@ using Skemex.Infrastructure.Authentication.Login;
 using Skemex.Infrastructure.Authentication.RefreshToken;
 using Skemex.Infrastructure.Authentication.Register;
 using Skemex.Infrastructure.Authentication.SelectTenant;
+using Skemex.Infrastructure.Authentication.Session;
 using Skemex.Web.Models;
 
 namespace Skemex.Web.Controllers;
@@ -23,6 +24,14 @@ public class AuthController(ISender sender) : BaseController
     public async Task<IActionResult> GetCurrentUser(CancellationToken cancellationToken)
     {
         var result = await sender.Send(new GetCurrentUserProfileQuery(), cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpGet("session")]
+    [Authorize]
+    public async Task<IActionResult> GetSession(CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(new GetCurrentUserSessionQuery(), cancellationToken);
         return result.Match(Ok, Problem);
     }
 
