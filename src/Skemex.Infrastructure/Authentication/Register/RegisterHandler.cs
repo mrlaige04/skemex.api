@@ -1,6 +1,8 @@
 using ErrorOr;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Services;
 using Skemex.Domain.Entities.Users;
@@ -10,11 +12,19 @@ namespace Skemex.Infrastructure.Authentication.Register;
 
 public class RegisterHandler(
     UserManager<User> userManager,
+    IOptions<SuperAdminOptions> superAdminOptions,
     IAuthEmailService authEmailService,
     ILogger<RegisterHandler> logger) : ICommandHandler<RegisterCommand, RegisterResponse>
 {
     public async Task<ErrorOr<RegisterResponse>> Handle(RegisterCommand request, CancellationToken cancellationToken)
     {
+        if (superAdminOptions.Value.MatchesEmail(request.Email))
+        {
+            return Error.Validation(
+                UserErrors.SuperAdminEmailReserved,
+                UserErrors.SuperAdminEmailReservedDescription);
+        }
+
         var user = new User
         {
             UserName = request.Email,

@@ -4,4 +4,5 @@ public static class CustomClaims
 {
     public const string TenantId = "tenant-id";
     public const string IsSuperAdmin = "IsSuperAdmin";
+    public const string Roles = "Roles";
 }

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Skemex.Domain.Entities.EmailTemplates;
 using Skemex.Domain.Entities.Users;
 
 namespace Skemex.Infrastructure.Data;
@@ -8,6 +9,8 @@ namespace Skemex.Infrastructure.Data;
 public class SkemexDbContext(DbContextOptions<SkemexDbContext> options) : IdentityDbContext<User, Role, Guid>(options)
 {
     public DbSet<Tenant> Tenants { get; set; } = null!;
+
+    public DbSet<EmailTemplate> EmailTemplates { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

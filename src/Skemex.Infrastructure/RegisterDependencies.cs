@@ -34,9 +34,11 @@ public static class RegisterDependencies
         AddBackgroundJobs(services, configuration);
         AddEmailing(services, configuration);
         services.Configure<AppOptions>(configuration.GetSection(AppOptions.SectionName));
+        services.Configure<SuperAdminOptions>(configuration.GetSection(SuperAdminOptions.SectionName));
         services.AddScoped<IAuthEmailService, AuthEmailService>();
-        
-        
+        services.AddScoped<IEmailTemplateService, EmailTemplateService>();
+        services.AddSingleton<EmailTemplateFileLoader>();
+        services.AddScoped<EmailTemplateSeeder>();
         services.Scan(scan => scan.FromAssemblyOf<SkemexDbContext>()
             .AddClasses(classes => classes.AssignableTo(typeof(IQueryHandler<,>)), publicOnly: false)
                 .AsImplementedInterfaces()

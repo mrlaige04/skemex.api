@@ -5,16 +5,17 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using Skemex.Application.Configuration;
 using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Infrastructure.Authentication.Models;
-using Skemex.Infrastructure.Authentication;
 
 namespace Skemex.Infrastructure.Authentication.Services;
 
 public class TokenService(
     IOptions<JwtOptions> jwtOptions,
+    IOptions<SuperAdminOptions> superAdminOptions,
     IBaseRepository<User> userRepository)
 {
     public Task<AccessTokenResponse> GenerateGeneralLoginToken(User user) =>
@@ -41,8 +42,9 @@ public class TokenService(
             throw new InvalidOperationException("User not found for token issuance.");
         }
 
-        var isSuperAdmin = principal.UserRoles.Any(ur =>
-            ur.TenantId is null && ur.Role.Name == RoleNames.SuperAdmin);
+        var isSuperAdmin = superAdminOptions.Value.MatchesEmail(user.Email)
+            || principal.UserRoles.Any(ur =>
+                ur.TenantId is null && ur.Role.Name == RoleNames.SuperAdmin);
 
         var roleNames = CollectRoleNamesForToken(principal, tenantId);
         var roleClaims = roleNames
@@ -50,6 +52,7 @@ public class TokenService(
             {
                 new(ClaimTypes.Role, name),
                 new("role", name),
+                new(CustomClaims.Roles, name),
             })
             .ToList();
 

@@ -1,6 +1,8 @@
 using ErrorOr;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Services;
 using Skemex.Domain.Consts;
@@ -16,7 +18,8 @@ public class LoginHandler(
     UserManager<User> userManager,
     TokenService tokenService,
     IUrlService urlService,
-    IBaseRepository<User> userRepository)
+    IBaseRepository<User> userRepository,
+    IOptions<SuperAdminOptions> superAdminOptions)
     : ICommandHandler<LoginCommand, LoginResponse>
 {
     public async Task<ErrorOr<LoginResponse>> Handle(LoginCommand request, CancellationToken cancellationToken)
@@ -59,7 +62,8 @@ public class LoginHandler(
             return Error.NotFound(UserErrors.NotFound, UserErrors.NotFoundDescription);
         }
 
-        var isSuperAdmin = userFromRepo.UserRoles.Any(ur =>
+        var isPlatformAdmin = superAdminOptions.Value.MatchesEmail(user.Email);
+        var isSuperAdmin = isPlatformAdmin || userFromRepo.UserRoles.Any(ur =>
             ur.TenantId is null && ur.Role.Name == RoleNames.SuperAdmin);
 
         var platformRoles = userFromRepo.UserRoles

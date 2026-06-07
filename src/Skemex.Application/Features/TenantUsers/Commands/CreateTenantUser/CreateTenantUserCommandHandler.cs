@@ -1,6 +1,8 @@
 using ErrorOr;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Services;
 using Skemex.Domain.Entities.Users;
@@ -18,6 +20,7 @@ public sealed class CreateTenantUserCommandHandler(
     IBaseRepository<Tenant> tenantRepository,
     IAuthEmailService authEmailService,
     IProfileImageService profileImages,
+    IOptions<SuperAdminOptions> superAdminOptions,
     ILogger<CreateTenantUserCommandHandler> logger)
     : ICommandHandler<CreateTenantUserCommand, TenantUserDto>
 {
@@ -34,6 +37,13 @@ public sealed class CreateTenantUserCommandHandler(
         var tenantId = tenantIdResult.Value;
         var email = request.Email.Trim().ToLowerInvariant();
         var roleName = request.RoleName.Trim();
+
+        if (superAdminOptions.Value.MatchesEmail(email))
+        {
+            return Error.Validation(
+                TenantUserErrors.SuperAdminEmailReserved,
+                TenantUserErrors.SuperAdminEmailReservedDescription);
+        }
 
         var tenant = await tenantRepository.GetAsync(t => t.Id == tenantId, cancellationToken: cancellationToken);
         if (tenant is null)
