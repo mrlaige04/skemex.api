@@ -1,5 +1,4 @@
 using ErrorOr;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Skemex.Application.Configuration;
@@ -16,7 +15,6 @@ namespace Skemex.Infrastructure.Authentication.Session;
 
 public sealed class GetCurrentUserSessionHandler(
     ICurrentUser currentUser,
-    UserManager<User> userManager,
     IUrlService urlService,
     IBaseRepository<User> userRepository,
     IOptions<SuperAdminOptions> superAdminOptions)
