@@ -30,7 +30,7 @@ public sealed class DeleteTenantUserCommandHandler(
         }
 
         var tenantUser = await tenantUserRepository.GetAsync(
-            filter: tu => tu.UserId == request.UserId,
+            filter: tu => tu.UserId == request.UserId && tu.TenantId == tenantId,
             cancellationToken: cancellationToken);
 
         if (tenantUser is null)
