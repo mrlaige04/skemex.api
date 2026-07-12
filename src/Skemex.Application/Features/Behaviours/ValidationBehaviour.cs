@@ -4,11 +4,11 @@ using Skemex.Application.Features.Abstractions;
 
 namespace Skemex.Application.Features.Behaviours;
 
-public class ValidationBehaviour<TRequest, TResponse>(IEnumerable<IValidator<TRequest>> validators) 
-    : IBehaviour<TRequest, TResponse> where TRequest: notnull
+public class ValidationBehaviour<TRequest, TResponse>(IEnumerable<IValidator<TRequest>> validators)
+    : IBehaviour<TRequest, TResponse> where TRequest : notnull
 {
     public async Task<ErrorOr<TResponse>> Handle(
-        TRequest request, RequestHandlerDelegate<TResponse> next, 
+        TRequest request, RequestHandlerDelegate<TResponse> next,
         CancellationToken cancellationToken)
     {
         if (!validators.Any())

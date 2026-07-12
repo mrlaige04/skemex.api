@@ -6,7 +6,7 @@ namespace Skemex.Application.Services;
 public class GenerationService
 {
     private const string AllowedChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%&";
-    
+
     public static string GenerateRandomString(int length)
     {
         var key = new StringBuilder();
@@ -19,7 +19,7 @@ public class GenerationService
             var num = BitConverter.ToUInt32(buffer, 0);
             key.Append(AllowedChars[(int)(num % (uint)AllowedChars.Length)]);
         }
-        
+
         return key.ToString();
     }
 }

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Skemex.Domain.Entities.EmailTemplates;
+using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Entities.Users;
 
 namespace Skemex.Infrastructure.Data;
@@ -11,6 +12,14 @@ public class SkemexDbContext(DbContextOptions<SkemexDbContext> options) : Identi
     public DbSet<Tenant> Tenants { get; set; } = null!;
 
     public DbSet<EmailTemplate> EmailTemplates { get; set; } = null!;
+
+    public DbSet<Project> Projects { get; set; } = null!;
+    public DbSet<ProjectUser> ProjectUsers { get; set; } = null!;
+    public DbSet<TenantColumn> TenantColumns { get; set; } = null!;
+    public DbSet<ProjectColumn> ProjectColumns { get; set; } = null!;
+    public DbSet<ProjectTask> ProjectTasks { get; set; } = null!;
+    public DbSet<ProjectTaskCounter> ProjectTaskCounters { get; set; } = null!;
+    public DbSet<ProjectSettings> ProjectSettings { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

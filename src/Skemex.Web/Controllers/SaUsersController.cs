@@ -1,12 +1,13 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
-using Skemex.Application.SaFeatures.Commands.CreateSaUser;
-using Skemex.Application.SaFeatures.Commands.DeleteSaUser;
-using Skemex.Application.SaFeatures.Commands.UpdateSaUser;
-using Skemex.Application.SaFeatures.Queries.GetSaUserById;
-using Skemex.Application.SaFeatures.Queries.GetSaUsers;
+using Skemex.Application.SaFeatures.Commands.SaUsers.CreateSaUser;
+using Skemex.Application.SaFeatures.Commands.SaUsers.DeleteSaUser;
+using Skemex.Application.SaFeatures.Commands.SaUsers.UpdateSaUser;
+using Skemex.Application.SaFeatures.Queries.SaUsers.GetSaUserById;
+using Skemex.Application.SaFeatures.Queries.SaUsers.GetSaUsers;
 using Skemex.Web.Attributes;
+using Skemex.Web.Models.SuperAdmin;
 
 namespace Skemex.Web.Controllers;
 
@@ -68,13 +69,4 @@ public class SaUsersController(ISender sender) : BaseController
         var result = await sender.Send(new DeleteSaUserCommand { UserId = id }, cancellationToken);
         return result.Match(_ => NoContent(), Problem);
     }
-}
-
-public sealed class UpdateSaUserRequest
-{
-    public string? Email { get; set; }
-
-    public string? FirstName { get; set; }
-
-    public string? LastName { get; set; }
 }

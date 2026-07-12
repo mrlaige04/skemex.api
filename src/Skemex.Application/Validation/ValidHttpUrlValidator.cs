@@ -8,7 +8,8 @@ public class ValidHttpUrlValidator<T> : PropertyValidator<T, string>, IValidHttp
 {
     public override string Name => "ValidHttpUrlValidator";
 
-    public override bool IsValid(ValidationContext<T> context, string value) {
+    public override bool IsValid(ValidationContext<T> context, string value)
+    {
         if (string.IsNullOrWhiteSpace(value))
             return false;
 

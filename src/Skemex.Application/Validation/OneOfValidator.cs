@@ -7,9 +7,9 @@ namespace Skemex.Application.Validation;
 public class OneOfValidator<T>(IEnumerable<string> allowedValues, bool ignoreCase = false)
     : PropertyValidator<T, string>, IOneOfValidator
 {
-    private readonly HashSet<string> _allowedValues = new(allowedValues, 
+    private readonly HashSet<string> _allowedValues = new(allowedValues,
         ignoreCase ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
-    
+
     public override string Name => "OneOfValidator";
 
     public override bool IsValid(ValidationContext<T> context, string value)

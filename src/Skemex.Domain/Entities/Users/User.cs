@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Skemex.Domain.Entities.Abstractions;
+using Skemex.Domain.Entities.Projects;
 
 namespace Skemex.Domain.Entities.Users;
 
@@ -19,4 +20,5 @@ public class User : IdentityUser<Guid>, IEntity<Guid>, IAuditableEntity
 
     public IList<TenantUser> Tenants { get; set; } = [];
     public IList<UserRole> UserRoles { get; set; } = [];
+    public IList<ProjectUser> Projects { get; set; } = [];
 }

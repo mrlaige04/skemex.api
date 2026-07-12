@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Services;
+using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories;
 using Skemex.Domain.Repositories.Abstractions;
@@ -74,6 +75,7 @@ public static class RegisterDependencies
 
         services.AddScoped<IUrlService, StorageUrlService>();
         services.AddScoped<IProfileImageService, ProfileImageService>();
+        services.AddScoped<IProjectLogoService, ProjectLogoService>();
 
         var provider = configuration.GetValue<string>($"{StorageOptions.SectionName}:Provider")
                        ?? StorageProviderNames.Local;
@@ -113,7 +115,7 @@ public static class RegisterDependencies
                     configuration,
                     opts.Endpoint);
             });
-            
+
             services.AddScoped<IBlobStorageService, MinioBlobStorageService>();
         }
         else if (string.Equals(provider, StorageProviderNames.Local, StringComparison.OrdinalIgnoreCase))
@@ -144,17 +146,18 @@ public static class RegisterDependencies
 
         services.AddScoped(typeof(IBaseRepository<>), typeof(BaseRepository<>));
         services.AddScoped(typeof(ITenantRepository<>), typeof(TenantBaseRepository<>));
+        services.AddScoped<IProjectTaskCodeAllocator, ProjectTaskCodeAllocator>();
     }
 
     private static void AddAppAuthentication(IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
-        
+
         var jwtOptions = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
                          ?? throw new InvalidOperationException("JWT configuration section 'Auth' is missing.");
-        
+
         ArgumentNullException.ThrowIfNull(jwtOptions);
-        
+
         services.AddAuthorization();
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
@@ -162,7 +165,7 @@ public static class RegisterDependencies
                 options.RequireHttpsMetadata = false;
                 options.TokenValidationParameters = jwtOptions.ToTokenValidationParameters();
             });
-        
+
         services
             .AddIdentityCore<User>(options =>
             {

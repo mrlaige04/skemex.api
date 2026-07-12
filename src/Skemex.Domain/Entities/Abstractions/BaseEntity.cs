@@ -10,7 +10,7 @@ public abstract class BaseEntity : IEntity<Guid>, IAuditableEntity
     public DateTime? UpdatedAt { get; set; }
 
     private readonly List<IDomainEvent> _domainEvents = [];
-    
+
     [NotMapped]
     public IReadOnlyCollection<IDomainEvent> DomainEvents => _domainEvents;
 

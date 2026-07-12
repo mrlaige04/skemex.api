@@ -1,13 +1,14 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
-using Skemex.Application.Features.TenantUsers.Commands.CreateTenantUser;
-using Skemex.Application.Features.TenantUsers.Commands.DeleteTenantUser;
-using Skemex.Application.Features.TenantUsers.Commands.UpdateTenantUser;
-using Skemex.Application.Features.TenantUsers.Queries.GetTenantRoles;
-using Skemex.Application.Features.TenantUsers.Queries.GetTenantUserById;
-using Skemex.Application.Features.TenantUsers.Queries.GetTenantUsers;
-using Skemex.Application.Features.TenantUsers.Queries.LookupUserByEmail;
+using Skemex.Application.Features.Commands.Users.CreateTenantUser;
+using Skemex.Application.Features.Commands.Users.DeleteTenantUser;
+using Skemex.Application.Features.Commands.Users.UpdateTenantUser;
+using Skemex.Application.Features.Queries.Users.GetTenantRoles;
+using Skemex.Application.Features.Queries.Users.GetTenantUserById;
+using Skemex.Application.Features.Queries.Users.GetTenantUsers;
+using Skemex.Application.Features.Queries.Users.LookupUserByEmail;
+using Skemex.Web.Models.Users;
 
 namespace Skemex.Web.Controllers;
 
@@ -85,12 +86,4 @@ public class UsersController(ISender sender) : BaseController
         var result = await sender.Send(new DeleteTenantUserCommand { UserId = id }, cancellationToken);
         return result.Match(_ => NoContent(), Problem);
     }
-}
-
-public sealed class UpdateTenantUserRequest
-{
-    public string? Email { get; set; }
-    public string? FirstName { get; set; }
-    public string? LastName { get; set; }
-    public string? RoleName { get; set; }
 }

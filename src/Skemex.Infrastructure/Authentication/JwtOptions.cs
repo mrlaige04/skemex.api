@@ -16,7 +16,7 @@ public class JwtOptions
     public TokenValidationParameters ToTokenValidationParameters()
     {
         var bytes = Encoding.UTF8.GetBytes(JwtSecret);
-        
+
         return new TokenValidationParameters
         {
             ValidateIssuer = true,

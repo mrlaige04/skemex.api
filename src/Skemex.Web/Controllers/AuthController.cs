@@ -12,7 +12,7 @@ using Skemex.Infrastructure.Authentication.RefreshToken;
 using Skemex.Infrastructure.Authentication.Register;
 using Skemex.Infrastructure.Authentication.SelectTenant;
 using Skemex.Infrastructure.Authentication.Session;
-using Skemex.Web.Models;
+using Skemex.Web.Models.Users;
 
 namespace Skemex.Web.Controllers;
 

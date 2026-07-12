@@ -7,94 +7,94 @@ using Skemex.Domain.Repositories.Abstractions;
 
 namespace Skemex.Domain.Repositories;
 
-public class BaseRepository<T>(DbContext dbContext) : IBaseRepository<T> where T: class, IEntity<Guid>
+public class BaseRepository<T>(DbContext dbContext) : IBaseRepository<T> where T : class, IEntity<Guid>
 {
     private readonly DbSet<T> _dbSet = dbContext.Set<T>();
-    
+
     public async Task<List<T>> GetAllAsync(
-        Expression<Func<T, bool>>? filter = null, 
-        Func<IQueryable<T>, IQueryable<T>>? include = null, 
+        Expression<Func<T, bool>>? filter = null,
+        Func<IQueryable<T>, IQueryable<T>>? include = null,
         CancellationToken cancellationToken = default)
     {
         var query = await GetQuery(cancellationToken);
-        
+
         query = include == null ? query : include(query);
         query = filter == null ? query : query.Where(filter);
-        
+
         return await query.ToListAsync(cancellationToken);
     }
 
     public async Task<PaginatedList<T>> GetAllPaginatedAsync(
-        int pageNumber, int pageSize, 
-        Expression<Func<T, bool>>? filter = null, 
+        int pageNumber, int pageSize,
+        Expression<Func<T, bool>>? filter = null,
         Func<IQueryable<T>, IQueryable<T>>? include = null,
         CancellationToken cancellationToken = default)
     {
         var query = await GetQuery(cancellationToken);
-        
+
         query = include == null ? query : include(query);
         query = filter == null ? query : query.Where(filter);
-        
+
         return await query.PaginateAsync(pageNumber, pageSize, cancellationToken);
     }
 
     public async Task<List<TResult>> GetAllWithSelectorAsync<TResult>(
-        Expression<Func<T, TResult>> selector, 
-        Expression<Func<T, bool>>? filter = null, 
-        Func<IQueryable<T>, IQueryable<T>>? include = null,
-        CancellationToken cancellationToken = default)
-    {
-        var query = await GetQuery(cancellationToken);
-        
-        query = include == null ? query : include(query);
-        query = filter == null ? query : query.Where(filter);
-        
-        return await query
-            .Select(selector)
-            .ToListAsync(cancellationToken);
-    }
-
-    public async Task<PaginatedList<TResult>> GetAllWithSelectorPaginatedAsync<TResult>(
-        int pageNumber, int pageSize, 
         Expression<Func<T, TResult>> selector,
         Expression<Func<T, bool>>? filter = null,
         Func<IQueryable<T>, IQueryable<T>>? include = null,
         CancellationToken cancellationToken = default)
     {
         var query = await GetQuery(cancellationToken);
-        
+
         query = include == null ? query : include(query);
         query = filter == null ? query : query.Where(filter);
-        
+
+        return await query
+            .Select(selector)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<PaginatedList<TResult>> GetAllWithSelectorPaginatedAsync<TResult>(
+        int pageNumber, int pageSize,
+        Expression<Func<T, TResult>> selector,
+        Expression<Func<T, bool>>? filter = null,
+        Func<IQueryable<T>, IQueryable<T>>? include = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = await GetQuery(cancellationToken);
+
+        query = include == null ? query : include(query);
+        query = filter == null ? query : query.Where(filter);
+
         return await query
             .Select(selector)
             .PaginateAsync(pageNumber, pageSize, cancellationToken);
     }
 
     public async Task<T?> GetAsync(
-        Expression<Func<T, bool>>? filter = null, 
-        Func<IQueryable<T>, IQueryable<T>>? include = null, 
-        CancellationToken cancellationToken = default)
-    {
-        var query = await GetQuery(cancellationToken);
-        
-        query = include == null ? query : include(query);
-        query = filter == null ? query : query.Where(filter);
-        
-        return await query.FirstOrDefaultAsync(cancellationToken);
-    }
-
-    public async Task<TResult?> GetWithSelectorAsync<TResult>(
-        Expression<Func<T, TResult>> selector, 
         Expression<Func<T, bool>>? filter = null,
         Func<IQueryable<T>, IQueryable<T>>? include = null,
         CancellationToken cancellationToken = default)
     {
         var query = await GetQuery(cancellationToken);
-        
+
         query = include == null ? query : include(query);
         query = filter == null ? query : query.Where(filter);
-        
+
+        return await query.FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<TResult?> GetWithSelectorAsync<TResult>(
+        Expression<Func<T, TResult>> selector,
+        Expression<Func<T, bool>>? filter = null,
+        Func<IQueryable<T>, IQueryable<T>>? include = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = await GetQuery(cancellationToken);
+
+        query = include == null ? query : include(query);
+        query = filter == null ? query : query.Where(filter);
+
         return await query
             .Select(selector)
             .FirstOrDefaultAsync(cancellationToken);
@@ -117,7 +117,7 @@ public class BaseRepository<T>(DbContext dbContext) : IBaseRepository<T> where T
     {
         var entry = _dbSet.Update(entity);
         await dbContext.SaveChangesAsync(cancellationToken);
-        
+
         return entry.Entity;
     }
 
@@ -141,28 +141,28 @@ public class BaseRepository<T>(DbContext dbContext) : IBaseRepository<T> where T
     }
 
     public async Task<bool> ExistsAsync(
-        Expression<Func<T, bool>>? filter = null, 
+        Expression<Func<T, bool>>? filter = null,
         Func<IQueryable<T>, IQueryable<T>>? include = null,
         CancellationToken cancellationToken = default)
     {
         var query = await GetQuery(cancellationToken);
-        
+
         query = include == null ? query : include(query);
         query = filter == null ? query : query.Where(filter);
-        
+
         return await query.AnyAsync(cancellationToken);
     }
 
     public async Task<int> CountAsync(
-        Expression<Func<T, bool>>? filter = null, 
-        Func<IQueryable<T>, IQueryable<T>>? include = null, 
+        Expression<Func<T, bool>>? filter = null,
+        Func<IQueryable<T>, IQueryable<T>>? include = null,
         CancellationToken cancellationToken = default)
     {
         var query = await GetQuery(cancellationToken);
-        
+
         query = include == null ? query : include(query);
         query = filter == null ? query : query.Where(filter);
-        
+
         return await query.CountAsync(cancellationToken);
     }
 

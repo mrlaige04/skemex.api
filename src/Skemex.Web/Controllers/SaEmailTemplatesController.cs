@@ -1,11 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
-using Skemex.Application.SaFeatures.Commands.DeleteSaEmailTemplate;
-using Skemex.Application.SaFeatures.Commands.UpdateSaEmailTemplate;
-using Skemex.Application.SaFeatures.Queries.GetSaEmailTemplateById;
-using Skemex.Application.SaFeatures.Queries.GetSaEmailTemplates;
+using Skemex.Application.SaFeatures.Commands.SaEmailTemplates.DeleteSaEmailTemplate;
+using Skemex.Application.SaFeatures.Commands.SaEmailTemplates.UpdateSaEmailTemplate;
+using Skemex.Application.SaFeatures.Queries.SaEmailTemplates.GetSaEmailTemplateById;
+using Skemex.Application.SaFeatures.Queries.SaEmailTemplates.GetSaEmailTemplates;
 using Skemex.Web.Attributes;
+using Skemex.Web.Models.SuperAdmin;
 
 namespace Skemex.Web.Controllers;
 
@@ -56,13 +57,4 @@ public class SaEmailTemplatesController(ISender sender) : BaseController
         var result = await sender.Send(new DeleteSaEmailTemplateCommand { TemplateId = id }, cancellationToken);
         return result.Match(_ => NoContent(), Problem);
     }
-}
-
-public sealed class UpdateSaEmailTemplateRequest
-{
-    public string? Title { get; set; }
-
-    public string? Subject { get; set; }
-
-    public string? Body { get; set; }
 }

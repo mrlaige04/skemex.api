@@ -19,6 +19,9 @@ public sealed class StorageUrlService(
     public string? GetTenantLogoUrl(string? logoBlobId) =>
         BuildBrandingUrl(logoBlobId);
 
+    public string? GetProjectLogoUrl(string? logoBlobId) =>
+        BuildBrandingUrl(logoBlobId);
+
     public string? GetPublicFileBlobUrl(string? fileBlobId) =>
         BuildFilesUrl(fileBlobId);
 

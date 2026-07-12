@@ -10,7 +10,7 @@ public class RolePermissionConfiguration : IEntityTypeConfiguration<RolePermissi
     {
         builder.ToTable("roles_permissions");
         builder.HasKey(rp => rp.Id);
-        
+
         builder.HasIndex(rp => new { rp.RoleId, rp.PermissionId }).IsUnique();
-    }   
+    }
 }

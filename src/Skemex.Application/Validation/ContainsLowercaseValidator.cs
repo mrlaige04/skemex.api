@@ -4,7 +4,8 @@ using Skemex.Application.Validation.Abstractions;
 
 namespace Skemex.Application.Validation;
 
-public class ContainsLowercaseValidator<T> : PropertyValidator<T, string>, IContainsLowercaseValidator {
+public class ContainsLowercaseValidator<T> : PropertyValidator<T, string>, IContainsLowercaseValidator
+{
     public override string Name => "ContainsLowercaseValidator";
 
     public override bool IsValid(ValidationContext<T> context, string value) =>

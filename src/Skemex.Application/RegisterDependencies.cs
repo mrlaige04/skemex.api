@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Features.Behaviours;
+using Skemex.Application.Services.Projects;
 
 namespace Skemex.Application;
 
@@ -11,7 +12,7 @@ public static class RegisterDependencies
     public static IServiceCollection AddApplication(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddValidatorsFromAssemblies(AppDomain.CurrentDomain.GetAssemblies());
-        
+
         services.Scan(scan => scan.FromAssemblyOf<IBaseCommand>()
             .AddClasses(classes => classes.AssignableTo(typeof(IQueryHandler<,>)), publicOnly: false)
                 .AsImplementedInterfaces()
@@ -24,6 +25,7 @@ public static class RegisterDependencies
                 .WithScopedLifetime());
 
         services.AddScoped<ISender, Sender>();
+        services.AddScoped<ProjectColumnSeeder>();
         services.AddTransient(typeof(IBehaviour<,>), typeof(LoggingBehaviour<,>));
         services.AddTransient(typeof(IBehaviour<,>), typeof(ValidationBehaviour<,>));
 
