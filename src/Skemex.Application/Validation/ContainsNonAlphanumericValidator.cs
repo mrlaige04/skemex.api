@@ -4,7 +4,8 @@ using Skemex.Application.Validation.Abstractions;
 
 namespace Skemex.Application.Validation;
 
-public class ContainsNonAlphanumericValidator<T> : PropertyValidator<T, string>, IContainsNonAlphanumericValidator {
+public class ContainsNonAlphanumericValidator<T> : PropertyValidator<T, string>, IContainsNonAlphanumericValidator
+{
     public override string Name => "ContainsNonAlphanumericValidator";
 
     public override bool IsValid(ValidationContext<T> context, string value) =>

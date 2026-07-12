@@ -8,7 +8,7 @@ public static class QueryableExtensions
     extension<T>(IQueryable<T> queryable)
     {
         private async Task<PaginatedList<T>> CreateAsync(
-            int page, int pageSize, 
+            int page, int pageSize,
             CancellationToken cancellationToken = default)
         {
             var totalItems = await queryable.CountAsync(cancellationToken);
@@ -16,13 +16,13 @@ public static class QueryableExtensions
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync(cancellationToken);
-        
+
             return new PaginatedList<T>(items, totalItems, page, pageSize);
         }
 
         public Task<PaginatedList<T>> PaginateAsync(
             int page, int pageSize,
-            CancellationToken cancellationToken = default) 
+            CancellationToken cancellationToken = default)
             => queryable.CreateAsync(page, pageSize, cancellationToken);
     }
 }

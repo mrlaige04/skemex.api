@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Services;
-using Skemex.Web.Models;
+using Skemex.Web.Models.Email;
 
 namespace Skemex.Web.Controllers;
 

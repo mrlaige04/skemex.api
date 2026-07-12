@@ -7,7 +7,7 @@ namespace Skemex.Domain.Repositories;
 
 public class TenantBaseRepository<TTenantEntity>(
     DbContext dbContext,
-    ICurrentUser currentUser) 
+    ICurrentUser currentUser)
     : BaseRepository<TTenantEntity>(dbContext), ITenantRepository<TTenantEntity>
     where TTenantEntity : class, ITenantEntity<Guid>
 {
@@ -15,7 +15,7 @@ public class TenantBaseRepository<TTenantEntity>(
     {
         var tenantId = currentUser.GetTenantId();
         var baseQuery = await base.GetQuery(cancellationToken);
-        
+
         return tenantId.HasValue ? baseQuery.Where(t => t.TenantId == tenantId) : baseQuery;
     }
 }

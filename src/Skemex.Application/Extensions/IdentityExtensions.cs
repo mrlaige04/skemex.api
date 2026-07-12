@@ -15,11 +15,11 @@ public static class IdentityExtensions
             var code = string.IsNullOrEmpty(errorCode)
                 ? "Something went wrong"
                 : errorCode;
-        
+
             var description = string.IsNullOrEmpty(errorDescription)
                 ? "Something went wrong"
                 : errorDescription;
-        
+
             return Error.Failure(code, description, errors);
         }
 
@@ -31,11 +31,11 @@ public static class IdentityExtensions
             var code = string.IsNullOrEmpty(errorCode)
                 ? "Something went wrong"
                 : errorCode;
-        
+
             var description = string.IsNullOrEmpty(errorDescription)
                 ? "Something went wrong"
                 : errorDescription;
-        
+
             return Error.Failure(code, description, errors);
         }
     }

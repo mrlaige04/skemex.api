@@ -1,4 +1,5 @@
 using Skemex.Domain.Entities.Abstractions;
+using Skemex.Domain.Entities.Projects;
 
 namespace Skemex.Domain.Entities.Users;
 
@@ -11,6 +12,8 @@ public class Tenant : BaseEntity
     public string? LogoBlobId { get; set; }
 
     public IList<TenantUser> Users { get; set; } = [];
+    public IList<Project> Projects { get; set; } = [];
+    public IList<TenantColumn> Columns { get; set; } = [];
     public IList<Role> Roles { get; set; } = [];
     public IList<PermissionGroup> PermissionGroups { get; set; } = [];
 }

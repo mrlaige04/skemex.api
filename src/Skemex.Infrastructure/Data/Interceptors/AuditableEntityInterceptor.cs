@@ -27,13 +27,13 @@ public class AuditableEntityInterceptor : SaveChangesInterceptor
         foreach (var entry in context!.ChangeTracker.Entries<IAuditableEntity>())
         {
             if (entry.State is not (EntityState.Added or EntityState.Modified)) continue;
-            
+
             var utcNow = DateTime.UtcNow;
             if (entry.State == EntityState.Added)
             {
                 entry.Entity.CreatedAt = utcNow;
             }
-                
+
             entry.Entity.UpdatedAt = utcNow;
         }
     }
@@ -42,8 +42,8 @@ public class AuditableEntityInterceptor : SaveChangesInterceptor
 public static class Extensions
 {
     public static bool HasChangedOwnedEntities(this EntityEntry entry) =>
-        entry.References.Any(r => 
-            r.TargetEntry != null && 
-            r.TargetEntry.Metadata.IsOwned() && 
+        entry.References.Any(r =>
+            r.TargetEntry != null &&
+            r.TargetEntry.Metadata.IsOwned() &&
             r.TargetEntry.State is EntityState.Added or EntityState.Modified);
 }
