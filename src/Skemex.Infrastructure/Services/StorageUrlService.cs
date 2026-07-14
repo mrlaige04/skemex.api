@@ -25,6 +25,9 @@ public sealed class StorageUrlService(
     public string? GetPublicFileBlobUrl(string? fileBlobId) =>
         BuildFilesUrl(fileBlobId);
 
+    public string? GetProjectDocumentUrl(string? blobId) =>
+        BuildProjectDocumentsUrl(blobId);
+
     private string? BuildBrandingUrl(string? blobId)
     {
         if (string.IsNullOrWhiteSpace(blobId))
@@ -67,6 +70,30 @@ public sealed class StorageUrlService(
         if (string.Equals(_options.Provider, StorageProviderNames.Local, StringComparison.OrdinalIgnoreCase))
         {
             var bucket = StorageBucketNames.Resolve(_options, StorageBucketKind.Files);
+            return LocalBlobPublicUrlBuilder.Build(httpContextAccessor, _options, bucket, path);
+        }
+
+        return null;
+    }
+
+    private string? BuildProjectDocumentsUrl(string? blobId)
+    {
+        if (string.IsNullOrWhiteSpace(blobId))
+        {
+            return null;
+        }
+
+        var path = blobId.Trim().TrimStart('/');
+        var baseUrl = _options.PublicProjectDocumentsBlobBaseUrl?.TrimEnd('/');
+
+        if (!string.IsNullOrEmpty(baseUrl))
+        {
+            return $"{baseUrl}/{path}";
+        }
+
+        if (string.Equals(_options.Provider, StorageProviderNames.Local, StringComparison.OrdinalIgnoreCase))
+        {
+            var bucket = StorageBucketNames.Resolve(_options, StorageBucketKind.ProjectDocuments);
             return LocalBlobPublicUrlBuilder.Build(httpContextAccessor, _options, bucket, path);
         }
 

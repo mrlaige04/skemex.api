@@ -8,18 +8,17 @@ using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
 
-namespace Skemex.Application.Features.Queries.Projects.GetProjectTasksByColumnId;
+namespace Skemex.Application.Features.Queries.Projects.GetProjectTaskByCode;
 
-public sealed class GetProjectTasksByColumnIdQueryHandler(
+public sealed class GetProjectTaskByCodeQueryHandler(
     ICurrentUser currentUser,
     ITenantRepository<Project> projectRepository,
-    ITenantRepository<ProjectColumn> projectColumnRepository,
     ITenantRepository<ProjectTask> projectTaskRepository,
     IUrlService urlService)
-    : IQueryHandler<GetProjectTasksByColumnIdQuery, IReadOnlyList<ProjectTaskDto>>
+    : IQueryHandler<GetProjectTaskByCodeQuery, ProjectTaskDto>
 {
-    public async Task<ErrorOr<IReadOnlyList<ProjectTaskDto>>> Handle(
-        GetProjectTasksByColumnIdQuery request,
+    public async Task<ErrorOr<ProjectTaskDto>> Handle(
+        GetProjectTaskByCodeQuery request,
         CancellationToken cancellationToken)
     {
         if (currentUser.GetTenantId() is null)
@@ -35,25 +34,36 @@ public sealed class GetProjectTasksByColumnIdQueryHandler(
             return Error.NotFound("Project.NotFound", "Project was not found.");
         }
 
-        var columnExists = await projectColumnRepository.ExistsAsync(
-            filter: column => column.Id == request.ColumnId && column.ProjectId == request.ProjectId,
-            cancellationToken: cancellationToken);
-        if (!columnExists)
+        var code = request.Code.Trim().ToUpperInvariant();
+        if (code.Length == 0)
         {
-            return Error.NotFound("ProjectColumn.NotFound", "Column was not found.");
+            return Error.Validation("ProjectTask.InvalidCode", "Task code is required.");
         }
 
-        var tasks = await projectTaskRepository.GetAllAsync(
+        var allTasks = await projectTaskRepository.GetAllAsync(
             filter: task => task.ProjectId == request.ProjectId,
             include: query => query
                 .Include(task => task.Assignee)
-                .Include(task => task.Reporter),
+                .Include(task => task.Reporter)
+                .Include(task => task.Column),
             cancellationToken: cancellationToken);
 
+        var task = allTasks.FirstOrDefault(entry =>
+            string.Equals(entry.Code, code, StringComparison.OrdinalIgnoreCase));
+        if (task is null)
+        {
+            return Error.NotFound("ProjectTask.NotFound", "Task was not found.");
+        }
+
+        var childrenByParentId = allTasks
+            .Where(entry => entry.ParentId is not null)
+            .GroupBy(entry => entry.ParentId!.Value)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
         var avatarUrls = await ProjectTaskDtoMapper
-            .LoadAvatarUrlsAsync(tasks, urlService, cancellationToken)
+            .LoadAvatarUrlsAsync(allTasks, urlService, cancellationToken)
             .ConfigureAwait(false);
 
-        return ProjectTaskDtoMapper.MapRootsWithSubtasks(tasks, request.ColumnId, avatarUrls).ToList();
+        return ProjectTaskDtoMapper.MapWithSubtasksFromLookup(task, childrenByParentId, avatarUrls);
     }
 }

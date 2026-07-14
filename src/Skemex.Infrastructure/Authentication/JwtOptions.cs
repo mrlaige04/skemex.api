@@ -13,6 +13,9 @@ public class JwtOptions
 
     public long ExpiresInMinutes { get; set; } = 60;
 
+    /// <summary>How long a refresh token remains valid after issuance or rotation.</summary>
+    public int RefreshTokenExpiresInDays { get; set; } = 7;
+
     public TokenValidationParameters ToTokenValidationParameters()
     {
         var bytes = Encoding.UTF8.GetBytes(JwtSecret);
@@ -26,7 +29,10 @@ public class JwtOptions
             ValidAudience = ValidAudience,
             ValidIssuer = ValidIssuer,
             IssuerSigningKey = new SymmetricSecurityKey(bytes),
-            ClockSkew = TimeSpan.Zero
+            ClockSkew = TimeSpan.Zero,
+            // Keep claim types as issued in the JWT (sub, tenant-id, …).
+            NameClaimType = "sub",
+            RoleClaimType = "role",
         };
     }
 }

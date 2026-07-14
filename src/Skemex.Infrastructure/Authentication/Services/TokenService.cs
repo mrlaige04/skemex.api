@@ -136,31 +136,69 @@ public class TokenService(
     /// <summary>Reads user/tenant from access JWT; signature must be valid but expiry is ignored.</summary>
     public async Task<AccessTokenRefreshContext?> TryReadRefreshContextAsync(string accessToken)
     {
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            return null;
+        }
+
         var parameters = jwtOptions.Value.ToTokenValidationParameters();
         parameters.ValidateLifetime = false;
 
-        var handler = new JsonWebTokenHandler();
+        var handler = new JsonWebTokenHandler
+        {
+            MapInboundClaims = false,
+        };
         var result = await handler.ValidateTokenAsync(accessToken, parameters).ConfigureAwait(false);
         if (!result.IsValid)
         {
             return null;
         }
 
-        var sub = result.ClaimsIdentity?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
-                  ?? result.ClaimsIdentity?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var sub = ReadClaim(result, JwtRegisteredClaimNames.Sub)
+                  ?? ReadClaim(result, ClaimTypes.NameIdentifier);
         if (!Guid.TryParse(sub, out var userId))
         {
             return null;
         }
 
         Guid? tenantId = null;
-        var tenantValue = result.ClaimsIdentity?.FindFirst(CustomClaims.TenantId)?.Value;
+        var tenantValue = ReadClaim(result, CustomClaims.TenantId);
         if (!string.IsNullOrWhiteSpace(tenantValue) && Guid.TryParse(tenantValue, out var parsedTenant))
         {
             tenantId = parsedTenant;
         }
 
         return new AccessTokenRefreshContext(userId, tenantId);
+    }
+
+    /// <summary>Issues a new refresh token, stores it on the user, and attaches it to the access-token response.</summary>
+    public void AssignRefreshToken(User user, AccessTokenResponse token)
+    {
+        var refreshToken = GenerateRefreshToken();
+        var days = Math.Max(1, jwtOptions.Value.RefreshTokenExpiresInDays);
+
+        token.RefreshToken = refreshToken;
+        user.RefreshToken = refreshToken;
+        user.RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(days);
+    }
+
+    private static string? ReadClaim(TokenValidationResult result, string claimType)
+    {
+        if (result.Claims is { Count: > 0 } claims
+            && claims.TryGetValue(claimType, out var value))
+        {
+            return value switch
+            {
+                string s when !string.IsNullOrWhiteSpace(s) => s,
+                IEnumerable<object> many => many
+                    .Select(v => v?.ToString())
+                    .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s)),
+                not null => value.ToString(),
+                _ => null,
+            };
+        }
+
+        return result.ClaimsIdentity?.FindFirst(claimType)?.Value;
     }
 }
 

@@ -8,6 +8,7 @@ public sealed class StorageOptions
     public string? PublicBlobBaseUrl { get; set; }
     public string? PublicBrandingBlobBaseUrl { get; set; }
     public string? PublicFilesBlobBaseUrl { get; set; }
+    public string? PublicProjectDocumentsBlobBaseUrl { get; set; }
     public string LocalPublicRequestPath { get; set; } = "/api/blobs";
 
     public LocalDiskStorageOptions Local { get; set; } = new();
@@ -36,6 +37,7 @@ public sealed class MinioStorageOptions
 
     public string BrandingBucket { get; set; } = string.Empty;
     public string FilesBucket { get; set; } = string.Empty;
+    public string ProjectDocumentsBucket { get; set; } = string.Empty;
 
     public int PresignedDownloadExpirySeconds { get; set; } = 3600;
 }

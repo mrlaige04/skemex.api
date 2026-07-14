@@ -2,6 +2,7 @@ using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Projects;
+using Skemex.Application.Services;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Entities.Users;
@@ -18,7 +19,8 @@ public sealed class CreateProjectTaskCommandHandler(
     ITenantRepository<ProjectUser> projectUserRepository,
     ITenantRepository<ProjectTask> projectTaskRepository,
     IBaseRepository<User> userRepository,
-    IProjectTaskCodeAllocator taskCodeAllocator)
+    IProjectTaskCodeAllocator taskCodeAllocator,
+    IUrlService urlService)
     : ICommandHandler<CreateProjectTaskCommand, ProjectTaskDto>
 {
     public async Task<ErrorOr<ProjectTaskDto>> Handle(
@@ -124,9 +126,15 @@ public sealed class CreateProjectTaskCommandHandler(
                 .Include(entry => entry.Reporter),
             cancellationToken: cancellationToken);
 
-        return created is null
-            ? Error.Unexpected("ProjectTask.CreateFailed", "Task was created but could not be loaded.")
-            : ProjectTaskDtoMapper.Map(created);
+        if (created is null)
+        {
+            return Error.Unexpected("ProjectTask.CreateFailed", "Task was created but could not be loaded.");
+        }
+
+        var avatarUrls = await ProjectTaskDtoMapper
+            .LoadAvatarUrlsAsync([created], urlService, cancellationToken)
+            .ConfigureAwait(false);
+        return ProjectTaskDtoMapper.Map(created, avatarUrls);
     }
 
     private async Task<ErrorOr<Success>> ValidateAssigneeAsync(
