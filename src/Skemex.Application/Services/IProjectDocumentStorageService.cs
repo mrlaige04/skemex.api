@@ -11,4 +11,9 @@ public interface IProjectDocumentStorageService
         CancellationToken cancellationToken = default);
 
     Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Public CDN URL when configured; otherwise a MinIO/local download URL (presigned on Production).
+    /// </summary>
+    Task<string?> GetDownloadUrlAsync(string? storageKey, CancellationToken cancellationToken = default);
 }

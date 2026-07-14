@@ -58,8 +58,13 @@ public sealed class GetProjectDocumentsQueryHandler(
                 .ThenBy(document => document.FileName),
             cancellationToken: cancellationToken);
 
-        var items = paginated.Items
-            .Select(document => new ProjectDocumentDto
+        var urlTasks = paginated.Items.Select(async document =>
+        {
+            var downloadUrl = await urlService
+                .GetProjectDocumentUrlAsync(document.BlobId, cancellationToken)
+                .ConfigureAwait(false);
+
+            return new ProjectDocumentDto
             {
                 Id = document.Id,
                 ProjectId = document.ProjectId,
@@ -67,7 +72,7 @@ public sealed class GetProjectDocumentsQueryHandler(
                 ContentType = document.ContentType,
                 FileSizeBytes = document.FileSizeBytes,
                 CreatedAt = document.CreatedAt,
-                DownloadUrl = urlService.GetProjectDocumentUrl(document.BlobId),
+                DownloadUrl = downloadUrl,
                 UploadedBy = new ProjectDocumentUserDto
                 {
                     Id = document.UploadedBy.Id,
@@ -75,8 +80,10 @@ public sealed class GetProjectDocumentsQueryHandler(
                     LastName = document.UploadedBy.LastName,
                     Email = document.UploadedBy.Email ?? string.Empty,
                 },
-            })
-            .ToList();
+            };
+        });
+
+        var items = (await Task.WhenAll(urlTasks).ConfigureAwait(false)).ToList();
 
         return new PaginatedList<ProjectDocumentDto>(
             items,

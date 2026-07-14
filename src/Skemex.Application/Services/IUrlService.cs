@@ -6,5 +6,5 @@ public interface IUrlService
     string? GetTenantLogoUrl(string? logoBlobId);
     string? GetProjectLogoUrl(string? logoBlobId);
     string? GetPublicFileBlobUrl(string? fileBlobId);
-    string? GetProjectDocumentUrl(string? blobId);
+    Task<string?> GetProjectDocumentUrlAsync(string? blobId, CancellationToken cancellationToken = default);
 }
