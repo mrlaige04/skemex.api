@@ -1,19 +1,27 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
+using Skemex.Application.Features.Commands.Projects.AddProjectUser;
 using Skemex.Application.Features.Commands.Projects.CreateProject;
 using Skemex.Application.Features.Commands.Projects.CreateProjectColumn;
 using Skemex.Application.Features.Commands.Projects.CreateProjectTask;
 using Skemex.Application.Features.Commands.Projects.DeleteProject;
 using Skemex.Application.Features.Commands.Projects.DeleteProjectColumn;
+using Skemex.Application.Features.Commands.Projects.DeleteProjectDocument;
 using Skemex.Application.Features.Commands.Projects.DeleteProjectTask;
+using Skemex.Application.Features.Commands.Projects.RemoveProjectUser;
+using Skemex.Application.Features.Commands.Projects.UpdateProject;
 using Skemex.Application.Features.Commands.Projects.UpdateProjectTask;
 using Skemex.Application.Features.Commands.Projects.ReorderProjectColumns;
 using Skemex.Application.Features.Commands.Projects.UpdateProjectColumn;
 using Skemex.Application.Features.Commands.Projects.UpdateProjectSettings;
+using Skemex.Application.Features.Commands.Projects.UploadProjectDocument;
 using Skemex.Application.Features.Queries.Projects.GetAvailableProjectColumns;
 using Skemex.Application.Features.Queries.Projects.GetProjectById;
 using Skemex.Application.Features.Queries.Projects.GetProjectColumns;
+using Skemex.Application.Features.Queries.Projects.GetProjectDocuments;
+using Skemex.Application.Features.Queries.Projects.GetProjectTaskByCode;
+using Skemex.Application.Features.Queries.Projects.GetProjectTasks;
 using Skemex.Application.Features.Queries.Projects.GetProjectTasksByColumnId;
 using Skemex.Application.Features.Queries.Projects.GetProjectSettings;
 using Skemex.Application.Features.Queries.Projects.GetProjectUsers;
@@ -118,6 +126,50 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(_ => NoContent(), Problem);
     }
 
+    [HttpGet("{id:guid}/tasks")]
+    public async Task<IActionResult> ListTasks(
+        Guid id,
+        [FromQuery] string? search,
+        [FromQuery] Guid? columnId,
+        [FromQuery] Guid? assigneeId,
+        [FromQuery] bool unassigned = false,
+        [FromQuery] string sort = ProjectTaskSort.CreatedAtDesc,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await sender.Send(
+            new GetProjectTasksQuery
+            {
+                ProjectId = id,
+                Search = search,
+                ColumnId = columnId,
+                AssigneeId = assigneeId,
+                Unassigned = unassigned,
+                Sort = sort,
+                PageNumber = page,
+                PageSize = pageSize,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpGet("{id:guid}/tasks/by-code/{code}")]
+    public async Task<IActionResult> GetTaskByCode(
+        Guid id,
+        string code,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new GetProjectTaskByCodeQuery
+            {
+                ProjectId = id,
+                Code = code,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
     [HttpGet("{id:guid}/columns/{columnId:guid}/tasks")]
     public async Task<IActionResult> ListTasksByColumn(
         Guid id,
@@ -152,8 +204,8 @@ public class ProjectsController(ISender sender) : BaseController
             cancellationToken);
         return result.Match(
             dto => CreatedAtAction(
-                nameof(ListTasksByColumn),
-                new { id, columnId = dto.ProjectColumnId },
+                nameof(ListTasks),
+                new { id },
                 dto),
             Problem);
     }
@@ -196,6 +248,11 @@ public class ProjectsController(ISender sender) : BaseController
                 ProjectId = id,
                 TaskId = taskId,
                 ColumnId = body.ColumnId,
+                Title = body.Title,
+                Description = body.Description,
+                ClearDescription = body.ClearDescription,
+                AssigneeId = body.AssigneeId,
+                ClearAssignee = body.ClearAssignee,
             },
             cancellationToken);
         return result.Match(Ok, Problem);
@@ -248,10 +305,127 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [HttpPost("{id:guid}/users")]
+    public async Task<IActionResult> AddUser(
+        Guid id,
+        [FromBody] AddProjectUserRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new AddProjectUserCommand
+            {
+                ProjectId = id,
+                UserId = body.UserId,
+            },
+            cancellationToken);
+        return result.Match(
+            dto => CreatedAtAction(nameof(ListUsers), new { id }, dto),
+            Problem);
+    }
+
+    [HttpDelete("{id:guid}/users/{userId:guid}")]
+    public async Task<IActionResult> RemoveUser(
+        Guid id,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new RemoveProjectUserCommand
+            {
+                ProjectId = id,
+                UserId = userId,
+            },
+            cancellationToken);
+        return result.Match(_ => NoContent(), Problem);
+    }
+
+    [HttpGet("{id:guid}/documents")]
+    public async Task<IActionResult> ListDocuments(
+        Guid id,
+        [FromQuery] string? search,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await sender.Send(
+            new GetProjectDocumentsQuery
+            {
+                ProjectId = id,
+                Search = search,
+                PageNumber = page,
+                PageSize = pageSize,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("{id:guid}/documents")]
+    [RequestSizeLimit(26 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 26 * 1024 * 1024)]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> UploadDocument(
+        Guid id,
+        [FromForm] UploadProjectDocumentForm form,
+        CancellationToken cancellationToken)
+    {
+        var command = new UploadProjectDocumentCommand
+        {
+            ProjectId = id,
+        };
+
+        if (form.File is { Length: > 0 })
+        {
+            var ms = new MemoryStream();
+            await form.File.CopyToAsync(ms, cancellationToken);
+            ms.Position = 0;
+            command.FileContent = ms;
+            command.ContentType = form.File.ContentType;
+            command.FileName = form.File.FileName;
+        }
+
+        var result = await sender.Send(command, cancellationToken);
+        return result.Match(
+            dto => CreatedAtAction(nameof(ListDocuments), new { id }, dto),
+            Problem);
+    }
+
+    [HttpDelete("{id:guid}/documents/{documentId:guid}")]
+    public async Task<IActionResult> DeleteDocument(
+        Guid id,
+        Guid documentId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new DeleteProjectDocumentCommand
+            {
+                ProjectId = id,
+                DocumentId = documentId,
+            },
+            cancellationToken);
+        return result.Match(_ => NoContent(), Problem);
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
         var result = await sender.Send(new GetProjectByIdQuery { ProjectId = id }, cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPatch("{id:guid}")]
+    public async Task<IActionResult> Update(
+        Guid id,
+        [FromBody] UpdateProjectRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new UpdateProjectCommand
+            {
+                ProjectId = id,
+                Name = body.Name,
+                Description = body.Description,
+            },
+            cancellationToken);
         return result.Match(Ok, Problem);
     }
 

@@ -76,6 +76,7 @@ public static class RegisterDependencies
         services.AddScoped<IUrlService, StorageUrlService>();
         services.AddScoped<IProfileImageService, ProfileImageService>();
         services.AddScoped<IProjectLogoService, ProjectLogoService>();
+        services.AddScoped<IProjectDocumentStorageService, ProjectDocumentStorageService>();
 
         var provider = configuration.GetValue<string>($"{StorageOptions.SectionName}:Provider")
                        ?? StorageProviderNames.Local;
@@ -108,6 +109,12 @@ public static class RegisterDependencies
                 {
                     throw new InvalidOperationException(
                         "Storage:Minio:FilesBucket is required when Storage:Provider is Production.");
+                }
+
+                if (string.IsNullOrWhiteSpace(opts.ProjectDocumentsBucket))
+                {
+                    throw new InvalidOperationException(
+                        "Storage:Minio:ProjectDocumentsBucket is required when Storage:Provider is Production.");
                 }
 
                 return SkemexMinioClientFactory.Create(
@@ -163,6 +170,7 @@ public static class RegisterDependencies
             .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
             {
                 options.RequireHttpsMetadata = false;
+                options.MapInboundClaims = false;
                 options.TokenValidationParameters = jwtOptions.ToTokenValidationParameters();
             });
 

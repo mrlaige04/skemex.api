@@ -81,10 +81,7 @@ public class SelectTenantHandler(
         }
 
         var token = await tokenService.GenerateTenantScopedToken(user, request.TenantId);
-        token.RefreshToken = tokenService.GenerateRefreshToken();
-
-        user.RefreshToken = token.RefreshToken;
-        user.RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(2);
+        tokenService.AssignRefreshToken(user, token);
         await userManager.UpdateAsync(user);
 
         var rolesForTenant = principal.UserRoles

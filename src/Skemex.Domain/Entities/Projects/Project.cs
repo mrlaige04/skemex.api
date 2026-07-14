@@ -14,6 +14,7 @@ public class Project : TenantEntity
     public IList<ProjectUser> Users { get; set; } = [];
     public IList<ProjectColumn> Columns { get; set; } = [];
     public IList<ProjectTask> Tasks { get; set; } = [];
+    public IList<ProjectDocument> Documents { get; set; } = [];
     public ProjectTaskCounter? TaskCounter { get; set; }
     public ProjectSettings? Settings { get; set; }
 }

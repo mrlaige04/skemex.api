@@ -25,6 +25,13 @@ public sealed class BlobsController(IBlobStorageService storage, IOptions<Storag
     public Task<IActionResult> GetFiles(string blobPath, CancellationToken cancellationToken) =>
         Get(StorageBucketKind.Files, blobPath, cancellationToken);
 
+    [HttpGet("/api/blobs/project-documents/{**blobPath}")]
+    [HttpGet("/blobs/project-documents/{**blobPath}")]
+    [AllowAnonymous]
+    [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any)]
+    public Task<IActionResult> GetProjectDocuments(string blobPath, CancellationToken cancellationToken) =>
+        Get(StorageBucketKind.ProjectDocuments, blobPath, cancellationToken);
+
     [HttpGet("/api/blobs/{**blobPath}")]
     [HttpGet("/blobs/{**blobPath}")]
     [AllowAnonymous]
