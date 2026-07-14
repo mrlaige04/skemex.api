@@ -9,7 +9,8 @@ namespace Skemex.Infrastructure.Services;
 public sealed class StorageUrlService(
     IOptions<StorageOptions> options,
     IHttpContextAccessor httpContextAccessor,
-    IProfileImageService profileImages) : IUrlService
+    IProfileImageService profileImages,
+    IProjectDocumentStorageService projectDocuments) : IUrlService
 {
     private readonly StorageOptions _options = options.Value;
 
@@ -25,8 +26,8 @@ public sealed class StorageUrlService(
     public string? GetPublicFileBlobUrl(string? fileBlobId) =>
         BuildFilesUrl(fileBlobId);
 
-    public string? GetProjectDocumentUrl(string? blobId) =>
-        BuildProjectDocumentsUrl(blobId);
+    public Task<string?> GetProjectDocumentUrlAsync(string? blobId, CancellationToken cancellationToken = default) =>
+        projectDocuments.GetDownloadUrlAsync(blobId, cancellationToken);
 
     private string? BuildBrandingUrl(string? blobId)
     {
@@ -70,30 +71,6 @@ public sealed class StorageUrlService(
         if (string.Equals(_options.Provider, StorageProviderNames.Local, StringComparison.OrdinalIgnoreCase))
         {
             var bucket = StorageBucketNames.Resolve(_options, StorageBucketKind.Files);
-            return LocalBlobPublicUrlBuilder.Build(httpContextAccessor, _options, bucket, path);
-        }
-
-        return null;
-    }
-
-    private string? BuildProjectDocumentsUrl(string? blobId)
-    {
-        if (string.IsNullOrWhiteSpace(blobId))
-        {
-            return null;
-        }
-
-        var path = blobId.Trim().TrimStart('/');
-        var baseUrl = _options.PublicProjectDocumentsBlobBaseUrl?.TrimEnd('/');
-
-        if (!string.IsNullOrEmpty(baseUrl))
-        {
-            return $"{baseUrl}/{path}";
-        }
-
-        if (string.Equals(_options.Provider, StorageProviderNames.Local, StringComparison.OrdinalIgnoreCase))
-        {
-            var bucket = StorageBucketNames.Resolve(_options, StorageBucketKind.ProjectDocuments);
             return LocalBlobPublicUrlBuilder.Build(httpContextAccessor, _options, bucket, path);
         }
 

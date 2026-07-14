@@ -126,7 +126,7 @@ public sealed class UploadProjectDocumentCommandHandler(
                 "Document was uploaded but could not be loaded.");
         }
 
-        return MapDto(created);
+        return await MapDtoAsync(created, cancellationToken).ConfigureAwait(false);
     }
 
     private static ErrorOr<Success> ValidateFile(UploadProjectDocumentCommand request)
@@ -172,7 +172,9 @@ public sealed class UploadProjectDocumentCommandHandler(
         return Result.Success;
     }
 
-    private ProjectDocumentDto MapDto(ProjectDocument document) =>
+    private async Task<ProjectDocumentDto> MapDtoAsync(
+        ProjectDocument document,
+        CancellationToken cancellationToken) =>
         new()
         {
             Id = document.Id,
@@ -181,7 +183,9 @@ public sealed class UploadProjectDocumentCommandHandler(
             ContentType = document.ContentType,
             FileSizeBytes = document.FileSizeBytes,
             CreatedAt = document.CreatedAt,
-            DownloadUrl = urlService.GetProjectDocumentUrl(document.BlobId),
+            DownloadUrl = await urlService
+                .GetProjectDocumentUrlAsync(document.BlobId, cancellationToken)
+                .ConfigureAwait(false),
             UploadedBy = new ProjectDocumentUserDto
             {
                 Id = document.UploadedBy.Id,

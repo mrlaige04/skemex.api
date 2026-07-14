@@ -8,6 +8,7 @@ public sealed class ProjectDocumentStorageService(
     IBlobStorageService blobs,
     IOptions<StorageOptions> storageOptions) : IProjectDocumentStorageService
 {
+    private readonly StorageOptions _storage = storageOptions.Value;
     private readonly string _bucket = StorageBucketNames.Resolve(
         storageOptions.Value,
         StorageBucketKind.ProjectDocuments);
@@ -38,6 +39,39 @@ public sealed class ProjectDocumentStorageService(
 
         await blobs.EnsureBucketExistsAsync(_bucket, cancellationToken).ConfigureAwait(false);
         await blobs.DeleteAsync(_bucket, storageKey, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string?> GetDownloadUrlAsync(
+        string? storageKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(storageKey))
+        {
+            return null;
+        }
+
+        var path = storageKey.Trim().TrimStart('/');
+        var publicBase = _storage.PublicProjectDocumentsBlobBaseUrl?.TrimEnd('/');
+        if (!string.IsNullOrEmpty(publicBase))
+        {
+            return $"{publicBase}/{path}";
+        }
+
+        var expiry = ResolvePresignedExpiry();
+        return await blobs
+            .GetPresignedDownloadUrlAsync(_bucket, path, expiry, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private TimeSpan ResolvePresignedExpiry()
+    {
+        var seconds = _storage.Minio.PresignedDownloadExpirySeconds;
+        if (seconds <= 0)
+        {
+            seconds = 3600;
+        }
+
+        return TimeSpan.FromSeconds(seconds);
     }
 
     private static string BuildStorageKey(Guid tenantId, Guid projectId, string? fileName, string? contentType)
