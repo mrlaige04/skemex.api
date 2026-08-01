@@ -31,14 +31,6 @@ public sealed class UpdateProjectSettingsCommandHandler(
             return Error.NotFound("Project.NotFound", "Project was not found.");
         }
 
-        var columnExists = await projectColumnRepository.ExistsAsync(
-            filter: column => column.Id == request.DefaultTaskColumnId && column.ProjectId == request.ProjectId,
-            cancellationToken: cancellationToken);
-        if (!columnExists)
-        {
-            return Error.NotFound("ProjectColumn.NotFound", "Column was not found.");
-        }
-
         var settings = await projectSettingsRepository.GetAsync(
             filter: entry => entry.ProjectId == request.ProjectId,
             cancellationToken: cancellationToken);
@@ -47,13 +39,31 @@ public sealed class UpdateProjectSettingsCommandHandler(
             return Error.NotFound("ProjectSettings.NotFound", "Project settings were not found.");
         }
 
-        settings.DefaultTaskColumnId = request.DefaultTaskColumnId;
+        if (request.DefaultTaskColumnId is { } columnId)
+        {
+            var columnExists = await projectColumnRepository.ExistsAsync(
+                filter: column => column.Id == columnId && column.ProjectId == request.ProjectId,
+                cancellationToken: cancellationToken);
+            if (!columnExists)
+            {
+                return Error.NotFound("ProjectColumn.NotFound", "Column was not found.");
+            }
+
+            settings.DefaultTaskColumnId = columnId;
+        }
+
+        if (request.AiMaxTreeDepth is { } depth)
+        {
+            settings.AiMaxTreeDepth = depth;
+        }
+
+        if (request.AiMaxNodes is { } nodes)
+        {
+            settings.AiMaxNodes = nodes;
+        }
+
         await projectSettingsRepository.UpdateAsync(settings, cancellationToken);
 
-        return new ProjectSettingsDto
-        {
-            ProjectId = settings.ProjectId,
-            DefaultTaskColumnId = settings.DefaultTaskColumnId,
-        };
+        return ProjectSettingsDto.FromEntity(settings);
     }
 }

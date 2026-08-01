@@ -458,6 +458,16 @@ namespace Skemex.Infrastructure.Migrations
                     b.Property<Guid>("DefaultTaskColumnId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("AiMaxNodes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(16);
+
+                    b.Property<int>("AiMaxTreeDepth")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(2);
+
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
 
