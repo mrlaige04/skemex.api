@@ -6,6 +6,7 @@ namespace Skemex.Application.Services.Ai;
 public sealed record RemoteAiModel(
     string ExternalId,
     string DisplayName,
+    string? Author = null,
     string? IconKey = null);
 
 /// <summary>
@@ -15,7 +16,11 @@ public sealed record RemoteAiModel(
 /// </summary>
 public interface IAiProvider
 {
+    /// <summary>Provider key (slug), stored on <c>ai_models.Provider</c>.</summary>
     string Name { get; }
+
+    /// <summary>Human-readable provider name for UI grouping.</summary>
+    string DisplayName { get; }
 
     Task<IReadOnlyList<RemoteAiModel>> ListModelsAsync(
         CancellationToken cancellationToken = default);
@@ -25,14 +30,22 @@ public interface IAiProvider
         CancellationToken cancellationToken = default);
 }
 
-/// <summary>Resolves registered <see cref="IAiProvider"/> instances.</summary>
+/// <summary>Resolves DB-backed <see cref="IAiProvider"/> instances.</summary>
 public interface IAiProviderResolver
 {
-    IAiProvider GetRequired(string providerName);
+    Task<IAiProvider> GetRequiredAsync(
+        string providerName,
+        CancellationToken cancellationToken = default);
 
-    IAiProvider GetActive();
+    Task<IAiProvider> GetActiveAsync(CancellationToken cancellationToken = default);
 
-    IReadOnlyList<IAiProvider> GetAllEnabled();
+    Task<IReadOnlyList<IAiProvider>> GetAllEnabledAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<IAiProvider?> TryGetByKeyAsync(
+        string providerKey,
+        bool requireEnabled = true,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Syncs provider catalogs into the local <c>ai_models</c> table and lists them.</summary>
@@ -40,5 +53,14 @@ public interface IAiModelCatalogService
 {
     Task<IReadOnlyList<AiModelDto>> ListAsync(
         bool forceRefresh = false,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Sync models for a single provider key (used after SA create/update).</summary>
+    /// <param name="replaceExisting">
+    /// When true, deletes all local models for this provider first, then fetches fresh.
+    /// </param>
+    Task SyncProviderByKeyAsync(
+        string providerKey,
+        bool replaceExisting = false,
         CancellationToken cancellationToken = default);
 }

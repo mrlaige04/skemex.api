@@ -63,11 +63,6 @@ services:
       App__FrontendBaseUrl: ${FRONTEND_BASE_URL}
       Smtp__Username: ${SMTP_USERNAME}
       Smtp__Password: ${SMTP_PASSWORD}
-      Ai__ActiveProvider: Groq
-      Ai__Providers__Groq__ApiKey: ${GROQ_API_KEY}
-      Ai__Providers__Groq__BaseUrl: ${GROQ_BASE_URL:-https://api.groq.com/openai/v1}
-      Ai__Providers__Groq__TimeoutSeconds: ${GROQ_TIMEOUT_SECONDS:-120}
-      Ai__Providers__Groq__Enabled: "true"
     networks:
       - skemex
 
