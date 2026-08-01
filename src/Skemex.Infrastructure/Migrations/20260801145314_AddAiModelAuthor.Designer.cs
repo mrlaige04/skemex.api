@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Skemex.Infrastructure.Data;
@@ -11,9 +12,11 @@ using Skemex.Infrastructure.Data;
 namespace Skemex.Infrastructure.Migrations
 {
     [DbContext(typeof(SkemexDbContext))]
-    partial class SkemexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260801145314_AddAiModelAuthor")]
+    partial class AddAiModelAuthor
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -300,13 +303,8 @@ namespace Skemex.Infrastructure.Migrations
 
                     b.Property<string>("Provider")
                         .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("ProviderName")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -319,54 +317,6 @@ namespace Skemex.Infrastructure.Migrations
                     b.HasIndex("Provider", "IsActive");
 
                     b.ToTable("ai_models", (string)null);
-                });
-
-            modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiProvider", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ApiKeyEncrypted")
-                        .HasMaxLength(4000)
-                        .HasColumnType("character varying(4000)");
-
-                    b.Property<string>("AuthConfigJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("BaseUrl")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Key")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("IsEnabled");
-
-                    b.HasIndex("Key")
-                        .IsUnique();
-
-                    b.ToTable("ai_providers", (string)null);
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.EmailTemplates.EmailTemplate", b =>

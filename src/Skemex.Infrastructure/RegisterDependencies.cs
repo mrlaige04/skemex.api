@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Minio;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -63,114 +64,18 @@ public static class RegisterDependencies
 
     private static void AddAi(IServiceCollection services, IConfiguration configuration)
     {
+        services.AddDataProtection();
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
-        services.PostConfigure<AiOptions>(options =>
-        {
-            EnsureDefaultGroqProvider(options);
-            ApplyGroqApiKeyFromEnvironment(options);
-        });
+        services.AddSingleton<IEncryptService, EncryptService>();
         services.AddScoped<IAiChatService, AiChatService>();
         services.AddScoped<IAiTaskDecompositionService, AiTaskDecompositionService>();
         services.AddScoped<IAiModelCatalogService, AiModelCatalogService>();
-        services.AddSingleton<IAiProviderResolver, AiProviderResolver>();
+        services.AddScoped<IAiProviderResolver, AiProviderResolver>();
 
-        var aiOptions = configuration.GetSection(AiOptions.SectionName).Get<AiOptions>() ?? new AiOptions();
-        EnsureDefaultGroqProvider(aiOptions);
-
-        RegisterProviderIfEnabled(
-            services,
-            aiOptions,
-            AiProviderNames.Groq,
-            defaultBaseUrl: "https://api.groq.com/openai/v1",
-            httpClientName: GroqAiProvider.HttpClientName,
-            register: () => services.AddSingleton<IAiProvider, GroqAiProvider>());
-
-        // Register additional IAiProvider implementations the same way (e.g. OpenRouterAiProvider).
-
-        if (string.IsNullOrWhiteSpace(aiOptions.ActiveProvider))
+        services.AddHttpClient(OpenAiCompatibleAiProvider.HttpClientName, client =>
         {
-            throw new InvalidOperationException("Ai:ActiveProvider is required.");
-        }
-    }
-
-    private static void RegisterProviderIfEnabled(
-        IServiceCollection services,
-        AiOptions aiOptions,
-        string providerName,
-        string defaultBaseUrl,
-        string httpClientName,
-        Action register)
-    {
-        if (!aiOptions.TryGetProvider(providerName, out var providerOptions)
-            || providerOptions is null
-            || !providerOptions.Enabled)
-        {
-            return;
-        }
-
-        var baseUrl = string.IsNullOrWhiteSpace(providerOptions.BaseUrl)
-            ? defaultBaseUrl
-            : providerOptions.BaseUrl.TrimEnd('/');
-
-        if (string.IsNullOrWhiteSpace(providerOptions.BaseUrl))
-        {
-            providerOptions.BaseUrl = defaultBaseUrl;
-        }
-
-        var timeoutSeconds = providerOptions.TimeoutSeconds > 0
-            ? providerOptions.TimeoutSeconds
-            : 120;
-
-        services.AddHttpClient(httpClientName, client =>
-        {
-            client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
-            client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            client.Timeout = TimeSpan.FromSeconds(120);
         });
-
-        register();
-    }
-
-    /// <summary>
-    /// Seeds Groq defaults when <c>Ai:Providers</c> is empty so local/dev configs stay minimal.
-    /// </summary>
-    private static void EnsureDefaultGroqProvider(AiOptions options)
-    {
-        options.Providers ??= new Dictionary<string, AiProviderOptions>(StringComparer.OrdinalIgnoreCase);
-
-        if (options.Providers.Count > 0)
-        {
-            return;
-        }
-
-        options.Providers[AiProviderNames.Groq] = new AiProviderOptions
-        {
-            ApiKey = string.Empty,
-            BaseUrl = "https://api.groq.com/openai/v1",
-            TimeoutSeconds = 120,
-            Enabled = true,
-        };
-    }
-
-    /// <summary>
-    /// Allows <c>GROQ_API_KEY</c> env / .env to fill <c>Ai:Providers:Groq:ApiKey</c> when unset.
-    /// </summary>
-    private static void ApplyGroqApiKeyFromEnvironment(AiOptions options)
-    {
-        if (!options.TryGetProvider(AiProviderNames.Groq, out var groq) || groq is null)
-        {
-            return;
-        }
-
-        if (!string.IsNullOrWhiteSpace(groq.ApiKey))
-        {
-            return;
-        }
-
-        var fromEnv = Environment.GetEnvironmentVariable("GROQ_API_KEY");
-        if (!string.IsNullOrWhiteSpace(fromEnv))
-        {
-            groq.ApiKey = fromEnv.Trim();
-        }
     }
 
     private static void AddStorage(IServiceCollection services, IConfiguration configuration)

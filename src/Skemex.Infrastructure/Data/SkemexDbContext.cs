@@ -26,6 +26,7 @@ public class SkemexDbContext(DbContextOptions<SkemexDbContext> options) : Identi
     public DbSet<AiChat> AiChats { get; set; } = null!;
     public DbSet<AiChatMessage> AiChatMessages { get; set; } = null!;
     public DbSet<AiModel> AiModels { get; set; } = null!;
+    public DbSet<AiProvider> AiProviders { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

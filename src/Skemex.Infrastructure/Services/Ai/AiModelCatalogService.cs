@@ -7,11 +7,12 @@ using Skemex.Domain.Repositories.Abstractions;
 namespace Skemex.Infrastructure.Services.Ai;
 
 /// <summary>
-/// Syncs remote catalogs from all enabled <see cref="IAiProvider"/>s into <c>ai_models</c>.
+/// Syncs remote catalogs from all enabled DB AI providers into <c>ai_models</c>.
 /// </summary>
 public sealed class AiModelCatalogService(
     IAiProviderResolver providerResolver,
     IBaseRepository<AiModel> modelRepository,
+    IBaseRepository<AiProvider> providerRepository,
     ILogger<AiModelCatalogService> logger) : IAiModelCatalogService
 {
     private static readonly TimeSpan SyncTtl = TimeSpan.FromMinutes(30);
@@ -43,20 +44,112 @@ public sealed class AiModelCatalogService(
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
+        var providers = await providerRepository
+            .GetAllAsync(cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+
+        var enabledKeys = providers
+            .Where(provider => provider.IsEnabled)
+            .Select(provider => provider.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var nameByKey = providers.ToDictionary(
+            provider => provider.Key,
+            provider => provider.Name,
+            StringComparer.OrdinalIgnoreCase);
+
         return models
-            .OrderBy(model => model.Provider, StringComparer.OrdinalIgnoreCase)
+            .Where(model => enabledKeys.Contains(model.Provider))
+            .OrderBy(model =>
+                nameByKey.TryGetValue(model.Provider, out var liveName) && !string.IsNullOrWhiteSpace(liveName)
+                    ? liveName
+                    : FirstNonEmpty(model.ProviderName, model.Provider),
+                StringComparer.OrdinalIgnoreCase)
             .ThenBy(model => model.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .Select(AiModelDto.FromEntity)
+            .Select(model =>
+                AiModelDto.FromEntity(
+                    model,
+                    nameByKey.TryGetValue(model.Provider, out var liveName) ? liveName : null))
             .ToList();
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return string.Empty;
+    }
+
+    public async Task SyncProviderByKeyAsync(
+        string providerKey,
+        bool replaceExisting = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(providerKey))
+        {
+            return;
+        }
+
+        var key = providerKey.Trim();
+        var provider = await providerResolver
+            .TryGetByKeyAsync(key, requireEnabled: false, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (provider is null)
+        {
+            logger.LogWarning("Cannot sync models: AI provider '{Provider}' was not found.", providerKey);
+            return;
+        }
+
+        try
+        {
+            if (replaceExisting)
+            {
+                await DeleteProviderModelsAsync(key, cancellationToken).ConfigureAwait(false);
+            }
+
+            await SyncProviderAsync(provider, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to sync AI models from provider {Provider}.",
+                provider.Name);
+            throw;
+        }
+    }
+
+    private async Task DeleteProviderModelsAsync(string providerKey, CancellationToken cancellationToken)
+    {
+        var existing = await modelRepository
+            .GetAllAsync(
+                filter: model => model.Provider == providerKey,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+
+        if (existing.Count > 0)
+        {
+            await modelRepository.DeleteRangeAsync(existing, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task SyncAllProvidersAsync(CancellationToken cancellationToken)
     {
-        var providers = providerResolver.GetAllEnabled();
+        var providers = await providerResolver
+            .GetAllEnabledAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         if (providers.Count == 0)
         {
             logger.LogWarning(
-                "No enabled AI providers are configured under Ai:Providers; returning local catalog only.");
+                "No enabled AI providers in the database; returning local catalog only.");
             MarkSynced();
             return;
         }
@@ -69,7 +162,6 @@ public sealed class AiModelCatalogService(
             }
             catch (Exception ex)
             {
-                // Listing models must not 500 the API when a key is missing or the vendor is down.
                 logger.LogWarning(
                     ex,
                     "Failed to sync AI models from provider {Provider}. Returning local catalog.",
@@ -111,8 +203,9 @@ public sealed class AiModelCatalogService(
             seen.Add(remoteModel.ExternalId);
             if (byExternalId.TryGetValue(remoteModel.ExternalId, out var model))
             {
-                model.IsActive = true;
-                model.DisplayName = remoteModel.DisplayName;
+                // Preserve SA-managed DisplayName and IsActive.
+                model.ProviderName = provider.DisplayName;
+                model.Author = remoteModel.Author;
                 model.IconKey = remoteModel.IconKey;
                 model.UpdatedAt = DateTime.UtcNow;
                 await modelRepository.UpdateAsync(model, cancellationToken).ConfigureAwait(false);
@@ -125,8 +218,10 @@ public sealed class AiModelCatalogService(
                         {
                             Id = Guid.NewGuid(),
                             Provider = provider.Name,
+                            ProviderName = provider.DisplayName,
                             ExternalId = remoteModel.ExternalId,
                             DisplayName = remoteModel.DisplayName,
+                            Author = remoteModel.Author,
                             IconKey = remoteModel.IconKey,
                             IsActive = true,
                         },

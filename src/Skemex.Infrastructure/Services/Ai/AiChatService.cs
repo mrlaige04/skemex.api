@@ -29,7 +29,9 @@ public sealed class AiChatService(
         var modelExternalId = request.Model.Trim();
         var providerName = await ResolveProviderNameAsync(modelExternalId, cancellationToken)
             .ConfigureAwait(false);
-        var provider = providerResolver.GetRequired(providerName);
+        var provider = await providerResolver
+            .GetRequiredAsync(providerName, cancellationToken)
+            .ConfigureAwait(false);
 
         return await provider
             .CompleteAsync(
@@ -64,6 +66,12 @@ public sealed class AiChatService(
             return catalogEntry.Provider;
         }
 
-        return aiOptions.Value.ActiveProvider;
+        if (!string.IsNullOrWhiteSpace(aiOptions.Value.ActiveProvider))
+        {
+            return aiOptions.Value.ActiveProvider.Trim();
+        }
+
+        var active = await providerResolver.GetActiveAsync(cancellationToken).ConfigureAwait(false);
+        return active.Name;
     }
 }
