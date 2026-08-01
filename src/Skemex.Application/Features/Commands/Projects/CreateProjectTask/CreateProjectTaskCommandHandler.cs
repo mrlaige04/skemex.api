@@ -78,11 +78,14 @@ public sealed class CreateProjectTaskCommandHandler(
 
         if (request.ParentId is not null)
         {
-            var parentValidation = await ValidateParentAsync(request, columnId, cancellationToken);
+            var parentValidation = await ValidateParentAsync(request, cancellationToken);
             if (parentValidation.IsError)
             {
                 return parentValidation.Errors;
             }
+
+            // New subtasks start on the parent's column; they can move independently later.
+            columnId = parentValidation.Value.ProjectColumnId;
         }
 
         await using var transaction = await projectTaskRepository.BeginTransactionAsync(cancellationToken);
@@ -162,7 +165,6 @@ public sealed class CreateProjectTaskCommandHandler(
 
     private async Task<ErrorOr<ProjectTask>> ValidateParentAsync(
         CreateProjectTaskCommand request,
-        Guid columnId,
         CancellationToken cancellationToken)
     {
         var parent = await projectTaskRepository.GetAsync(
@@ -171,13 +173,6 @@ public sealed class CreateProjectTaskCommandHandler(
         if (parent is null)
         {
             return Error.NotFound("ProjectTask.ParentNotFound", "Parent task was not found.");
-        }
-
-        if (parent.ProjectColumnId != columnId)
-        {
-            return Error.Validation(
-                "ProjectTask.ParentColumnMismatch",
-                "Subtasks must use the same column as their parent task.");
         }
 
         return parent;

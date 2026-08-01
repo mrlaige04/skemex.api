@@ -3,15 +3,24 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Skemex.Domain.Services;
 using Skemex.Infrastructure.Authentication;
+using Skemex.Infrastructure.Services;
 
 namespace Skemex.Web.Services;
 
+/// <summary>
+/// Resolves current user from HTTP claims, with AmbientUserContext override for Hangfire jobs.
+/// </summary>
 public class HttpContextCurrentUser(IHttpContextAccessor httpContextAccessor) : ICurrentUser
 {
     private ClaimsPrincipal? User => httpContextAccessor.HttpContext?.User;
 
     public Guid? GetTenantId()
     {
+        if (AmbientUserContext.TenantId is { } ambientTenantId)
+        {
+            return ambientTenantId;
+        }
+
         var value = User?.FindFirstValue(CustomClaims.TenantId);
         if (string.IsNullOrEmpty(value))
         {
@@ -23,6 +32,11 @@ public class HttpContextCurrentUser(IHttpContextAccessor httpContextAccessor) : 
 
     public Guid? GetUserId()
     {
+        if (AmbientUserContext.UserId is { } ambientUserId)
+        {
+            return ambientUserId;
+        }
+
         var value = User?.FindFirstValue(JwtRegisteredClaimNames.Sub)
             ?? User?.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(value))
@@ -51,6 +65,7 @@ public class HttpContextCurrentUser(IHttpContextAccessor httpContextAccessor) : 
 
     public void SetTenantId(Guid? tenantId)
     {
+        // HTTP path is claim-based; ambient override is set via AmbientUserContext.Use in jobs.
     }
 
     public bool IsSuperAdmin()

@@ -32,6 +32,45 @@ services:
     networks:
       - skemex
 
+  # Local LLM for AI task decomposition. Reachable from api as http://ollama:11434
+  # (see appsettings.Production.json / Ai__Ollama__BaseUrl).
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - skemex_ollama:/root/.ollama
+    # Uncomment to call Ollama from the host (e.g. local debugging):
+    # ports:
+    #   - "11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    networks:
+      - skemex
+
+  # One-shot: wait for Ollama, then ensure the configured model is pulled.
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "Pulling Ollama model $$OLLAMA_MODEL..."
+        ollama pull "$$OLLAMA_MODEL"
+        echo "Model $$OLLAMA_MODEL is ready."
+    networks:
+      - skemex
+    restart: "no"
+
   api:
     build:
       context: .
@@ -42,6 +81,10 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     ports:
       - "8080:8080"
     environment:
@@ -63,6 +106,11 @@ services:
       App__FrontendBaseUrl: ${FRONTEND_BASE_URL}
       Smtp__Username: ${SMTP_USERNAME}
       Smtp__Password: ${SMTP_PASSWORD}
+      # Overrides appsettings.Production.json (defaults match compose service DNS).
+      Ai__Provider: Ollama
+      Ai__DefaultModel: ${OLLAMA_MODEL:-llama3}
+      Ai__Ollama__BaseUrl: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      Ai__Ollama__TimeoutSeconds: ${OLLAMA_TIMEOUT_SECONDS:-600}
     networks:
       - skemex
 
@@ -74,3 +122,4 @@ networks:
 volumes:
   skemex_pgdata:
   skemex_minio:
+  skemex_ollama:

@@ -1,3 +1,4 @@
+using Hangfire;
 using Scalar.AspNetCore;
 using Skemex.Application;
 using Skemex.Infrastructure;
@@ -25,6 +26,11 @@ app.UseRouting();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseHangfireDashboard("/hangfire");
+}
 
 app.MapControllers();
 app.MapGet("ping", () => "Hello World!");

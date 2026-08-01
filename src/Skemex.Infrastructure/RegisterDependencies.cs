@@ -1,15 +1,20 @@
 using System.IdentityModel.Tokens.Jwt;
+using Hangfire;
+using Hangfire.PostgreSql;
 using Minio;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using OllamaSharp;
 using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Services;
+using Skemex.Application.Services.Ai;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories;
@@ -21,6 +26,7 @@ using Skemex.Infrastructure.Data;
 using Skemex.Infrastructure.Data.Interceptors;
 using Skemex.Infrastructure.Email;
 using Skemex.Infrastructure.Services;
+using Skemex.Infrastructure.Services.Ai;
 using Skemex.Infrastructure.Storage;
 
 namespace Skemex.Infrastructure;
@@ -31,6 +37,7 @@ public static class RegisterDependencies
     {
         AddDatabase(services, configuration);
         AddStorage(services, configuration);
+        AddAi(services, configuration);
         AddAppAuthentication(services, configuration);
         AddBackgroundJobs(services, configuration);
         AddEmailing(services, configuration);
@@ -52,6 +59,46 @@ public static class RegisterDependencies
                 .WithScopedLifetime());
 
         return services;
+    }
+
+    private static void AddAi(IServiceCollection services, IConfiguration configuration)
+    {
+        services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
+        services.AddScoped<IAiChatService, AiChatService>();
+        services.AddScoped<IAiTaskDecompositionService, AiTaskDecompositionService>();
+
+        services.AddSingleton<IChatClient>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<AiOptions>>().Value;
+            if (!string.Equals(options.Provider, AiProviderNames.Ollama, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Ai:Provider '{options.Provider}' is not supported. Use '{AiProviderNames.Ollama}'.");
+            }
+
+            if (string.IsNullOrWhiteSpace(options.Ollama.BaseUrl))
+            {
+                throw new InvalidOperationException("Ai:Ollama:BaseUrl is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(options.DefaultModel))
+            {
+                throw new InvalidOperationException("Ai:DefaultModel is required.");
+            }
+
+            var timeoutSeconds = options.Ollama.TimeoutSeconds > 0
+                ? options.Ollama.TimeoutSeconds
+                : 600;
+
+            var baseUri = options.Ollama.BaseUrl.TrimEnd('/') + "/";
+            var httpClient = new HttpClient
+            {
+                BaseAddress = new Uri(baseUri),
+                Timeout = TimeSpan.FromSeconds(timeoutSeconds),
+            };
+
+            return new OllamaApiClient(httpClient, options.DefaultModel);
+        });
     }
 
     private static void AddStorage(IServiceCollection services, IConfiguration configuration)
@@ -218,6 +265,20 @@ public static class RegisterDependencies
 
     private static void AddBackgroundJobs(IServiceCollection services, IConfiguration configuration)
     {
+        var connectionString = configuration.GetConnectionString("Default");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException(
+                "ConnectionStrings:Default is required to configure Hangfire.");
+        }
+
+        services.AddHangfire(config => config
+            .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+            .UseSimpleAssemblyNameTypeSerializer()
+            .UseRecommendedSerializerSettings()
+            .UsePostgreSqlStorage(options => options.UseNpgsqlConnection(connectionString)));
+
+        services.AddHangfireServer();
     }
 
     private static void AddEmailing(IServiceCollection services, IConfiguration configuration)

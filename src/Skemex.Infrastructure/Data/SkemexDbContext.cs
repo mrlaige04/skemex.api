@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Entities.EmailTemplates;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Entities.Users;
@@ -21,6 +22,9 @@ public class SkemexDbContext(DbContextOptions<SkemexDbContext> options) : Identi
     public DbSet<ProjectDocument> ProjectDocuments { get; set; } = null!;
     public DbSet<ProjectTaskCounter> ProjectTaskCounters { get; set; } = null!;
     public DbSet<ProjectSettings> ProjectSettings { get; set; } = null!;
+    public DbSet<AiDecompositionJob> AiDecompositionJobs { get; set; } = null!;
+    public DbSet<AiChat> AiChats { get; set; } = null!;
+    public DbSet<AiChatMessage> AiChatMessages { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
