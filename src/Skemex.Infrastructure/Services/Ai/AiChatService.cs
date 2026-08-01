@@ -1,13 +1,16 @@
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using Skemex.Application.Configuration;
 using Skemex.Application.Models.Ai;
 using Skemex.Application.Services.Ai;
+using Skemex.Domain.Entities.Ai;
+using Skemex.Domain.Repositories.Abstractions;
 
 namespace Skemex.Infrastructure.Services.Ai;
 
 public sealed class AiChatService(
-    IChatClient chatClient,
+    IAiProviderResolver providerResolver,
+    IAiModelCatalogService modelCatalog,
+    IBaseRepository<AiModel> modelRepository,
     IOptions<AiOptions> aiOptions) : IAiChatService
 {
     public async Task<AiChatResult> CompleteAsync(
@@ -17,21 +20,50 @@ public sealed class AiChatService(
         ArgumentException.ThrowIfNullOrWhiteSpace(request.SystemPrompt);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.UserPrompt);
 
-        var model = string.IsNullOrWhiteSpace(request.Model)
-            ? aiOptions.Value.DefaultModel
-            : request.Model.Trim();
-
-        var messages = new List<ChatMessage>
+        if (string.IsNullOrWhiteSpace(request.Model))
         {
-            new(ChatRole.System, request.SystemPrompt),
-            new(ChatRole.User, request.UserPrompt),
-        };
+            throw new InvalidOperationException(
+                "No AI model selected. Set a default model in project AI settings, or pick a model for this chat.");
+        }
 
-        var options = new ChatOptions { ModelId = model };
-        var response = await chatClient
-            .GetResponseAsync(messages, options, cancellationToken)
+        var modelExternalId = request.Model.Trim();
+        var providerName = await ResolveProviderNameAsync(modelExternalId, cancellationToken)
+            .ConfigureAwait(false);
+        var provider = providerResolver.GetRequired(providerName);
+
+        return await provider
+            .CompleteAsync(
+                new AiChatRequest
+                {
+                    SystemPrompt = request.SystemPrompt,
+                    UserPrompt = request.UserPrompt,
+                    Model = modelExternalId,
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public Task<IReadOnlyList<AiModelDto>> ListModelsAsync(
+        bool forceRefresh = false,
+        CancellationToken cancellationToken = default) =>
+        modelCatalog.ListAsync(forceRefresh, cancellationToken);
+
+    private async Task<string> ResolveProviderNameAsync(
+        string modelExternalId,
+        CancellationToken cancellationToken)
+    {
+        var catalogEntry = await modelRepository
+            .GetAsync(
+                filter: model =>
+                    model.ExternalId == modelExternalId && model.IsActive,
+                cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
-        return new AiChatResult { Text = response.Text ?? string.Empty };
+        if (!string.IsNullOrWhiteSpace(catalogEntry?.Provider))
+        {
+            return catalogEntry.Provider;
+        }
+
+        return aiOptions.Value.ActiveProvider;
     }
 }

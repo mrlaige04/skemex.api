@@ -1,4 +1,5 @@
 using ErrorOr;
+using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Ai;
 using Skemex.Application.Services.Ai;
@@ -13,7 +14,9 @@ public sealed class CreateAiChatCommandHandler(
     ICurrentUser currentUser,
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectUser> projectUserRepository,
-    ITenantRepository<AiChat> chatRepository)
+    ITenantRepository<ProjectSettings> projectSettingsRepository,
+    ITenantRepository<AiChat> chatRepository,
+    IBaseRepository<AiModel> aiModelRepository)
     : ICommandHandler<CreateAiChatCommand, AiChatDto>
 {
     public async Task<ErrorOr<AiChatDto>> Handle(
@@ -31,6 +34,26 @@ public sealed class CreateAiChatCommandHandler(
             return access.Errors;
         }
 
+        Guid? modelId = request.AiModelId;
+        if (modelId is null)
+        {
+            var settings = await projectSettingsRepository.GetAsync(
+                filter: entry => entry.ProjectId == request.ProjectId,
+                cancellationToken: cancellationToken);
+            modelId = settings?.DefaultAiModelId;
+        }
+
+        if (modelId is { } selectedModelId)
+        {
+            var modelExists = await aiModelRepository.ExistsAsync(
+                filter: model => model.Id == selectedModelId && model.IsActive,
+                cancellationToken: cancellationToken);
+            if (!modelExists)
+            {
+                return Error.NotFound("AiModel.NotFound", "AI model was not found.");
+            }
+        }
+
         var title = string.IsNullOrWhiteSpace(request.Title)
             ? "New chat"
             : request.Title.Trim();
@@ -42,9 +65,16 @@ public sealed class CreateAiChatCommandHandler(
             ProjectId = request.ProjectId,
             CreatedByUserId = access.Value.UserId,
             Title = title,
+            AiModelId = modelId,
         };
 
         await chatRepository.AddAsync(chat, cancellationToken);
-        return AiChatDto.FromEntity(chat);
+
+        var created = await chatRepository.GetAsync(
+            filter: entry => entry.Id == chat.Id,
+            include: query => query.Include(entry => entry.AiModel),
+            cancellationToken: cancellationToken);
+
+        return AiChatDto.FromEntity(created ?? chat);
     }
 }

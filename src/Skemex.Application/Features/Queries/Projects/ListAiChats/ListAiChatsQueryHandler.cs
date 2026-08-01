@@ -1,4 +1,5 @@
 using ErrorOr;
+using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Ai;
 using Skemex.Application.Services.Ai;
@@ -35,6 +36,7 @@ public sealed class ListAiChatsQueryHandler(
             filter: chat =>
                 chat.ProjectId == request.ProjectId && chat.CreatedByUserId == access.Value.UserId,
             include: query => query
+                .Include(chat => chat.AiModel)
                 .OrderByDescending(chat => chat.UpdatedAt ?? chat.CreatedAt)
                 .ThenByDescending(chat => chat.CreatedAt),
             cancellationToken: cancellationToken);

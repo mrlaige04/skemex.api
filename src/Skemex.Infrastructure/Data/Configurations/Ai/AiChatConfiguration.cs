@@ -27,5 +27,11 @@ public class AiChatConfiguration : IEntityTypeConfiguration<AiChat>
             .WithMany()
             .HasForeignKey(chat => chat.CreatedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(chat => chat.AiModel)
+            .WithMany()
+            .HasForeignKey(chat => chat.AiModelId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

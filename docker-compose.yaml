@@ -32,47 +32,6 @@ services:
     networks:
       - skemex
 
-  ollama:
-    image: ollama/ollama:latest
-    restart: unless-stopped
-    environment:
-      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-5m}
-      OLLAMA_MAX_LOADED_MODELS: "1"
-      OLLAMA_NUM_PARALLEL: "1"
-    volumes:
-      - skemex_ollama:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 10s
-      retries: 12
-      start_period: 20s
-    networks:
-      - skemex
-
-  ollama-init:
-    image: ollama/ollama:latest
-    depends_on:
-      ollama:
-        condition: service_healthy
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        set -e
-        if ollama show "$$OLLAMA_MODEL" >/dev/null 2>&1; then
-          echo "Model $$OLLAMA_MODEL already present — skipping pull."
-        else
-          echo "Pulling Ollama model $$OLLAMA_MODEL..."
-          ollama pull "$$OLLAMA_MODEL"
-        fi
-        echo "Model $$OLLAMA_MODEL is ready."
-    networks:
-      - skemex
-    restart: "no"
-
   api:
     build:
       context: .
@@ -83,10 +42,6 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
-      ollama:
-        condition: service_healthy
-      ollama-init:
-        condition: service_completed_successfully
     ports:
       - "8080:8080"
     environment:
@@ -108,10 +63,11 @@ services:
       App__FrontendBaseUrl: ${FRONTEND_BASE_URL}
       Smtp__Username: ${SMTP_USERNAME}
       Smtp__Password: ${SMTP_PASSWORD}
-      Ai__Provider: Ollama
-      Ai__DefaultModel: ${OLLAMA_MODEL:-llama3.2:1b}
-      Ai__Ollama__BaseUrl: ${OLLAMA_BASE_URL:-http://ollama:11434}
-      Ai__Ollama__TimeoutSeconds: ${OLLAMA_TIMEOUT_SECONDS:-600}
+      Ai__ActiveProvider: Groq
+      Ai__Providers__Groq__ApiKey: ${GROQ_API_KEY}
+      Ai__Providers__Groq__BaseUrl: ${GROQ_BASE_URL:-https://api.groq.com/openai/v1}
+      Ai__Providers__Groq__TimeoutSeconds: ${GROQ_TIMEOUT_SECONDS:-120}
+      Ai__Providers__Groq__Enabled: "true"
     networks:
       - skemex
 
@@ -123,4 +79,3 @@ networks:
 volumes:
   skemex_pgdata:
   skemex_minio:
-  skemex_ollama:

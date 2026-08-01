@@ -6,11 +6,10 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using OllamaSharp;
 using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Services;
@@ -27,6 +26,7 @@ using Skemex.Infrastructure.Data.Interceptors;
 using Skemex.Infrastructure.Email;
 using Skemex.Infrastructure.Services;
 using Skemex.Infrastructure.Services.Ai;
+using Skemex.Infrastructure.Services.Ai.Providers;
 using Skemex.Infrastructure.Storage;
 
 namespace Skemex.Infrastructure;
@@ -64,41 +64,113 @@ public static class RegisterDependencies
     private static void AddAi(IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
+        services.PostConfigure<AiOptions>(options =>
+        {
+            EnsureDefaultGroqProvider(options);
+            ApplyGroqApiKeyFromEnvironment(options);
+        });
         services.AddScoped<IAiChatService, AiChatService>();
         services.AddScoped<IAiTaskDecompositionService, AiTaskDecompositionService>();
+        services.AddScoped<IAiModelCatalogService, AiModelCatalogService>();
+        services.AddSingleton<IAiProviderResolver, AiProviderResolver>();
 
-        services.AddSingleton<IChatClient>(sp =>
+        var aiOptions = configuration.GetSection(AiOptions.SectionName).Get<AiOptions>() ?? new AiOptions();
+        EnsureDefaultGroqProvider(aiOptions);
+
+        RegisterProviderIfEnabled(
+            services,
+            aiOptions,
+            AiProviderNames.Groq,
+            defaultBaseUrl: "https://api.groq.com/openai/v1",
+            httpClientName: GroqAiProvider.HttpClientName,
+            register: () => services.AddSingleton<IAiProvider, GroqAiProvider>());
+
+        // Register additional IAiProvider implementations the same way (e.g. OpenRouterAiProvider).
+
+        if (string.IsNullOrWhiteSpace(aiOptions.ActiveProvider))
         {
-            var options = sp.GetRequiredService<IOptions<AiOptions>>().Value;
-            if (!string.Equals(options.Provider, AiProviderNames.Ollama, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException(
-                    $"Ai:Provider '{options.Provider}' is not supported. Use '{AiProviderNames.Ollama}'.");
-            }
+            throw new InvalidOperationException("Ai:ActiveProvider is required.");
+        }
+    }
 
-            if (string.IsNullOrWhiteSpace(options.Ollama.BaseUrl))
-            {
-                throw new InvalidOperationException("Ai:Ollama:BaseUrl is required.");
-            }
+    private static void RegisterProviderIfEnabled(
+        IServiceCollection services,
+        AiOptions aiOptions,
+        string providerName,
+        string defaultBaseUrl,
+        string httpClientName,
+        Action register)
+    {
+        if (!aiOptions.TryGetProvider(providerName, out var providerOptions)
+            || providerOptions is null
+            || !providerOptions.Enabled)
+        {
+            return;
+        }
 
-            if (string.IsNullOrWhiteSpace(options.DefaultModel))
-            {
-                throw new InvalidOperationException("Ai:DefaultModel is required.");
-            }
+        var baseUrl = string.IsNullOrWhiteSpace(providerOptions.BaseUrl)
+            ? defaultBaseUrl
+            : providerOptions.BaseUrl.TrimEnd('/');
 
-            var timeoutSeconds = options.Ollama.TimeoutSeconds > 0
-                ? options.Ollama.TimeoutSeconds
-                : 600;
+        if (string.IsNullOrWhiteSpace(providerOptions.BaseUrl))
+        {
+            providerOptions.BaseUrl = defaultBaseUrl;
+        }
 
-            var baseUri = options.Ollama.BaseUrl.TrimEnd('/') + "/";
-            var httpClient = new HttpClient
-            {
-                BaseAddress = new Uri(baseUri),
-                Timeout = TimeSpan.FromSeconds(timeoutSeconds),
-            };
+        var timeoutSeconds = providerOptions.TimeoutSeconds > 0
+            ? providerOptions.TimeoutSeconds
+            : 120;
 
-            return new OllamaApiClient(httpClient, options.DefaultModel);
+        services.AddHttpClient(httpClientName, client =>
+        {
+            client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
         });
+
+        register();
+    }
+
+    /// <summary>
+    /// Seeds Groq defaults when <c>Ai:Providers</c> is empty so local/dev configs stay minimal.
+    /// </summary>
+    private static void EnsureDefaultGroqProvider(AiOptions options)
+    {
+        options.Providers ??= new Dictionary<string, AiProviderOptions>(StringComparer.OrdinalIgnoreCase);
+
+        if (options.Providers.Count > 0)
+        {
+            return;
+        }
+
+        options.Providers[AiProviderNames.Groq] = new AiProviderOptions
+        {
+            ApiKey = string.Empty,
+            BaseUrl = "https://api.groq.com/openai/v1",
+            TimeoutSeconds = 120,
+            Enabled = true,
+        };
+    }
+
+    /// <summary>
+    /// Allows <c>GROQ_API_KEY</c> env / .env to fill <c>Ai:Providers:Groq:ApiKey</c> when unset.
+    /// </summary>
+    private static void ApplyGroqApiKeyFromEnvironment(AiOptions options)
+    {
+        if (!options.TryGetProvider(AiProviderNames.Groq, out var groq) || groq is null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(groq.ApiKey))
+        {
+            return;
+        }
+
+        var fromEnv = Environment.GetEnvironmentVariable("GROQ_API_KEY");
+        if (!string.IsNullOrWhiteSpace(fromEnv))
+        {
+            groq.ApiKey = fromEnv.Trim();
+        }
     }
 
     private static void AddStorage(IServiceCollection services, IConfiguration configuration)

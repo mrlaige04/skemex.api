@@ -7,5 +7,7 @@ public sealed class UpdateAiChatCommand : ICommand<AiChatSummaryDto>
 {
     public Guid ProjectId { get; init; }
     public Guid ChatId { get; init; }
-    public required string Title { get; init; }
+    public string? Title { get; init; }
+    public Guid? AiModelId { get; init; }
+    public bool ClearAiModel { get; init; }
 }

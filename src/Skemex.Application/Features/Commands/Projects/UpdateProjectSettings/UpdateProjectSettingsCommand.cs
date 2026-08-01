@@ -15,4 +15,10 @@ public sealed class UpdateProjectSettingsCommand : ICommand<ProjectSettingsDto>
 
     /// <summary>When set, updates AI task-tree max node count (1–64).</summary>
     public int? AiMaxNodes { get; set; }
+
+    /// <summary>When set, updates the default AI model for new chats.</summary>
+    public Guid? DefaultAiModelId { get; set; }
+
+    /// <summary>When true, clears the project default AI model.</summary>
+    public bool ClearDefaultAiModel { get; set; }
 }

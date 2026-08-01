@@ -116,6 +116,9 @@ namespace Skemex.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("AiModelId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -137,6 +140,8 @@ namespace Skemex.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AiModelId");
 
                     b.HasIndex("CreatedByUserId");
 
@@ -261,6 +266,50 @@ namespace Skemex.Infrastructure.Migrations
                     b.HasIndex("TenantId", "ProjectId");
 
                     b.ToTable("ai_decomposition_jobs", (string)null);
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiModel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("ExternalId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("IconKey")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Provider", "ExternalId")
+                        .IsUnique();
+
+                    b.HasIndex("Provider", "IsActive");
+
+                    b.ToTable("ai_models", (string)null);
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.EmailTemplates.EmailTemplate", b =>
@@ -452,12 +501,6 @@ namespace Skemex.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("DefaultTaskColumnId")
-                        .HasColumnType("uuid");
-
                     b.Property<int>("AiMaxNodes")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -467,6 +510,15 @@ namespace Skemex.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(2);
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DefaultAiModelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DefaultTaskColumnId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
@@ -478,6 +530,8 @@ namespace Skemex.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DefaultAiModelId");
 
                     b.HasIndex("DefaultTaskColumnId");
 
@@ -1044,6 +1098,11 @@ namespace Skemex.Infrastructure.Migrations
 
             modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiChat", b =>
                 {
+                    b.HasOne("Skemex.Domain.Entities.Ai.AiModel", "AiModel")
+                        .WithMany()
+                        .HasForeignKey("AiModelId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Skemex.Domain.Entities.Users.User", "CreatedByUser")
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")
@@ -1055,6 +1114,8 @@ namespace Skemex.Infrastructure.Migrations
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("AiModel");
 
                     b.Navigation("CreatedByUser");
 
@@ -1169,6 +1230,11 @@ namespace Skemex.Infrastructure.Migrations
 
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectSettings", b =>
                 {
+                    b.HasOne("Skemex.Domain.Entities.Ai.AiModel", "DefaultAiModel")
+                        .WithMany()
+                        .HasForeignKey("DefaultAiModelId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Skemex.Domain.Entities.Projects.ProjectColumn", "DefaultTaskColumn")
                         .WithMany()
                         .HasForeignKey("DefaultTaskColumnId")
@@ -1180,6 +1246,8 @@ namespace Skemex.Infrastructure.Migrations
                         .HasForeignKey("Skemex.Domain.Entities.Projects.ProjectSettings", "ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("DefaultAiModel");
 
                     b.Navigation("DefaultTaskColumn");
 
