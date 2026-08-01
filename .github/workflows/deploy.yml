@@ -70,8 +70,6 @@ jobs:
         if: failure()
         run: docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" logs --no-color api
 
-      # Disk is tight on the self-hosted runner (~38G). BuildKit cache was the main hog.
-      # Safe only: does NOT remove volumes, running containers, or tagged images in use.
       - name: Prune Docker build cache
         if: always()
         run: |

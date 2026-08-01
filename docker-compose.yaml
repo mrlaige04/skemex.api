@@ -32,16 +32,15 @@ services:
     networks:
       - skemex
 
-  # Local LLM for AI task decomposition. Reachable from api as http://ollama:11434
-  # (see appsettings.Production.json / Ai__Ollama__BaseUrl).
   ollama:
     image: ollama/ollama:latest
     restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-5m}
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
     volumes:
       - skemex_ollama:/root/.ollama
-    # Uncomment to call Ollama from the host (e.g. local debugging):
-    # ports:
-    #   - "11434:11434"
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
@@ -51,7 +50,6 @@ services:
     networks:
       - skemex
 
-  # One-shot: wait for Ollama, then ensure the configured model is pulled.
   ollama-init:
     image: ollama/ollama:latest
     depends_on:
@@ -59,13 +57,17 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         set -e
-        echo "Pulling Ollama model $$OLLAMA_MODEL..."
-        ollama pull "$$OLLAMA_MODEL"
+        if ollama show "$$OLLAMA_MODEL" >/dev/null 2>&1; then
+          echo "Model $$OLLAMA_MODEL already present — skipping pull."
+        else
+          echo "Pulling Ollama model $$OLLAMA_MODEL..."
+          ollama pull "$$OLLAMA_MODEL"
+        fi
         echo "Model $$OLLAMA_MODEL is ready."
     networks:
       - skemex
@@ -106,9 +108,8 @@ services:
       App__FrontendBaseUrl: ${FRONTEND_BASE_URL}
       Smtp__Username: ${SMTP_USERNAME}
       Smtp__Password: ${SMTP_PASSWORD}
-      # Overrides appsettings.Production.json (defaults match compose service DNS).
       Ai__Provider: Ollama
-      Ai__DefaultModel: ${OLLAMA_MODEL:-llama3}
+      Ai__DefaultModel: ${OLLAMA_MODEL:-llama3.2:1b}
       Ai__Ollama__BaseUrl: ${OLLAMA_BASE_URL:-http://ollama:11434}
       Ai__Ollama__TimeoutSeconds: ${OLLAMA_TIMEOUT_SECONDS:-600}
     networks:
