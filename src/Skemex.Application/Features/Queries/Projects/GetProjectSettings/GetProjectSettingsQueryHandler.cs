@@ -38,10 +38,6 @@ public sealed class GetProjectSettingsQueryHandler(
             return Error.NotFound("ProjectSettings.NotFound", "Project settings were not found.");
         }
 
-        return new ProjectSettingsDto
-        {
-            ProjectId = settings.ProjectId,
-            DefaultTaskColumnId = settings.DefaultTaskColumnId,
-        };
+        return ProjectSettingsDto.FromEntity(settings);
     }
 }

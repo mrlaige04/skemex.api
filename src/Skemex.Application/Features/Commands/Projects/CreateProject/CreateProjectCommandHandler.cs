@@ -144,6 +144,8 @@ public sealed class CreateProjectCommandHandler(
                 TenantId = tenantId.Value,
                 ProjectId = projectId,
                 DefaultTaskColumnId = defaultColumn.Id,
+                AiMaxTreeDepth = 2,
+                AiMaxNodes = 16,
             },
         };
 

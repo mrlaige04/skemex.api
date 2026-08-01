@@ -25,53 +25,8 @@ public sealed partial class AiTaskDecompositionService(
     IAiChatService aiChatService,
     ILogger<AiTaskDecompositionService> logger) : IAiTaskDecompositionService
 {
-    private const int MaxDepth = 2;
-    private const int MaxNodes = 16;
     private const int MaxTitleLength = 256;
     private const int MaxDescriptionLength = 2000;
-
-    private const string SystemPrompt = """
-        You are a senior project planner for a task-tracking product (similar to Jira).
-        Turn the user's goal into a clear, ready-to-work task tree.
-
-        Respond with ONLY valid JSON (no markdown fences, no commentary) matching this schema:
-        {
-          "root": {
-            "title": string,
-            "description": string,
-            "subtasks": [
-              {
-                "title": string,
-                "description": string,
-                "subtasks": []
-              }
-            ]
-          }
-        }
-
-        Structure rules (strict):
-        - Exactly 2 levels: one "root" parent and its direct "subtasks" only.
-        - Every subtask MUST have "subtasks": [] (empty). Never nest deeper than root → child.
-        - Prefer 4–10 subtasks for a typical goal (hard max 15 subtasks, max 16 nodes total including root).
-
-        Title rules:
-        - Titles must be specific and actionable (verb + object), not vague labels.
-        - Good: "Design checkout wireframes for guest and logged-in users"
-        - Bad: "Design", "Frontend", "Phase 1", "Misc"
-        - Root title should name the overall deliverable/outcome.
-        - Title max 256 characters.
-
-        Description rules (required for every node, including root):
-        - Write 2–5 sentences (or short bullets in one string) that a developer can start from.
-        - Include: goal/context, scope of work, acceptance criteria or definition of done, and notable constraints.
-        - Do not leave description null or empty.
-        - Description max 2000 characters.
-
-        Content rules:
-        - Subtasks should cover distinct workstreams (e.g. research, design, implementation, testing, rollout) relevant to the request.
-        - Avoid duplicate or overlapping subtasks.
-        - Do not invent assignees, priorities, estimates, statuses, or dates.
-        """;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -114,20 +69,39 @@ public sealed partial class AiTaskDecompositionService(
         job.Error = null;
         await jobRepository.UpdateAsync(job, cancellationToken);
 
+        var settings = await projectSettingsRepository.GetAsync(
+            filter: entry => entry.ProjectId == job.ProjectId,
+            cancellationToken: cancellationToken);
+        if (settings is null)
+        {
+            job.Status = AiDecompositionJobStatus.Failed;
+            job.Error = "Project settings were not found.";
+            await jobRepository.UpdateAsync(job, cancellationToken);
+            await AppendAssistantMessageAsync(
+                job,
+                content: $"Decomposition failed: {job.Error}",
+                rootTaskId: null,
+                cancellationToken);
+            return;
+        }
+
+        var maxDepth = Math.Clamp(settings.AiMaxTreeDepth, 1, 8);
+        var maxNodes = Math.Clamp(settings.AiMaxNodes, 1, 64);
+
         try
         {
-            var userPrompt = BuildUserPrompt(job.UserInput, job.CustomInstructions);
+            var userPrompt = BuildUserPrompt(job.UserInput, job.CustomInstructions, maxDepth);
             var aiResult = await aiChatService
                 .CompleteAsync(
                     new AiChatRequest
                     {
-                        SystemPrompt = SystemPrompt,
+                        SystemPrompt = BuildSystemPrompt(maxDepth, maxNodes),
                         UserPrompt = userPrompt,
                     },
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            var parseResult = ParseTree(aiResult.Text);
+            var parseResult = ParseTree(aiResult.Text, maxDepth, maxNodes);
             if (parseResult.IsError)
             {
                 job.Status = AiDecompositionJobStatus.Failed;
@@ -164,29 +138,28 @@ public sealed partial class AiTaskDecompositionService(
                     Environment.NewLine,
                     [
                         "Done — I created a task tree from your goal.",
-                        string.Empty,
-                        $"Root task: {code}",
-                        string.Empty,
-                        "You can also find the new work on the board and in Issues.",
+                        $"Root task: {code} — {rootTask!.Title}",
+                        "Refresh the board or Issues to see the new tasks.",
                     ]);
 
             await AppendAssistantMessageAsync(
                 job,
                 content: successContent,
-                rootTaskId: rootTaskId,
+                rootTaskId,
                 cancellationToken);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "AI decomposition job {JobId} failed.", jobId);
             job.Status = AiDecompositionJobStatus.Failed;
-            job.Error = Truncate(ex.Message, 4000);
+            job.Error = Truncate(ex.Message, 2000);
             await jobRepository.UpdateAsync(job, cancellationToken);
             await AppendAssistantMessageAsync(
                 job,
                 content: $"Decomposition failed: {job.Error}",
                 rootTaskId: null,
                 cancellationToken);
+            throw;
         }
     }
 
@@ -207,7 +180,7 @@ public sealed partial class AiTaskDecompositionService(
         if (chat is null)
         {
             logger.LogWarning(
-                "AI chat {ChatId} was not found while finishing job {JobId}.",
+                "AI chat {ChatId} was not found while appending decomposition result for job {JobId}.",
                 job.AiChatId,
                 job.Id);
             return;
@@ -219,16 +192,77 @@ public sealed partial class AiTaskDecompositionService(
             TenantId = job.TenantId,
             ChatId = chat.Id,
             Role = AiChatMessageRole.Assistant,
-            Content = Truncate(content, 8000),
+            Content = content,
             DecompositionJobId = job.Id,
             RootTaskId = rootTaskId,
         };
 
         await messageRepository.AddAsync(message, cancellationToken);
+        chat.UpdatedAt = DateTime.UtcNow;
         await chatRepository.UpdateAsync(chat, cancellationToken);
     }
 
-    private static string BuildUserPrompt(string userInput, string? customInstructions)
+    private static string BuildSystemPrompt(int maxDepth, int maxNodes)
+    {
+        var maxChildrenHint = Math.Max(1, maxNodes - 1);
+        var depthRule = maxDepth <= 2
+            ? $"""
+              - Exactly {maxDepth} level(s): one "root" parent and its direct "subtasks" only (depth {maxDepth}).
+              - Every leaf MUST have "subtasks": [] (empty). Never nest deeper than {maxDepth} levels.
+              """
+            : $"""
+              - Maximum depth is {maxDepth} (root = level 1). You may nest subtasks up to that depth.
+              - Nodes at depth {maxDepth} MUST have "subtasks": [] (empty). Do not nest deeper.
+              - Prefer shallower trees when the goal is simple; use deeper nesting only when workstreams clearly split.
+              """;
+
+        const string schema = """
+            {
+              "root": {
+                "title": string,
+                "description": string,
+                "subtasks": [
+                  {
+                    "title": string,
+                    "description": string,
+                    "subtasks": []
+                  }
+                ]
+              }
+            }
+            """;
+
+        return
+            "You are a senior project planner for a task-tracking product (similar to Jira).\n"
+            + "Turn the user's goal into a clear, ready-to-work task tree.\n\n"
+            + "Respond with ONLY valid JSON (no markdown fences, no commentary) matching this schema:\n"
+            + schema
+            + "\nStructure rules (strict):\n"
+            + depthRule
+            + $"""
+            - Prefer 4–10 top-level subtasks for a typical goal (hard max {maxChildrenHint} nodes under root constraints, max {maxNodes} nodes total including root).
+
+            Title rules:
+            - Titles must be specific and actionable (verb + object), not vague labels.
+            - Good: "Design checkout wireframes for guest and logged-in users"
+            - Bad: "Design", "Frontend", "Phase 1", "Misc"
+            - Root title should name the overall deliverable/outcome.
+            - Title max {MaxTitleLength} characters.
+
+            Description rules (required for every node, including root):
+            - Write 2–5 sentences (or short bullets in one string) that a developer can start from.
+            - Include: goal/context, scope of work, acceptance criteria or definition of done, and notable constraints.
+            - Do not leave description null or empty.
+            - Description max {MaxDescriptionLength} characters.
+
+            Content rules:
+            - Subtasks should cover distinct workstreams (e.g. research, design, implementation, testing, rollout) relevant to the request.
+            - Avoid duplicate or overlapping subtasks.
+            - Do not invent assignees, priorities, estimates, statuses, or dates.
+            """;
+    }
+
+    private static string BuildUserPrompt(string userInput, string? customInstructions, int maxDepth)
     {
         var parts = new List<string>
         {
@@ -245,13 +279,16 @@ public sealed partial class AiTaskDecompositionService(
 
         parts.Add(string.Empty);
         parts.Add(
-            "Produce a 2-level JSON tree only (root + direct subtasks). "
-            + "Every node needs a concrete title and a useful non-empty description.");
+            maxDepth <= 2
+                ? $"Produce a {maxDepth}-level JSON tree only (root + direct subtasks). "
+                  + "Every node needs a concrete title and a useful non-empty description."
+                : $"Produce a JSON task tree with maximum depth {maxDepth} (root = level 1). "
+                  + "Every node needs a concrete title and a useful non-empty description.");
 
         return string.Join(Environment.NewLine, parts);
     }
 
-    private static ErrorOr<AiTaskTreeResponse> ParseTree(string rawText)
+    private static ErrorOr<AiTaskTreeResponse> ParseTree(string rawText, int maxDepth, int maxNodes)
     {
         if (string.IsNullOrWhiteSpace(rawText))
         {
@@ -274,30 +311,35 @@ public sealed partial class AiTaskDecompositionService(
             return Error.Validation("Ai.MissingRoot", "AI response must include a root task.");
         }
 
-        var validation = ValidateNode(tree.Root, depth: 1, out var totalNodes);
+        var validation = ValidateNode(tree.Root, depth: 1, maxDepth, maxNodes, out var totalNodes);
         if (validation.IsError)
         {
             return validation.Errors;
         }
 
-        if (totalNodes > MaxNodes)
+        if (totalNodes > maxNodes)
         {
             return Error.Validation(
                 "Ai.TooManyNodes",
-                $"AI task tree cannot contain more than {MaxNodes} nodes.");
+                $"AI task tree cannot contain more than {maxNodes} nodes.");
         }
 
         return tree;
     }
 
-    private static ErrorOr<Success> ValidateNode(AiTaskNode node, int depth, out int totalNodes)
+    private static ErrorOr<Success> ValidateNode(
+        AiTaskNode node,
+        int depth,
+        int maxDepth,
+        int maxNodes,
+        out int totalNodes)
     {
         totalNodes = 0;
-        if (depth > MaxDepth)
+        if (depth > maxDepth)
         {
             return Error.Validation(
                 "Ai.TooDeep",
-                $"AI task tree depth cannot exceed {MaxDepth}.");
+                $"AI task tree depth cannot exceed {maxDepth}.");
         }
 
         var title = node.Title?.Trim() ?? string.Empty;
@@ -333,28 +375,28 @@ public sealed partial class AiTaskDecompositionService(
         node.Description = description;
         node.Subtasks ??= [];
 
-        if (depth == MaxDepth && node.Subtasks.Count > 0)
+        if (depth == maxDepth && node.Subtasks.Count > 0)
         {
             return Error.Validation(
                 "Ai.TooDeep",
-                "AI task tree must be only 2 levels (root and direct subtasks).");
+                $"AI task tree cannot exceed {maxDepth} level(s); leaf tasks must have empty subtasks.");
         }
 
         totalNodes = 1;
         foreach (var child in node.Subtasks)
         {
-            var childResult = ValidateNode(child, depth + 1, out var childCount);
+            var childResult = ValidateNode(child, depth + 1, maxDepth, maxNodes, out var childCount);
             if (childResult.IsError)
             {
                 return childResult.Errors;
             }
 
             totalNodes += childCount;
-            if (totalNodes > MaxNodes)
+            if (totalNodes > maxNodes)
             {
                 return Error.Validation(
                     "Ai.TooManyNodes",
-                    $"AI task tree cannot contain more than {MaxNodes} nodes.");
+                    $"AI task tree cannot contain more than {maxNodes} nodes.");
             }
         }
 

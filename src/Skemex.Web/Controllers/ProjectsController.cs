@@ -440,6 +440,8 @@ public class ProjectsController(ISender sender) : BaseController
             {
                 ProjectId = id,
                 DefaultTaskColumnId = body.DefaultTaskColumnId,
+                AiMaxTreeDepth = body.AiMaxTreeDepth,
+                AiMaxNodes = body.AiMaxNodes,
             },
             cancellationToken);
         return result.Match(Ok, Problem);

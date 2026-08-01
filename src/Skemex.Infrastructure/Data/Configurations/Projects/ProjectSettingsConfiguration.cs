@@ -23,5 +23,8 @@ public class ProjectSettingsConfiguration : IEntityTypeConfiguration<ProjectSett
             .WithMany()
             .HasForeignKey(settings => settings.DefaultTaskColumnId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Property(settings => settings.AiMaxTreeDepth).HasDefaultValue(2);
+        builder.Property(settings => settings.AiMaxNodes).HasDefaultValue(16);
     }
 }
