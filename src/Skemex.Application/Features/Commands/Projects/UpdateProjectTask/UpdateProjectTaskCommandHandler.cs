@@ -54,7 +54,6 @@ public sealed class UpdateProjectTaskCommandHandler(
         }
 
         var changed = false;
-        var columnMoved = false;
 
         if (request.Title is not null)
         {
@@ -143,13 +142,6 @@ public sealed class UpdateProjectTaskCommandHandler(
 
         if (request.ColumnId is not null && task.ProjectColumnId != request.ColumnId.Value)
         {
-            if (task.ParentId is not null)
-            {
-                return Error.Validation(
-                    "ProjectTask.OnlyRootTasksMovable",
-                    "Only top-level tasks can be moved between columns.");
-            }
-
             var targetColumnExists = await projectColumnRepository.ExistsAsync(
                 filter: column => column.Id == request.ColumnId && column.ProjectId == request.ProjectId,
                 cancellationToken: cancellationToken);
@@ -158,7 +150,7 @@ public sealed class UpdateProjectTaskCommandHandler(
                 return Error.NotFound("ProjectColumn.NotFound", "Column was not found.");
             }
 
-            columnMoved = true;
+            task.ProjectColumnId = request.ColumnId.Value;
             changed = true;
         }
 
@@ -168,34 +160,7 @@ public sealed class UpdateProjectTaskCommandHandler(
         }
 
         task.UpdatedAt = DateTime.UtcNow;
-
-        if (columnMoved)
-        {
-            var allTasks = await projectTaskRepository.GetAllAsync(
-                filter: entry => entry.ProjectId == request.ProjectId,
-                include: query => query
-                    .Include(entry => entry.Assignee)
-                    .Include(entry => entry.Reporter)
-                    .Include(entry => entry.Column),
-                cancellationToken: cancellationToken);
-
-            var descendants = CollectDescendants(allTasks, task.Id);
-            var now = task.UpdatedAt;
-            task.ProjectColumnId = request.ColumnId!.Value;
-            foreach (var descendant in descendants)
-            {
-                descendant.ProjectColumnId = request.ColumnId.Value;
-                descendant.UpdatedAt = now;
-            }
-
-            var tasksToUpdate = new List<ProjectTask> { task };
-            tasksToUpdate.AddRange(descendants);
-            await projectTaskRepository.UpdateRangeAsync(tasksToUpdate, cancellationToken);
-        }
-        else
-        {
-            await projectTaskRepository.UpdateAsync(task, cancellationToken);
-        }
+        await projectTaskRepository.UpdateAsync(task, cancellationToken);
 
         var reloaded = await projectTaskRepository.GetAsync(
             filter: entry => entry.Id == task.Id && entry.ProjectId == request.ProjectId,
@@ -262,36 +227,5 @@ public sealed class UpdateProjectTaskCommandHandler(
             .ConfigureAwait(false);
 
         return ProjectTaskDtoMapper.MapWithSubtasksFromLookup(task, childrenByParentId, avatarUrls);
-    }
-
-    private static List<ProjectTask> CollectDescendants(
-        IReadOnlyList<ProjectTask> allTasks,
-        Guid rootTaskId)
-    {
-        var childrenByParentId = allTasks
-            .Where(task => task.ParentId is not null)
-            .GroupBy(task => task.ParentId!.Value)
-            .ToDictionary(group => group.Key, group => group.ToList());
-
-        var descendants = new List<ProjectTask>();
-        var queue = new Queue<Guid>();
-        queue.Enqueue(rootTaskId);
-
-        while (queue.Count > 0)
-        {
-            var parentId = queue.Dequeue();
-            if (!childrenByParentId.TryGetValue(parentId, out var children))
-            {
-                continue;
-            }
-
-            foreach (var child in children)
-            {
-                descendants.Add(child);
-                queue.Enqueue(child.Id);
-            }
-        }
-
-        return descendants;
     }
 }

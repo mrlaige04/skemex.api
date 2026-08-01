@@ -2,20 +2,30 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Features.Commands.Projects.AddProjectUser;
+using Skemex.Application.Features.Commands.Projects.CreateAiChat;
+using Skemex.Application.Features.Commands.Projects.CreateAiChatMessage;
 using Skemex.Application.Features.Commands.Projects.CreateProject;
 using Skemex.Application.Features.Commands.Projects.CreateProjectColumn;
 using Skemex.Application.Features.Commands.Projects.CreateProjectTask;
+using Skemex.Application.Features.Commands.Projects.DeleteAiChat;
+using Skemex.Application.Features.Commands.Projects.DeleteAiChatMessage;
 using Skemex.Application.Features.Commands.Projects.DeleteProject;
 using Skemex.Application.Features.Commands.Projects.DeleteProjectColumn;
 using Skemex.Application.Features.Commands.Projects.DeleteProjectDocument;
 using Skemex.Application.Features.Commands.Projects.DeleteProjectTask;
+using Skemex.Application.Features.Commands.Projects.EnqueueAiChatDecomposition;
+using Skemex.Application.Features.Commands.Projects.EnqueueAiTaskDecomposition;
 using Skemex.Application.Features.Commands.Projects.RemoveProjectUser;
+using Skemex.Application.Features.Commands.Projects.UpdateAiChat;
+using Skemex.Application.Features.Commands.Projects.UpdateAiChatMessage;
 using Skemex.Application.Features.Commands.Projects.UpdateProject;
 using Skemex.Application.Features.Commands.Projects.UpdateProjectTask;
 using Skemex.Application.Features.Commands.Projects.ReorderProjectColumns;
 using Skemex.Application.Features.Commands.Projects.UpdateProjectColumn;
 using Skemex.Application.Features.Commands.Projects.UpdateProjectSettings;
 using Skemex.Application.Features.Commands.Projects.UploadProjectDocument;
+using Skemex.Application.Features.Queries.Projects.GetAiChat;
+using Skemex.Application.Features.Queries.Projects.GetAiDecompositionJob;
 using Skemex.Application.Features.Queries.Projects.GetAvailableProjectColumns;
 using Skemex.Application.Features.Queries.Projects.GetProjectById;
 using Skemex.Application.Features.Queries.Projects.GetProjectColumns;
@@ -26,6 +36,8 @@ using Skemex.Application.Features.Queries.Projects.GetProjectTasksByColumnId;
 using Skemex.Application.Features.Queries.Projects.GetProjectSettings;
 using Skemex.Application.Features.Queries.Projects.GetProjectUsers;
 using Skemex.Application.Features.Queries.Projects.GetProjects;
+using Skemex.Application.Features.Queries.Projects.ListAiChats;
+using Skemex.Domain.Entities.Ai;
 using Skemex.Web.Models.Projects;
 
 namespace Skemex.Web.Controllers;
@@ -208,6 +220,204 @@ public class ProjectsController(ISender sender) : BaseController
                 new { id },
                 dto),
             Problem);
+    }
+
+    [HttpPost("{id:guid}/ai/decompose")]
+    public async Task<IActionResult> EnqueueAiDecompose(
+        Guid id,
+        [FromBody] EnqueueAiTaskDecompositionRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new EnqueueAiTaskDecompositionCommand
+            {
+                ProjectId = id,
+                UserInput = body.UserInput,
+                CustomInstructions = body.CustomInstructions,
+            },
+            cancellationToken);
+        return result.Match(
+            dto => AcceptedAtAction(
+                nameof(GetAiDecomposeJob),
+                new { id, jobId = dto.Id },
+                dto),
+            Problem);
+    }
+
+    [HttpGet("{id:guid}/ai/chats")]
+    public async Task<IActionResult> ListAiChats(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new ListAiChatsQuery { ProjectId = id },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("{id:guid}/ai/chats")]
+    public async Task<IActionResult> CreateAiChat(
+        Guid id,
+        [FromBody] CreateAiChatRequest? body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new CreateAiChatCommand
+            {
+                ProjectId = id,
+                Title = body?.Title,
+            },
+            cancellationToken);
+        return result.Match(
+            dto => CreatedAtAction(
+                nameof(GetAiChat),
+                new { id, chatId = dto.Id },
+                dto),
+            Problem);
+    }
+
+    [HttpGet("{id:guid}/ai/chats/{chatId:guid}")]
+    public async Task<IActionResult> GetAiChat(
+        Guid id,
+        Guid chatId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new GetAiChatQuery { ProjectId = id, ChatId = chatId },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPut("{id:guid}/ai/chats/{chatId:guid}")]
+    public async Task<IActionResult> UpdateAiChat(
+        Guid id,
+        Guid chatId,
+        [FromBody] UpdateAiChatRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new UpdateAiChatCommand
+            {
+                ProjectId = id,
+                ChatId = chatId,
+                Title = body.Title,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpDelete("{id:guid}/ai/chats/{chatId:guid}")]
+    public async Task<IActionResult> DeleteAiChat(
+        Guid id,
+        Guid chatId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new DeleteAiChatCommand { ProjectId = id, ChatId = chatId },
+            cancellationToken);
+        return result.Match(_ => NoContent(), Problem);
+    }
+
+    [HttpPost("{id:guid}/ai/chats/{chatId:guid}/messages")]
+    public async Task<IActionResult> CreateAiChatMessage(
+        Guid id,
+        Guid chatId,
+        [FromBody] CreateAiChatMessageRequest body,
+        CancellationToken cancellationToken)
+    {
+        if (!Enum.TryParse<AiChatMessageRole>(body.Role, ignoreCase: true, out var role))
+        {
+            return Problem(
+                detail: "Role must be User, Assistant, or System.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var result = await sender.Send(
+            new CreateAiChatMessageCommand
+            {
+                ProjectId = id,
+                ChatId = chatId,
+                Role = role,
+                Content = body.Content,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPut("{id:guid}/ai/chats/{chatId:guid}/messages/{messageId:guid}")]
+    public async Task<IActionResult> UpdateAiChatMessage(
+        Guid id,
+        Guid chatId,
+        Guid messageId,
+        [FromBody] UpdateAiChatMessageRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new UpdateAiChatMessageCommand
+            {
+                ProjectId = id,
+                ChatId = chatId,
+                MessageId = messageId,
+                Content = body.Content,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpDelete("{id:guid}/ai/chats/{chatId:guid}/messages/{messageId:guid}")]
+    public async Task<IActionResult> DeleteAiChatMessage(
+        Guid id,
+        Guid chatId,
+        Guid messageId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new DeleteAiChatMessageCommand
+            {
+                ProjectId = id,
+                ChatId = chatId,
+                MessageId = messageId,
+            },
+            cancellationToken);
+        return result.Match(_ => NoContent(), Problem);
+    }
+
+    [HttpPost("{id:guid}/ai/chats/{chatId:guid}/decompose")]
+    public async Task<IActionResult> EnqueueAiChatDecompose(
+        Guid id,
+        Guid chatId,
+        [FromBody] EnqueueAiTaskDecompositionRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new EnqueueAiChatDecompositionCommand
+            {
+                ProjectId = id,
+                ChatId = chatId,
+                UserInput = body.UserInput,
+                CustomInstructions = body.CustomInstructions,
+            },
+            cancellationToken);
+        return result.Match(
+            dto => AcceptedAtAction(
+                nameof(GetAiDecomposeJob),
+                new { id, jobId = dto.Id },
+                dto),
+            Problem);
+    }
+
+    [HttpGet("{id:guid}/ai/decompose/{jobId:guid}")]
+    public async Task<IActionResult> GetAiDecomposeJob(
+        Guid id,
+        Guid jobId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new GetAiDecompositionJobQuery
+            {
+                ProjectId = id,
+                JobId = jobId,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
     }
 
     [HttpGet("{id:guid}/settings")]
