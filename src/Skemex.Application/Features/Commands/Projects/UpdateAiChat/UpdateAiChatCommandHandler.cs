@@ -1,4 +1,5 @@
 using ErrorOr;
+using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Ai;
 using Skemex.Application.Services.Ai;
@@ -13,7 +14,8 @@ public sealed class UpdateAiChatCommandHandler(
     ICurrentUser currentUser,
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectUser> projectUserRepository,
-    ITenantRepository<AiChat> chatRepository)
+    ITenantRepository<AiChat> chatRepository,
+    IBaseRepository<AiModel> aiModelRepository)
     : ICommandHandler<UpdateAiChatCommand, AiChatSummaryDto>
 {
     public async Task<ErrorOr<AiChatSummaryDto>> Handle(
@@ -34,8 +36,36 @@ public sealed class UpdateAiChatCommandHandler(
         }
 
         var chat = result.Value.Chat;
-        chat.Title = request.Title.Trim();
+
+        if (!string.IsNullOrWhiteSpace(request.Title))
+        {
+            chat.Title = request.Title.Trim();
+        }
+
+        if (request.ClearAiModel)
+        {
+            chat.AiModelId = null;
+        }
+        else if (request.AiModelId is { } modelId)
+        {
+            var modelExists = await aiModelRepository.ExistsAsync(
+                filter: model => model.Id == modelId && model.IsActive,
+                cancellationToken: cancellationToken);
+            if (!modelExists)
+            {
+                return Error.NotFound("AiModel.NotFound", "AI model was not found.");
+            }
+
+            chat.AiModelId = modelId;
+        }
+
         await chatRepository.UpdateAsync(chat, cancellationToken);
-        return AiChatSummaryDto.FromEntity(chat);
+
+        var updated = await chatRepository.GetAsync(
+            filter: entry => entry.Id == chat.Id,
+            include: query => query.Include(entry => entry.AiModel),
+            cancellationToken: cancellationToken);
+
+        return AiChatSummaryDto.FromEntity(updated ?? chat);
     }
 }

@@ -10,7 +10,9 @@ public sealed class UpdateProjectSettingsCommandValidator : AbstractValidator<Up
             .Must(command =>
                 command.DefaultTaskColumnId.HasValue
                 || command.AiMaxTreeDepth.HasValue
-                || command.AiMaxNodes.HasValue)
+                || command.AiMaxNodes.HasValue
+                || command.DefaultAiModelId.HasValue
+                || command.ClearDefaultAiModel)
             .WithMessage("At least one settings field must be provided.");
 
         RuleFor(command => command.DefaultTaskColumnId)
@@ -24,5 +26,9 @@ public sealed class UpdateProjectSettingsCommandValidator : AbstractValidator<Up
         RuleFor(command => command.AiMaxNodes)
             .InclusiveBetween(1, 64)
             .When(command => command.AiMaxNodes.HasValue);
+
+        RuleFor(command => command.DefaultAiModelId)
+            .NotEmpty()
+            .When(command => command.DefaultAiModelId.HasValue && !command.ClearDefaultAiModel);
     }
 }

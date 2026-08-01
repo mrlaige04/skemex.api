@@ -1,4 +1,5 @@
 using Skemex.Domain.Entities.Abstractions;
+using Skemex.Domain.Entities.Ai;
 
 namespace Skemex.Domain.Entities.Projects;
 
@@ -15,4 +16,8 @@ public class ProjectSettings : TenantEntity
 
     /// <summary>Max nodes in an AI-generated task tree (including root). Default 16.</summary>
     public int AiMaxNodes { get; set; } = 16;
+
+    /// <summary>Default LLM for new AI chats in this project.</summary>
+    public Guid? DefaultAiModelId { get; set; }
+    public AiModel? DefaultAiModel { get; set; }
 }

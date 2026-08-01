@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using ErrorOr;
 using Hangfire;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Skemex.Application.Models.Ai;
 using Skemex.Application.Services.Ai;
@@ -71,6 +72,7 @@ public sealed partial class AiTaskDecompositionService(
 
         var settings = await projectSettingsRepository.GetAsync(
             filter: entry => entry.ProjectId == job.ProjectId,
+            include: query => query.Include(entry => entry.DefaultAiModel),
             cancellationToken: cancellationToken);
         if (settings is null)
         {
@@ -91,12 +93,29 @@ public sealed partial class AiTaskDecompositionService(
         try
         {
             var userPrompt = BuildUserPrompt(job.UserInput, job.CustomInstructions, maxDepth);
+            var modelExternalId = await ResolveModelExternalIdAsync(job, settings, cancellationToken)
+                .ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(modelExternalId))
+            {
+                job.Status = AiDecompositionJobStatus.Failed;
+                job.Error =
+                    "No AI model selected. Set a default model in project AI settings, or pick a model for this chat.";
+                await jobRepository.UpdateAsync(job, cancellationToken);
+                await AppendAssistantMessageAsync(
+                    job,
+                    content: $"Decomposition failed: {job.Error}",
+                    rootTaskId: null,
+                    cancellationToken);
+                return;
+            }
+
             var aiResult = await aiChatService
                 .CompleteAsync(
                     new AiChatRequest
                     {
                         SystemPrompt = BuildSystemPrompt(maxDepth, maxNodes),
                         UserPrompt = userPrompt,
+                        Model = modelExternalId,
                     },
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -161,6 +180,31 @@ public sealed partial class AiTaskDecompositionService(
                 cancellationToken);
             throw;
         }
+    }
+
+    private async Task<string?> ResolveModelExternalIdAsync(
+        AiDecompositionJob job,
+        ProjectSettings settings,
+        CancellationToken cancellationToken)
+    {
+        if (job.AiChatId is { } chatId)
+        {
+            var chat = await chatRepository.GetAsync(
+                filter: entry => entry.Id == chatId,
+                include: query => query.Include(entry => entry.AiModel),
+                cancellationToken: cancellationToken);
+            if (!string.IsNullOrWhiteSpace(chat?.AiModel?.ExternalId))
+            {
+                return chat.AiModel.ExternalId;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(settings.DefaultAiModel?.ExternalId))
+        {
+            return settings.DefaultAiModel.ExternalId;
+        }
+
+        return null;
     }
 
     private async Task AppendAssistantMessageAsync(

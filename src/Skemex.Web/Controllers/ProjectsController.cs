@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Features.Commands.Projects.AddProjectUser;
+using Skemex.Application.Features.Commands.Projects.BulkDeleteProjectTasks;
 using Skemex.Application.Features.Commands.Projects.CreateAiChat;
 using Skemex.Application.Features.Commands.Projects.CreateAiChatMessage;
 using Skemex.Application.Features.Commands.Projects.CreateProject;
@@ -264,6 +265,7 @@ public class ProjectsController(ISender sender) : BaseController
             {
                 ProjectId = id,
                 Title = body?.Title,
+                AiModelId = body?.AiModelId,
             },
             cancellationToken);
         return result.Match(
@@ -299,6 +301,8 @@ public class ProjectsController(ISender sender) : BaseController
                 ProjectId = id,
                 ChatId = chatId,
                 Title = body.Title,
+                AiModelId = body.AiModelId,
+                ClearAiModel = body.ClearAiModel,
             },
             cancellationToken);
         return result.Match(Ok, Problem);
@@ -442,6 +446,8 @@ public class ProjectsController(ISender sender) : BaseController
                 DefaultTaskColumnId = body.DefaultTaskColumnId,
                 AiMaxTreeDepth = body.AiMaxTreeDepth,
                 AiMaxNodes = body.AiMaxNodes,
+                DefaultAiModelId = body.DefaultAiModelId,
+                ClearDefaultAiModel = body.ClearDefaultAiModel,
             },
             cancellationToken);
         return result.Match(Ok, Problem);
@@ -483,6 +489,22 @@ public class ProjectsController(ISender sender) : BaseController
                 ProjectId = id,
                 ColumnId = columnId,
                 TaskId = taskId,
+            },
+            cancellationToken);
+        return result.Match(_ => NoContent(), Problem);
+    }
+
+    [HttpPost("{id:guid}/tasks/bulk-delete")]
+    public async Task<IActionResult> BulkDeleteTasks(
+        Guid id,
+        [FromBody] BulkDeleteProjectTasksRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new BulkDeleteProjectTasksCommand
+            {
+                ProjectId = id,
+                TaskIds = body.TaskIds ?? [],
             },
             cancellationToken);
         return result.Match(_ => NoContent(), Problem);

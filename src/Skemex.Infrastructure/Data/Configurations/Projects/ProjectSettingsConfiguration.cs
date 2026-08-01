@@ -26,5 +26,11 @@ public class ProjectSettingsConfiguration : IEntityTypeConfiguration<ProjectSett
 
         builder.Property(settings => settings.AiMaxTreeDepth).HasDefaultValue(2);
         builder.Property(settings => settings.AiMaxNodes).HasDefaultValue(16);
+
+        builder
+            .HasOne(settings => settings.DefaultAiModel)
+            .WithMany()
+            .HasForeignKey(settings => settings.DefaultAiModelId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

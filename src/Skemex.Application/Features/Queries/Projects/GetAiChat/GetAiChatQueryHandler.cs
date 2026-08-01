@@ -30,6 +30,7 @@ public sealed class GetAiChatQueryHandler(
             request.ChatId,
             cancellationToken,
             include: query => query
+                .Include(chat => chat.AiModel)
                 .Include(chat => chat.Messages)
                 .ThenInclude(message => message.RootTask));
         if (result.IsError)

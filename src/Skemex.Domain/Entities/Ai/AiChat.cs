@@ -14,5 +14,8 @@ public class AiChat : TenantEntity
 
     public string Title { get; set; } = "New chat";
 
+    public Guid? AiModelId { get; set; }
+    public AiModel? AiModel { get; set; }
+
     public IList<AiChatMessage> Messages { get; set; } = [];
 }

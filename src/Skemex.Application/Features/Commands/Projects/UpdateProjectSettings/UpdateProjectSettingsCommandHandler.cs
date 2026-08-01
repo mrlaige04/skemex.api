@@ -1,6 +1,7 @@
 using ErrorOr;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Projects;
+using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
@@ -11,7 +12,8 @@ public sealed class UpdateProjectSettingsCommandHandler(
     ICurrentUser currentUser,
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectColumn> projectColumnRepository,
-    ITenantRepository<ProjectSettings> projectSettingsRepository)
+    ITenantRepository<ProjectSettings> projectSettingsRepository,
+    IBaseRepository<AiModel> aiModelRepository)
     : ICommandHandler<UpdateProjectSettingsCommand, ProjectSettingsDto>
 {
     public async Task<ErrorOr<ProjectSettingsDto>> Handle(
@@ -60,6 +62,23 @@ public sealed class UpdateProjectSettingsCommandHandler(
         if (request.AiMaxNodes is { } nodes)
         {
             settings.AiMaxNodes = nodes;
+        }
+
+        if (request.ClearDefaultAiModel)
+        {
+            settings.DefaultAiModelId = null;
+        }
+        else if (request.DefaultAiModelId is { } modelId)
+        {
+            var modelExists = await aiModelRepository.ExistsAsync(
+                filter: model => model.Id == modelId && model.IsActive,
+                cancellationToken: cancellationToken);
+            if (!modelExists)
+            {
+                return Error.NotFound("AiModel.NotFound", "AI model was not found.");
+            }
+
+            settings.DefaultAiModelId = modelId;
         }
 
         await projectSettingsRepository.UpdateAsync(settings, cancellationToken);

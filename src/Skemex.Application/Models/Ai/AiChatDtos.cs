@@ -7,6 +7,8 @@ public sealed class AiChatSummaryDto
     public Guid Id { get; set; }
     public Guid ProjectId { get; set; }
     public string Title { get; set; } = string.Empty;
+    public Guid? AiModelId { get; set; }
+    public AiModelDto? AiModel { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
@@ -16,6 +18,8 @@ public sealed class AiChatSummaryDto
             Id = chat.Id,
             ProjectId = chat.ProjectId,
             Title = chat.Title,
+            AiModelId = chat.AiModelId,
+            AiModel = chat.AiModel is null ? null : AiModelDto.FromEntity(chat.AiModel),
             CreatedAt = chat.CreatedAt,
             UpdatedAt = chat.UpdatedAt,
         };
@@ -26,6 +30,8 @@ public sealed class AiChatDto
     public Guid Id { get; set; }
     public Guid ProjectId { get; set; }
     public string Title { get; set; } = string.Empty;
+    public Guid? AiModelId { get; set; }
+    public AiModelDto? AiModel { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public IReadOnlyList<AiChatMessageDto> Messages { get; set; } = [];
@@ -36,6 +42,8 @@ public sealed class AiChatDto
             Id = chat.Id,
             ProjectId = chat.ProjectId,
             Title = chat.Title,
+            AiModelId = chat.AiModelId,
+            AiModel = chat.AiModel is null ? null : AiModelDto.FromEntity(chat.AiModel),
             CreatedAt = chat.CreatedAt,
             UpdatedAt = chat.UpdatedAt,
             Messages = chat.Messages

@@ -7,4 +7,5 @@ public sealed class CreateAiChatCommand : ICommand<AiChatDto>
 {
     public Guid ProjectId { get; init; }
     public string? Title { get; init; }
+    public Guid? AiModelId { get; init; }
 }

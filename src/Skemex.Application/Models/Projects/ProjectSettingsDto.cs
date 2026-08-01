@@ -6,6 +6,7 @@ public sealed class ProjectSettingsDto
     public Guid DefaultTaskColumnId { get; init; }
     public int AiMaxTreeDepth { get; init; }
     public int AiMaxNodes { get; init; }
+    public Guid? DefaultAiModelId { get; init; }
 
     public static ProjectSettingsDto FromEntity(Domain.Entities.Projects.ProjectSettings settings) =>
         new()
@@ -14,5 +15,6 @@ public sealed class ProjectSettingsDto
             DefaultTaskColumnId = settings.DefaultTaskColumnId,
             AiMaxTreeDepth = settings.AiMaxTreeDepth,
             AiMaxNodes = settings.AiMaxNodes,
+            DefaultAiModelId = settings.DefaultAiModelId,
         };
 }
