@@ -16,6 +16,9 @@ public sealed class ProjectDocumentDto
     public string ContentType { get; init; } = string.Empty;
     public long FileSizeBytes { get; init; }
     public DateTime CreatedAt { get; init; }
+    public string VectorizationStatus { get; init; } = "Pending";
+    public string? VectorizationError { get; init; }
+    public int? VectorizedChunkCount { get; init; }
     public string? DownloadUrl { get; init; }
     public ProjectDocumentUserDto UploadedBy { get; init; } = null!;
 }

@@ -15,4 +15,12 @@ public class ProjectDocument : TenantEntity
 
     public Guid UploadedById { get; set; }
     public User UploadedBy { get; set; } = null!;
+
+    public ProjectDocumentVectorizationStatus VectorizationStatus { get; set; } =
+        ProjectDocumentVectorizationStatus.Pending;
+
+    public string? VectorizationError { get; set; }
+
+    public int? VectorizedChunkCount { get; set; }
 }
+

@@ -72,6 +72,9 @@ public sealed class GetProjectDocumentsQueryHandler(
                 ContentType = document.ContentType,
                 FileSizeBytes = document.FileSizeBytes,
                 CreatedAt = document.CreatedAt,
+                VectorizationStatus = document.VectorizationStatus.ToString(),
+                VectorizationError = document.VectorizationError,
+                VectorizedChunkCount = document.VectorizedChunkCount,
                 DownloadUrl = downloadUrl,
                 UploadedBy = new ProjectDocumentUserDto
                 {

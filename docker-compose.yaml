@@ -1,7 +1,7 @@
 ﻿
 services:
   db:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -63,6 +63,7 @@ services:
       App__FrontendBaseUrl: ${FRONTEND_BASE_URL}
       Smtp__Username: ${SMTP_USERNAME}
       Smtp__Password: ${SMTP_PASSWORD}
+      Embeddings__ApiKey: ${EMBEDDINGS__APIKEY}
     networks:
       - skemex
 

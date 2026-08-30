@@ -14,6 +14,7 @@ public sealed class UploadProjectDocumentCommandHandler(
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectDocument> documentRepository,
     IProjectDocumentStorageService documentStorage,
+    IDocumentVectorizationService documentVectorizationService,
     IUrlService urlService)
     : ICommandHandler<UploadProjectDocumentCommand, ProjectDocumentDto>
 {
@@ -25,11 +26,13 @@ public sealed class UploadProjectDocumentCommandHandler(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "image/png",
         "image/jpeg",
+        "text/plain",
+        "text/markdown",
     };
 
     private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".pdf", ".docx", ".png", ".jpg", ".jpeg",
+        ".pdf", ".docx", ".png", ".jpg", ".jpeg", ".txt", ".md",
     };
 
     public async Task<ErrorOr<ProjectDocumentDto>> Handle(
@@ -110,9 +113,28 @@ public sealed class UploadProjectDocumentCommandHandler(
             FileSizeBytes = fileSize,
             BlobId = blobId,
             UploadedById = userId.Value,
+            VectorizationStatus = DocumentVectorizationFormats.IsSupported(fileName, contentType)
+                ? ProjectDocumentVectorizationStatus.Pending
+                : ProjectDocumentVectorizationStatus.Skipped,
         };
 
         await documentRepository.AddAsync(document, cancellationToken);
+
+        if (document.VectorizationStatus is ProjectDocumentVectorizationStatus.Pending)
+        {
+            try
+            {
+                documentVectorizationService.Enqueue(
+                    document.Id,
+                    document.ProjectId,
+                    tenantId.Value,
+                    userId.Value);
+            }
+            catch
+            {
+                /* upload succeeds even if background enqueue fails */
+            }
+        }
 
         var created = await documentRepository.GetAsync(
             filter: entry => entry.Id == document.Id,
@@ -158,7 +180,7 @@ public sealed class UploadProjectDocumentCommandHandler(
         {
             return Error.Validation(
                 "ProjectDocument.InvalidContentType",
-                "Only PDF, DOCX, PNG, and JPG files are allowed.");
+                "Only PDF, DOCX, PNG, JPG, TXT, and Markdown files are allowed.");
         }
 
         var extension = Path.GetExtension(request.FileName ?? string.Empty);
@@ -166,7 +188,7 @@ public sealed class UploadProjectDocumentCommandHandler(
         {
             return Error.Validation(
                 "ProjectDocument.InvalidExtension",
-                "Only .pdf, .docx, .png, and .jpg files are allowed.");
+                "Only .pdf, .docx, .png, .jpg, .txt, and .md files are allowed.");
         }
 
         return Result.Success;
@@ -183,6 +205,9 @@ public sealed class UploadProjectDocumentCommandHandler(
             ContentType = document.ContentType,
             FileSizeBytes = document.FileSizeBytes,
             CreatedAt = document.CreatedAt,
+            VectorizationStatus = document.VectorizationStatus.ToString(),
+            VectorizationError = document.VectorizationError,
+            VectorizedChunkCount = document.VectorizedChunkCount,
             DownloadUrl = await urlService
                 .GetProjectDocumentUrlAsync(document.BlobId, cancellationToken)
                 .ConfigureAwait(false),
