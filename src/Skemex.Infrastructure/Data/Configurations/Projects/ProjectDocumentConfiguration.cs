@@ -14,6 +14,10 @@ public class ProjectDocumentConfiguration : IEntityTypeConfiguration<ProjectDocu
         builder.Property(document => document.FileName).HasMaxLength(256).IsRequired();
         builder.Property(document => document.ContentType).HasMaxLength(128).IsRequired();
         builder.Property(document => document.BlobId).HasMaxLength(512).IsRequired();
+        builder.Property(document => document.VectorizationError).HasMaxLength(2000);
+        builder.Property(document => document.VectorizationStatus)
+            .HasConversion<int>()
+            .HasDefaultValue(ProjectDocumentVectorizationStatus.Pending);
 
         builder.HasIndex(document => new { document.ProjectId, document.CreatedAt });
         builder.HasIndex(document => new { document.TenantId, document.ProjectId });

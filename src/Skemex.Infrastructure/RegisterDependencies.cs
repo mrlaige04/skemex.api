@@ -1,16 +1,14 @@
 using System.IdentityModel.Tokens.Jwt;
 using Hangfire;
 using Hangfire.PostgreSql;
-using Minio;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Minio;
 using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Services;
@@ -28,6 +26,8 @@ using Skemex.Infrastructure.Email;
 using Skemex.Infrastructure.Services;
 using Skemex.Infrastructure.Services.Ai;
 using Skemex.Infrastructure.Services.Ai.Providers;
+using Skemex.Infrastructure.Services.Documents;
+using Skemex.Infrastructure.Services.Embeddings;
 using Skemex.Infrastructure.Storage;
 
 namespace Skemex.Infrastructure;
@@ -39,6 +39,8 @@ public static class RegisterDependencies
         AddDatabase(services, configuration);
         AddStorage(services, configuration);
         AddAi(services, configuration);
+        AddEmbeddings(services, configuration);
+        AddDocumentIngestion(services);
         AddAppAuthentication(services, configuration);
         AddBackgroundJobs(services, configuration);
         AddEmailing(services, configuration);
@@ -76,6 +78,23 @@ public static class RegisterDependencies
         {
             client.Timeout = TimeSpan.FromSeconds(120);
         });
+    }
+
+    private static void AddEmbeddings(IServiceCollection services, IConfiguration configuration)
+    {
+        services.Configure<EmbeddingsOptions>(configuration.GetSection(EmbeddingsOptions.SectionName));
+        services.AddHttpClient(GoogleGeminiEmbeddingService.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(120);
+        });
+        services.AddScoped<IEmbeddingService, GoogleGeminiEmbeddingService>();
+    }
+
+    private static void AddDocumentIngestion(IServiceCollection services)
+    {
+        services.AddScoped<IDocumentTextExtractor, DocumentTextExtractor>();
+        services.AddSingleton<ITextChunker, TextChunker>();
+        services.AddScoped<IDocumentVectorizationService, DocumentVectorizationService>();
     }
 
     private static void AddStorage(IServiceCollection services, IConfiguration configuration)
@@ -170,7 +189,10 @@ public static class RegisterDependencies
         {
             options.AddInterceptors(sp.GetServices<ISaveChangesInterceptor>());
             options.UseNpgsql(connectionString, npgsqlOptions =>
-                npgsqlOptions.MigrationsAssembly(typeof(SkemexDbContext).Assembly));
+            {
+                npgsqlOptions.MigrationsAssembly(typeof(SkemexDbContext).Assembly);
+                npgsqlOptions.UseVector();
+            });
         });
 
         services.AddScoped<DbContext>(sp => sp.GetRequiredService<SkemexDbContext>());

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using Skemex.Application.Configuration;
 using Skemex.Application.Services;
+using Skemex.Infrastructure.Storage;
 
 namespace Skemex.Infrastructure.Services;
 
@@ -63,6 +64,20 @@ public sealed class ProjectDocumentStorageService(
             .ConfigureAwait(false);
     }
 
+    public async Task<Stream> OpenReadAsync(string storageKey, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(storageKey))
+        {
+            throw new ArgumentException("Storage key is required.", nameof(storageKey));
+        }
+
+        await blobs.EnsureBucketExistsAsync(_bucket, cancellationToken).ConfigureAwait(false);
+        var (stream, _) = await blobs
+            .DownloadAsync(_bucket, storageKey.Trim().TrimStart('/'), cancellationToken)
+            .ConfigureAwait(false);
+        return stream;
+    }
+
     private TimeSpan ResolvePresignedExpiry()
     {
         var seconds = _storage.Minio.PresignedDownloadExpirySeconds;
@@ -77,29 +92,17 @@ public sealed class ProjectDocumentStorageService(
     private static string BuildStorageKey(Guid tenantId, Guid projectId, string? fileName, string? contentType)
     {
         var ext = NormalizeExtension(fileName, contentType);
-        var safeName = SanitizeFileName(fileName);
-        return $"projects/{tenantId:N}/{projectId:N}/documents/{Guid.NewGuid():N}-{safeName}{ext}";
-    }
-
-    private static string SanitizeFileName(string? fileName)
-    {
-        var baseName = Path.GetFileNameWithoutExtension(fileName ?? "document").Trim();
-        if (baseName.Length == 0)
-        {
-            return "document";
-        }
-
-        var chars = baseName
-            .Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '-')
-            .ToArray();
-        var sanitized = new string(chars).Trim('-');
-        return sanitized.Length == 0 ? "document" : sanitized[..Math.Min(sanitized.Length, 80)];
+        var safeName = ObjectStoragePath.SanitizeSegment(
+            Path.GetFileNameWithoutExtension(fileName ?? "document"),
+            fallback: "document");
+        var key = $"projects/{tenantId:N}/{projectId:N}/documents/{Guid.NewGuid():N}-{safeName}{ext}";
+        return ObjectStoragePath.ValidateAndNormalize(key);
     }
 
     private static string NormalizeExtension(string? fileName, string? contentType)
     {
         var ext = Path.GetExtension(fileName ?? string.Empty).ToLowerInvariant();
-        if (ext is ".pdf" or ".docx" or ".png" or ".jpg" or ".jpeg")
+        if (ext is ".pdf" or ".docx" or ".png" or ".jpg" or ".jpeg" or ".txt" or ".md")
         {
             return ext == ".jpeg" ? ".jpg" : ext;
         }
@@ -110,6 +113,8 @@ public sealed class ProjectDocumentStorageService(
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => ".docx",
             "image/png" => ".png",
             "image/jpeg" => ".jpg",
+            "text/plain" => ".txt",
+            "text/markdown" => ".md",
             _ => ".bin",
         };
     }

@@ -40,11 +40,17 @@ public sealed class DeleteProjectDocumentCommandHandler(
             return Error.NotFound("ProjectDocument.NotFound", "Document was not found.");
         }
 
+        var blobId = document.BlobId;
+        await using var transaction = await documentRepository
+            .BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         await documentRepository.DeleteAsync(document, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         try
         {
-            await documentStorage.DeleteAsync(document.BlobId, cancellationToken).ConfigureAwait(false);
+            await documentStorage.DeleteAsync(blobId, cancellationToken).ConfigureAwait(false);
         }
         catch
         {

@@ -16,4 +16,6 @@ public interface IProjectDocumentStorageService
     /// Public CDN URL when configured; otherwise a MinIO/local download URL (presigned on Production).
     /// </summary>
     Task<string?> GetDownloadUrlAsync(string? storageKey, CancellationToken cancellationToken = default);
+
+    Task<Stream> OpenReadAsync(string storageKey, CancellationToken cancellationToken = default);
 }

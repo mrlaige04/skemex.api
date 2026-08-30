@@ -30,6 +30,7 @@ using Skemex.Application.Features.Queries.Projects.GetAiDecompositionJob;
 using Skemex.Application.Features.Queries.Projects.GetAvailableProjectColumns;
 using Skemex.Application.Features.Queries.Projects.GetProjectById;
 using Skemex.Application.Features.Queries.Projects.GetProjectColumns;
+using Skemex.Application.Features.Queries.Projects.GetProjectDocumentById;
 using Skemex.Application.Features.Queries.Projects.GetProjectDocuments;
 using Skemex.Application.Features.Queries.Projects.GetProjectTaskByCode;
 using Skemex.Application.Features.Queries.Projects.GetProjectTasks;
@@ -588,6 +589,22 @@ public class ProjectsController(ISender sender) : BaseController
                 Search = search,
                 PageNumber = page,
                 PageSize = pageSize,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpGet("{id:guid}/documents/{documentId:guid}")]
+    public async Task<IActionResult> GetDocument(
+        Guid id,
+        Guid documentId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new GetProjectDocumentByIdQuery
+            {
+                ProjectId = id,
+                DocumentId = documentId,
             },
             cancellationToken);
         return result.Match(Ok, Problem);

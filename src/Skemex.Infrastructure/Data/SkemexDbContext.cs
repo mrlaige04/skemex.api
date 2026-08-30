@@ -20,6 +20,7 @@ public class SkemexDbContext(DbContextOptions<SkemexDbContext> options) : Identi
     public DbSet<ProjectColumn> ProjectColumns { get; set; } = null!;
     public DbSet<ProjectTask> ProjectTasks { get; set; } = null!;
     public DbSet<ProjectDocument> ProjectDocuments { get; set; } = null!;
+    public DbSet<ProjectDocumentChunk> ProjectDocumentChunks { get; set; } = null!;
     public DbSet<ProjectTaskCounter> ProjectTaskCounters { get; set; } = null!;
     public DbSet<ProjectSettings> ProjectSettings { get; set; } = null!;
     public DbSet<AiDecompositionJob> AiDecompositionJobs { get; set; } = null!;
@@ -30,6 +31,7 @@ public class SkemexDbContext(DbContextOptions<SkemexDbContext> options) : Identi
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
+        builder.HasPostgresExtension("vector");
         base.OnModelCreating(builder);
         builder.ApplyConfigurationsFromAssembly(GetType().Assembly);
 

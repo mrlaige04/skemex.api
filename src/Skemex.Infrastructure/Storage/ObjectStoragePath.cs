@@ -22,8 +22,38 @@ public static class ObjectStoragePath
             return false;
         }
 
+        if (key.Split('/', StringSplitOptions.None).Any(string.IsNullOrEmpty))
+        {
+            return false;
+        }
+
         return ValidKeyRegex.IsMatch(key);
     }
+
+    /// <summary>
+    /// Reduces a user-provided label to ASCII characters allowed in object keys.
+    /// </summary>
+    public static string SanitizeSegment(string value, int maxLength = 80, string fallback = "file")
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fallback;
+        }
+
+        var chars = value.Trim()
+            .Select(ch => IsAllowedPathChar(ch) ? ch : '-')
+            .ToArray();
+        var sanitized = new string(chars).Trim('-', '_', '.');
+        if (sanitized.Length == 0)
+        {
+            return fallback;
+        }
+
+        return sanitized.Length <= maxLength ? sanitized : sanitized[..maxLength];
+    }
+
+    private static bool IsAllowedPathChar(char ch) =>
+        ch is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '-' or '_';
 
     public static string ValidateAndNormalize(string objectKey)
     {

@@ -28,6 +28,7 @@ jobs:
       FRONTEND_BASE_URL: ${{ secrets.FRONTEND_BASE_URL }}
       SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      EMBEDDINGS__APIKEY: ${{ secrets.GOOGLE_GEMINI_API_KEY }}
 
     steps:
       - name: Checkout
@@ -48,6 +49,7 @@ jobs:
           : "${FRONTEND_BASE_URL:?Set repository secret FRONTEND_BASE_URL (public UI base URL for email links, e.g. https://app.skemex.online)}"
           : "${SMTP_USERNAME:?Set repository secret SMTP_USERNAME}"
           : "${SMTP_PASSWORD:?Set repository secret SMTP_PASSWORD}"
+          : "${EMBEDDINGS__APIKEY:?Set repository secret GOOGLE_GEMINI_API_KEY (Google Gemini API key for document embeddings)}"
 
       - name: Ensure Docker network exists
         run: |
