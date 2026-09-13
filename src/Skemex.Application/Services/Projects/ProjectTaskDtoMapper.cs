@@ -20,8 +20,16 @@ public static class ProjectTaskDtoMapper
             ColumnTitle = task.Column?.Title ?? string.Empty,
             ParentId = task.ParentId,
             Code = task.Code,
+            Type = task.Type.ToString(),
             Title = task.Title,
             Description = task.Description,
+            AcceptanceCriteria = MapAcceptanceCriteria(task),
+            TestCases = MapTestCases(task),
+            OriginalEstimateMinutes = task.OriginalEstimateMinutes,
+            RemainingEstimateMinutes = task.RemainingEstimateMinutes,
+            StoryPoints = task.StoryPoints,
+            SpentMinutes = task.SpentMinutes,
+            WorkLogs = [],
             CreatedAt = task.CreatedAt,
             UpdatedAt = task.UpdatedAt,
             Assignee = task.Assignee is null ? null : MapUser(task.Assignee, avatarUrlsByBlobId),
@@ -122,8 +130,16 @@ public static class ProjectTaskDtoMapper
             ColumnTitle = task.Column?.Title ?? string.Empty,
             ParentId = task.ParentId,
             Code = task.Code,
+            Type = task.Type.ToString(),
             Title = task.Title,
             Description = task.Description,
+            AcceptanceCriteria = MapAcceptanceCriteria(task),
+            TestCases = MapTestCases(task),
+            OriginalEstimateMinutes = task.OriginalEstimateMinutes,
+            RemainingEstimateMinutes = task.RemainingEstimateMinutes,
+            StoryPoints = task.StoryPoints,
+            SpentMinutes = task.SpentMinutes,
+            WorkLogs = [],
             CreatedAt = task.CreatedAt,
             UpdatedAt = task.UpdatedAt,
             Assignee = task.Assignee is null ? null : MapUser(task.Assignee, avatarUrlsByBlobId),
@@ -131,6 +147,30 @@ public static class ProjectTaskDtoMapper
             Subtasks = subtasks,
         };
     }
+
+    private static IReadOnlyList<string> MapAcceptanceCriteria(ProjectTask task) =>
+        (task.AcceptanceCriteria ?? [])
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item.Trim())
+            .ToList();
+
+    private static IReadOnlyList<ProjectTaskTestCaseDto> MapTestCases(ProjectTask task) =>
+        (task.TestCases ?? [])
+            .Where(item =>
+                !string.IsNullOrWhiteSpace(item.Description)
+                || !string.IsNullOrWhiteSpace(item.ExpectedResult))
+            .Select(item => new ProjectTaskTestCaseDto
+            {
+                Type = NormalizeTestCaseType(item.Type),
+                Description = item.Description?.Trim() ?? string.Empty,
+                ExpectedResult = item.ExpectedResult?.Trim() ?? string.Empty,
+            })
+            .ToList();
+
+    private static string NormalizeTestCaseType(string? type) =>
+        string.Equals(type?.Trim(), "negative", StringComparison.OrdinalIgnoreCase)
+            ? "negative"
+            : "positive";
 
     private static ProjectTaskUserDto MapUser(
         User user,

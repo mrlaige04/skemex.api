@@ -154,6 +154,37 @@ public sealed class UpdateProjectTaskCommandHandler(
             changed = true;
         }
 
+        if (request.Type is not null)
+        {
+            if (!ProjectTaskTypeExtensions.TryParse(request.Type, out var normalized))
+            {
+                return Error.Validation(
+                    "ProjectTask.InvalidType",
+                    "Type must be Feature, Task, or Bug.");
+            }
+
+            if (task.ParentId is not null && normalized == ProjectTaskType.Feature)
+            {
+                return Error.Validation(
+                    "ProjectTask.InvalidChildType",
+                    "Child items cannot be Features. Use Task or Bug.");
+            }
+
+            if (task.Type != normalized)
+            {
+                task.Type = normalized;
+                changed = true;
+            }
+        }
+
+        var estimateResult = ApplyEstimateUpdates(task, request);
+        if (estimateResult.IsError)
+        {
+            return estimateResult.Errors;
+        }
+
+        changed |= estimateResult.Value;
+
         if (!changed)
         {
             return await MapTaskAsync(request.ProjectId, task, cancellationToken);
@@ -202,6 +233,63 @@ public sealed class UpdateProjectTaskCommandHandler(
         }
 
         return Result.Success;
+    }
+
+    private static ErrorOr<bool> ApplyEstimateUpdates(ProjectTask task, UpdateProjectTaskCommand request)
+    {
+        var changed = false;
+
+        if (request.ClearOriginalEstimate)
+        {
+            if (task.OriginalEstimateMinutes is not null || task.RemainingEstimateMinutes is not null)
+            {
+                ProjectTaskTimeTracking.ApplyOriginalEstimate(task, null);
+                changed = true;
+            }
+        }
+        else if (request.OriginalEstimateMinutes is not null)
+        {
+            if (request.OriginalEstimateMinutes < 0
+                || request.OriginalEstimateMinutes > ProjectTaskTimeTracking.MaxEstimateMinutes)
+            {
+                return Error.Validation(
+                    "ProjectTask.InvalidOriginalEstimate",
+                    $"Original estimate must be between 0 and {ProjectTaskTimeTracking.MaxEstimateMinutes} minutes.");
+            }
+
+            if (task.OriginalEstimateMinutes != request.OriginalEstimateMinutes)
+            {
+                ProjectTaskTimeTracking.ApplyOriginalEstimate(task, request.OriginalEstimateMinutes);
+                changed = true;
+            }
+        }
+
+        // Remaining is derived from estimate − spent; ignore direct remaining patches.
+        if (request.ClearStoryPoints)
+        {
+            if (task.StoryPoints is not null)
+            {
+                task.StoryPoints = null;
+                changed = true;
+            }
+        }
+        else if (request.StoryPoints is not null)
+        {
+            if (request.StoryPoints < 0 || request.StoryPoints > ProjectTaskTimeTracking.MaxStoryPoints)
+            {
+                return Error.Validation(
+                    "ProjectTask.InvalidStoryPoints",
+                    $"Story points must be between 0 and {ProjectTaskTimeTracking.MaxStoryPoints}.");
+            }
+
+            if (task.StoryPoints != request.StoryPoints)
+            {
+                task.StoryPoints = request.StoryPoints;
+                changed = true;
+            }
+        }
+
+        return changed;
     }
 
     private async Task<ProjectTaskDto> MapTaskAsync(

@@ -8,6 +8,7 @@ public sealed class CreateProjectTaskCommand : ICommand<ProjectTaskDto>
     public Guid ProjectId { get; init; }
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public string? Type { get; init; }
     public Guid? AssigneeId { get; init; }
     public Guid? ParentId { get; init; }
 }

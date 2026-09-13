@@ -13,7 +13,19 @@ public class ProjectTask : TenantEntity
 
     public string Title { get; set; } = string.Empty;
     public string Code { get; set; } = string.Empty;
+    public ProjectTaskType Type { get; set; } = ProjectTaskType.Task;
     public string? Description { get; set; }
+
+    public List<string> AcceptanceCriteria { get; set; } = [];
+    public List<ProjectTaskTestCase> TestCases { get; set; } = [];
+    
+    public int? OriginalEstimateMinutes { get; set; }
+    public int? RemainingEstimateMinutes { get; set; }
+    public decimal? StoryPoints { get; set; }
+    public int SpentMinutes { get; set; }
+
+    public IList<ProjectTaskWorkLog> WorkLogs { get; set; } = [];
+    public IList<ProjectTaskAttachment> Attachments { get; set; } = [];
 
     public Guid? AssigneeId { get; set; }
     public User? Assignee { get; set; }

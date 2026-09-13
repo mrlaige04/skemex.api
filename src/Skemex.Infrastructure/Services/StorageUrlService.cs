@@ -10,7 +10,8 @@ public sealed class StorageUrlService(
     IOptions<StorageOptions> options,
     IHttpContextAccessor httpContextAccessor,
     IProfileImageService profileImages,
-    IProjectDocumentStorageService projectDocuments) : IUrlService
+    IProjectDocumentStorageService projectDocuments,
+    IIssueAttachmentStorageService issueAttachments) : IUrlService
 {
     private readonly StorageOptions _options = options.Value;
 
@@ -28,6 +29,9 @@ public sealed class StorageUrlService(
 
     public Task<string?> GetProjectDocumentUrlAsync(string? blobId, CancellationToken cancellationToken = default) =>
         projectDocuments.GetDownloadUrlAsync(blobId, cancellationToken);
+
+    public Task<string?> GetIssueAttachmentUrlAsync(string? blobId, CancellationToken cancellationToken = default) =>
+        issueAttachments.GetDownloadUrlAsync(blobId, cancellationToken);
 
     private string? BuildBrandingUrl(string? blobId)
     {

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.SaFeatures.Commands.SaAiProviders.CreateSaAiProvider;
 using Skemex.Application.SaFeatures.Commands.SaAiProviders.DeleteSaAiProvider;
+using Skemex.Application.SaFeatures.Commands.SaAiProviders.SyncSaAiProviderModels;
 using Skemex.Application.SaFeatures.Commands.SaAiProviders.UpdateSaAiProvider;
 using Skemex.Application.SaFeatures.Commands.SaAiProviders.UpdateSaAiProviderModel;
 using Skemex.Application.SaFeatures.Queries.SaAiProviders.GetSaAiProviderById;
@@ -39,6 +40,15 @@ public class SaAiProvidersController(ISender sender) : BaseController
     {
         var result = await sender.Send(
             new GetSaAiProviderModelsQuery { ProviderId = id },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("{id:guid}/models/sync")]
+    public async Task<IActionResult> SyncModels(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new SyncSaAiProviderModelsCommand { ProviderId = id },
             cancellationToken);
         return result.Match(Ok, Problem);
     }

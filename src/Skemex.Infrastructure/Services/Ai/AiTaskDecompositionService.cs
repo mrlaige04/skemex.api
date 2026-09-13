@@ -28,6 +28,10 @@ public sealed partial class AiTaskDecompositionService(
 {
     private const int MaxTitleLength = 256;
     private const int MaxDescriptionLength = 2000;
+    private const int MaxAcceptanceCriteria = 12;
+    private const int MaxAcceptanceCriterionLength = 500;
+    private const int MaxTestCases = 12;
+    private const int MaxTestCaseFieldLength = 500;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -87,12 +91,11 @@ public sealed partial class AiTaskDecompositionService(
             return;
         }
 
-        var maxDepth = Math.Clamp(settings.AiMaxTreeDepth, 1, 8);
+        var maxDepth = 2;
         var maxNodes = Math.Clamp(settings.AiMaxNodes, 1, 64);
 
         try
         {
-            var userPrompt = BuildUserPrompt(job.UserInput, job.CustomInstructions, maxDepth);
             var modelExternalId = await ResolveModelExternalIdAsync(job, settings, cancellationToken)
                 .ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(modelExternalId))
@@ -109,11 +112,13 @@ public sealed partial class AiTaskDecompositionService(
                 return;
             }
 
+            var systemPrompt = BuildSystemPrompt(maxDepth, maxNodes);
+            var userPrompt = BuildUserPrompt(job.UserInput, job.CustomInstructions);
             var aiResult = await aiChatService
                 .CompleteAsync(
                     new AiChatRequest
                     {
-                        SystemPrompt = BuildSystemPrompt(maxDepth, maxNodes),
+                        SystemPrompt = systemPrompt,
                         UserPrompt = userPrompt,
                         Model = modelExternalId,
                     },
@@ -151,15 +156,22 @@ public sealed partial class AiTaskDecompositionService(
                 filter: task => task.Id == rootTaskId,
                 cancellationToken: cancellationToken);
             var code = rootTask?.Code;
+            var successLines = new List<string>
+            {
+                "Done — I created a task tree from your goal.",
+                $"Root task: {code} — {rootTask!.Title}",
+            };
+            if (rootTask.OriginalEstimateMinutes is int minutes and > 0)
+            {
+                successLines.Add($"Total estimate: {FormatHoursLabel(minutes)}");
+            }
+
+            successLines.Add("Estimates were provided by the model using bottom-up estimation.");
+            successLines.Add("Refresh the board or Issues to see the new tasks.");
+
             var successContent = string.IsNullOrWhiteSpace(code)
                 ? "Done — the task tree was created. Refresh the board or Issues to see the new tasks."
-                : string.Join(
-                    Environment.NewLine,
-                    [
-                        "Done — I created a task tree from your goal.",
-                        $"Root task: {code} — {rootTask!.Title}",
-                        "Refresh the board or Issues to see the new tasks.",
-                    ]);
+                : string.Join(Environment.NewLine, successLines);
 
             await AppendAssistantMessageAsync(
                 job,
@@ -249,64 +261,65 @@ public sealed partial class AiTaskDecompositionService(
     private static string BuildSystemPrompt(int maxDepth, int maxNodes)
     {
         var maxChildrenHint = Math.Max(1, maxNodes - 1);
-        var depthRule = maxDepth <= 2
-            ? $"""
-              - Exactly {maxDepth} level(s): one "root" parent and its direct "subtasks" only (depth {maxDepth}).
-              - Every leaf MUST have "subtasks": [] (empty). Never nest deeper than {maxDepth} levels.
-              """
-            : $"""
-              - Maximum depth is {maxDepth} (root = level 1). You may nest subtasks up to that depth.
-              - Nodes at depth {maxDepth} MUST have "subtasks": [] (empty). Do not nest deeper.
-              - Prefer shallower trees when the goal is simple; use deeper nesting only when workstreams clearly split.
-              """;
+        var maxEstimateHours = ProjectTaskTimeTracking.MaxEstimateHours;
 
-        const string schema = """
-            {
-              "root": {
-                "title": string,
-                "description": string,
-                "subtasks": [
-                  {
-                    "title": string,
-                    "description": string,
-                    "subtasks": []
-                  }
-                ]
-              }
-            }
+        var prompt = """
+            You break product goals into work items for a Jira-like tracker.
+            Reply with ONLY one JSON object. No markdown. No commentary.
+
+            ============================================================================
+            MANDATORY TYPE CONTRACT — violate this and the output is invalid
+            ============================================================================
+            Every node MUST have "type" with EXACTLY one of these strings (case-sensitive):
+              "Feature" | "Task" | "Bug"
+
+            Absolute rules (no exceptions):
+            1) If a node has one or more items in "subtasks", its "type" MUST be "Feature".
+               Using "Task" or "Bug" on a parent is ALWAYS wrong.
+            2) If a node has "subtasks": [], its "type" MUST be "Task" or "Bug" (never "Feature").
+            3) Children are never "Feature". Child "subtasks" must always be [].
+            4) Never omit "type". Never invent other type values (Story, Epic, Subtask, etc.).
+            5) "positive"/"negative" belong only in testCases.caseType — never in node "type".
+
+            Naming trap: everyday English "task" ≠ JSON "Task".
+            JSON "Task" = leaf only. JSON "Feature" = parent with children.
+
+            Default shape for implement/build/add goals: Feature root + Task children.
+            Use a single Task/Bug root only for one tiny atomic fix.
+
+            Valid SHAPE A (copy this type pattern):
+            {"root":{"type":"Feature","title":"Implement checkout","description":"Guest and logged-in checkout flow.","acceptanceCriteria":["Order can be placed","Payment errors are visible"],"testCases":[{"caseType":"positive","description":"Valid checkout","expectedResult":"Order created"},{"caseType":"negative","description":"Invalid card","expectedResult":"Error shown"}],"estimatedHours":8,"remainingHours":8,"storyPoints":null,"subtasks":[{"type":"Task","title":"Checkout API","description":"Create order endpoint and persistence.","acceptanceCriteria":["Order is saved"],"testCases":[{"caseType":"positive","description":"Valid body","expectedResult":"201"},{"caseType":"negative","description":"Bad body","expectedResult":"400"}],"estimatedHours":4,"remainingHours":4,"storyPoints":null,"subtasks":[]},{"type":"Task","title":"Checkout UI","description":"Checkout form and submit flow.","acceptanceCriteria":["Form submits successfully"],"testCases":[{"caseType":"positive","description":"Valid form","expectedResult":"Success"},{"caseType":"negative","description":"Empty form","expectedResult":"Validation errors"}],"estimatedHours":4,"remainingHours":4,"storyPoints":null,"subtasks":[]}]}}
+
+            Valid SHAPE B:
+            {"root":{"type":"Bug","title":"Fix logout crash","description":"Null reference when session is missing.","acceptanceCriteria":["Logout never throws"],"testCases":[{"caseType":"positive","description":"Logout with session","expectedResult":"OK"},{"caseType":"negative","description":"Logout without session","expectedResult":"No crash"}],"estimatedHours":1.5,"remainingHours":1.5,"storyPoints":null,"subtasks":[]}}
+
+            Other fields per node:
+            title, description, acceptanceCriteria[], testCases[{caseType,description,expectedResult}], estimatedHours, remainingHours, storyPoints, subtasks[]
+
+            Limits:
+            - max depth __MAX_DEPTH__
+            - prefer 3-8 children under a Feature (max __MAX_CHILDREN__ under root, __MAX_NODES__ nodes total)
+            - title ≤ __MAX_TITLE__, description ≤ __MAX_DESCRIPTION__, both non-empty
+            - 2-6 acceptanceCriteria (each ≤ __MAX_AC_ITEM__)
+            - 2-6 testCases with both positive and negative (fields ≤ __MAX_TEST_FIELD__)
+            - estimate like an experienced engineer, no padding; remainingHours = estimatedHours; Feature estimatedHours = sum of children; estimatedHours ≤ __MAX_ESTIMATE_HOURS__
+            - no assignees, priorities, statuses, or dates
+
+            Final gate: before you output, scan every node — parents with children must say "Feature", leaves must say "Task" or "Bug".
             """;
 
-        return
-            "You are a senior project planner for a task-tracking product (similar to Jira).\n"
-            + "Turn the user's goal into a clear, ready-to-work task tree.\n\n"
-            + "Respond with ONLY valid JSON (no markdown fences, no commentary) matching this schema:\n"
-            + schema
-            + "\nStructure rules (strict):\n"
-            + depthRule
-            + $"""
-            - Prefer 4–10 top-level subtasks for a typical goal (hard max {maxChildrenHint} nodes under root constraints, max {maxNodes} nodes total including root).
-
-            Title rules:
-            - Titles must be specific and actionable (verb + object), not vague labels.
-            - Good: "Design checkout wireframes for guest and logged-in users"
-            - Bad: "Design", "Frontend", "Phase 1", "Misc"
-            - Root title should name the overall deliverable/outcome.
-            - Title max {MaxTitleLength} characters.
-
-            Description rules (required for every node, including root):
-            - Write 2–5 sentences (or short bullets in one string) that a developer can start from.
-            - Include: goal/context, scope of work, acceptance criteria or definition of done, and notable constraints.
-            - Do not leave description null or empty.
-            - Description max {MaxDescriptionLength} characters.
-
-            Content rules:
-            - Subtasks should cover distinct workstreams (e.g. research, design, implementation, testing, rollout) relevant to the request.
-            - Avoid duplicate or overlapping subtasks.
-            - Do not invent assignees, priorities, estimates, statuses, or dates.
-            """;
+        return prompt
+            .Replace("__MAX_DEPTH__", maxDepth.ToString())
+            .Replace("__MAX_CHILDREN__", maxChildrenHint.ToString())
+            .Replace("__MAX_NODES__", maxNodes.ToString())
+            .Replace("__MAX_TITLE__", MaxTitleLength.ToString())
+            .Replace("__MAX_DESCRIPTION__", MaxDescriptionLength.ToString())
+            .Replace("__MAX_AC_ITEM__", MaxAcceptanceCriterionLength.ToString())
+            .Replace("__MAX_TEST_FIELD__", MaxTestCaseFieldLength.ToString())
+            .Replace("__MAX_ESTIMATE_HOURS__", maxEstimateHours.ToString());
     }
 
-    private static string BuildUserPrompt(string userInput, string? customInstructions, int maxDepth)
+    private static string BuildUserPrompt(string userInput, string? customInstructions)
     {
         var parts = new List<string>
         {
@@ -322,12 +335,7 @@ public sealed partial class AiTaskDecompositionService(
         }
 
         parts.Add(string.Empty);
-        parts.Add(
-            maxDepth <= 2
-                ? $"Produce a {maxDepth}-level JSON tree only (root + direct subtasks). "
-                  + "Every node needs a concrete title and a useful non-empty description."
-                : $"Produce a JSON task tree with maximum depth {maxDepth} (root = level 1). "
-                  + "Every node needs a concrete title and a useful non-empty description.");
+        parts.Add("Return the JSON object with root.");
 
         return string.Join(Environment.NewLine, parts);
     }
@@ -418,12 +426,44 @@ public sealed partial class AiTaskDecompositionService(
 
         node.Description = description;
         node.Subtasks ??= [];
+        node.AcceptanceCriteria ??= [];
+        node.TestCases ??= [];
+
+        var typeResult = ValidateAndNormalizeType(node, depth);
+        if (typeResult.IsError)
+        {
+            return typeResult.Errors;
+        }
+
+        var criteriaResult = ValidateAcceptanceCriteria(node);
+        if (criteriaResult.IsError)
+        {
+            return criteriaResult.Errors;
+        }
+
+        var testCasesResult = ValidateTestCases(node);
+        if (testCasesResult.IsError)
+        {
+            return testCasesResult.Errors;
+        }
+
+        var estimateResult = ValidateNodeEstimates(node);
+        if (estimateResult.IsError)
+        {
+            return estimateResult.Errors;
+        }
 
         if (depth == maxDepth && node.Subtasks.Count > 0)
         {
             return Error.Validation(
                 "Ai.TooDeep",
-                $"AI task tree cannot exceed {maxDepth} level(s); leaf tasks must have empty subtasks.");
+                $"AI task tree cannot exceed {maxDepth} level(s); child items must have empty subtasks.");
+        }
+
+        var hierarchyTypeResult = ValidateHierarchyTypeRules(node, depth);
+        if (hierarchyTypeResult.IsError)
+        {
+            return hierarchyTypeResult.Errors;
         }
 
         totalNodes = 1;
@@ -444,6 +484,195 @@ public sealed partial class AiTaskDecompositionService(
             }
         }
 
+        return Result.Success;
+    }
+
+    private static ErrorOr<Success> ValidateAndNormalizeType(AiTaskNode node, int depth)
+    {
+        if (!ProjectTaskTypeExtensions.TryParse(node.Type, out var normalized))
+        {
+            return Error.Validation(
+                "Ai.InvalidTaskType",
+                "Every task must have type Feature, Task, or Bug.");
+        }
+
+        if (depth > 1 && normalized == ProjectTaskType.Feature)
+        {
+            return Error.Validation(
+                "Ai.InvalidChildType",
+                "Child items cannot be Features. Use Task or Bug.");
+        }
+
+        node.Type = normalized.ToString();
+        return Result.Success;
+    }
+
+    private static ErrorOr<Success> ValidateHierarchyTypeRules(AiTaskNode node, int depth)
+    {
+        if (depth != 1 || !ProjectTaskTypeExtensions.TryParse(node.Type, out var rootType))
+        {
+            return Result.Success;
+        }
+
+        if (node.Subtasks.Count > 0 && rootType != ProjectTaskType.Feature)
+        {
+            return Error.Validation(
+                "Ai.ParentMustBeFeature",
+                "When the tree has two levels, root.type must be Feature (children are Task or Bug).");
+        }
+
+        if (node.Subtasks.Count == 0 && rootType == ProjectTaskType.Feature)
+        {
+            return Error.Validation(
+                "Ai.FeatureRequiresChildren",
+                "A Feature root must include at least one child Task or Bug.");
+        }
+
+        return Result.Success;
+    }
+
+    private static ErrorOr<Success> ValidateNodeEstimates(AiTaskNode node)
+    {
+        if (node.EstimatedHours is null || node.EstimatedHours <= 0)
+        {
+            return Error.Validation(
+                "Ai.MissingEstimate",
+                "Every task must include a positive estimatedHours value.");
+        }
+
+        if (node.EstimatedHours > ProjectTaskTimeTracking.MaxEstimateHours)
+        {
+            return Error.Validation(
+                "Ai.EstimateTooLarge",
+                $"estimatedHours cannot exceed {ProjectTaskTimeTracking.MaxEstimateHours}.");
+        }
+
+        if (node.RemainingHours is null)
+        {
+            node.RemainingHours = node.EstimatedHours;
+        }
+        else if (node.RemainingHours < 0 || node.RemainingHours > ProjectTaskTimeTracking.MaxEstimateHours)
+        {
+            return Error.Validation(
+                "Ai.InvalidRemainingHours",
+                $"remainingHours must be between 0 and {ProjectTaskTimeTracking.MaxEstimateHours}.");
+        }
+
+        if (node.StoryPoints is not null
+            && (node.StoryPoints < 0 || node.StoryPoints > ProjectTaskTimeTracking.MaxStoryPoints))
+        {
+            return Error.Validation(
+                "Ai.InvalidStoryPoints",
+                $"storyPoints must be between 0 and {ProjectTaskTimeTracking.MaxStoryPoints}.");
+        }
+
+        return Result.Success;
+    }
+
+    private static ErrorOr<Success> ValidateAcceptanceCriteria(AiTaskNode node)
+    {
+        var cleaned = node.AcceptanceCriteria
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item.Trim())
+            .ToList();
+
+        if (cleaned.Count == 0)
+        {
+            return Error.Validation(
+                "Ai.EmptyAcceptanceCriteria",
+                "Every task must include at least one acceptance criterion.");
+        }
+
+        if (cleaned.Count > MaxAcceptanceCriteria)
+        {
+            return Error.Validation(
+                "Ai.TooManyAcceptanceCriteria",
+                $"A task cannot have more than {MaxAcceptanceCriteria} acceptance criteria.");
+        }
+
+        if (cleaned.Any(item => item.Length > MaxAcceptanceCriterionLength))
+        {
+            return Error.Validation(
+                "Ai.AcceptanceCriterionTooLong",
+                $"Each acceptance criterion cannot exceed {MaxAcceptanceCriterionLength} characters.");
+        }
+
+        node.AcceptanceCriteria = cleaned;
+        return Result.Success;
+    }
+
+    private static ErrorOr<Success> ValidateTestCases(AiTaskNode node)
+    {
+        var cleaned = new List<AiTaskTestCase>();
+        foreach (var item in node.TestCases)
+        {
+            var description = item.Description?.Trim() ?? string.Empty;
+            var expected = item.ExpectedResult?.Trim() ?? string.Empty;
+            if (description.Length == 0 && expected.Length == 0)
+            {
+                continue;
+            }
+
+            if (description.Length == 0 || expected.Length == 0)
+            {
+                return Error.Validation(
+                    "Ai.IncompleteTestCase",
+                    "Every test case must include both description and expectedResult.");
+            }
+
+            if (description.Length > MaxTestCaseFieldLength
+                || expected.Length > MaxTestCaseFieldLength)
+            {
+                return Error.Validation(
+                    "Ai.TestCaseTooLong",
+                    $"Test case fields cannot exceed {MaxTestCaseFieldLength} characters.");
+            }
+
+            var type = item.Type?.Trim().ToLowerInvariant() ?? string.Empty;
+            if (type is not ("positive" or "negative"))
+            {
+                return Error.Validation(
+                    "Ai.InvalidTestCaseType",
+                    "Test case type must be \"positive\" or \"negative\".");
+            }
+
+            cleaned.Add(new AiTaskTestCase
+            {
+                Type = type,
+                Description = description,
+                ExpectedResult = expected,
+            });
+        }
+
+        if (cleaned.Count == 0)
+        {
+            return Error.Validation(
+                "Ai.EmptyTestCases",
+                "Every task must include at least one test case.");
+        }
+
+        if (cleaned.Count > MaxTestCases)
+        {
+            return Error.Validation(
+                "Ai.TooManyTestCases",
+                $"A task cannot have more than {MaxTestCases} test cases.");
+        }
+
+        if (!cleaned.Any(item => item.Type == "positive"))
+        {
+            return Error.Validation(
+                "Ai.MissingPositiveTestCase",
+                "Every task must include at least one positive test case.");
+        }
+
+        if (!cleaned.Any(item => item.Type == "negative"))
+        {
+            return Error.Validation(
+                "Ai.MissingNegativeTestCase",
+                "Every task must include at least one negative test case.");
+        }
+
+        node.TestCases = cleaned;
         return Result.Success;
     }
 
@@ -528,9 +757,23 @@ public sealed partial class AiTaskDecompositionService(
             ParentId = parentId,
             Code = ProjectTaskCodeFormatter.Format(projectCode, taskNumber),
             Title = node.Title.Trim(),
+            Type = ProjectTaskTypeExtensions.ParseOrDefault(node.Type),
             Description = string.IsNullOrWhiteSpace(node.Description) ? null : node.Description.Trim(),
+            AcceptanceCriteria = node.AcceptanceCriteria.ToList(),
+            TestCases = node.TestCases
+                .Select(item => new ProjectTaskTestCase
+                {
+                    Type = item.Type,
+                    Description = item.Description,
+                    ExpectedResult = item.ExpectedResult,
+                })
+                .ToList(),
+            StoryPoints = node.StoryPoints,
             ReporterId = reporterId,
         };
+
+        var estimateMinutes = ProjectTaskTimeTracking.HoursToMinutes(node.EstimatedHours);
+        ProjectTaskTimeTracking.ApplyOriginalEstimate(task, estimateMinutes);
 
         await projectTaskRepository.AddAsync(task, cancellationToken);
 
@@ -552,6 +795,17 @@ public sealed partial class AiTaskDecompositionService(
 
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
+
+    private static string FormatHoursLabel(int minutes)
+    {
+        if (minutes % 60 == 0)
+        {
+            return $"{minutes / 60}h";
+        }
+
+        var hours = minutes / 60m;
+        return $"{hours:0.##}h";
+    }
 
     [GeneratedRegex(@"```(?:json)?\s*([\s\S]*?)\s*```", RegexOptions.IgnoreCase)]
     private static partial Regex MarkdownFenceRegex();

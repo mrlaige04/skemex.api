@@ -18,8 +18,16 @@ public sealed class ProjectTaskDto
     public string ColumnTitle { get; init; } = string.Empty;
     public Guid? ParentId { get; init; }
     public string Code { get; init; } = string.Empty;
+    public string Type { get; init; } = "Task";
     public string Title { get; init; } = string.Empty;
     public string? Description { get; init; }
+    public IReadOnlyList<string> AcceptanceCriteria { get; init; } = [];
+    public IReadOnlyList<ProjectTaskTestCaseDto> TestCases { get; init; } = [];
+    public int? OriginalEstimateMinutes { get; init; }
+    public int? RemainingEstimateMinutes { get; init; }
+    public decimal? StoryPoints { get; init; }
+    public int SpentMinutes { get; init; }
+    public IReadOnlyList<ProjectTaskWorkLogDto> WorkLogs { get; init; } = [];
     public DateTime CreatedAt { get; init; }
     public DateTime? UpdatedAt { get; init; }
     public ProjectTaskUserDto? Assignee { get; init; }
