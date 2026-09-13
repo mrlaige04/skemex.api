@@ -39,6 +39,8 @@ public class AddProjectTaskTimeTracking : Migration
             nullable: false,
             defaultValue: 0);
 
+        // Final work-log schema (StartedAt/EndedAt). WorkLogStartEndTimestamps is a no-op
+        // when this table does not exist yet because its migration id sorts earlier.
         migrationBuilder.CreateTable(
             name: "project_task_work_logs",
             columns: table => new
@@ -48,7 +50,8 @@ public class AddProjectTaskTimeTracking : Migration
                 TaskId = table.Column<Guid>(type: "uuid", nullable: false),
                 UserId = table.Column<Guid>(type: "uuid", nullable: false),
                 SpentMinutes = table.Column<int>(type: "integer", nullable: false),
-                WorkDate = table.Column<DateOnly>(type: "date", nullable: false),
+                StartedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                EndedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                 Comment = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
                 CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                 UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
@@ -83,9 +86,9 @@ public class AddProjectTaskTimeTracking : Migration
             columns: new[] { "ProjectId", "UserId" });
 
         migrationBuilder.CreateIndex(
-            name: "IX_project_task_work_logs_TaskId_WorkDate",
+            name: "IX_project_task_work_logs_TaskId_StartedAt",
             table: "project_task_work_logs",
-            columns: new[] { "TaskId", "WorkDate" });
+            columns: new[] { "TaskId", "StartedAt" });
 
         migrationBuilder.CreateIndex(
             name: "IX_project_task_work_logs_UserId",
