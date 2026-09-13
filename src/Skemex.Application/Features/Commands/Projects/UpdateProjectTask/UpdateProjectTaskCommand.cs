@@ -13,4 +13,11 @@ public sealed class UpdateProjectTaskCommand : ICommand<ProjectTaskDto>
     public bool ClearDescription { get; init; }
     public Guid? AssigneeId { get; init; }
     public bool ClearAssignee { get; init; }
+    public int? OriginalEstimateMinutes { get; init; }
+    public bool ClearOriginalEstimate { get; init; }
+    public int? RemainingEstimateMinutes { get; init; }
+    public bool ClearRemainingEstimate { get; init; }
+    public decimal? StoryPoints { get; init; }
+    public bool ClearStoryPoints { get; init; }
+    public string? Type { get; init; }
 }

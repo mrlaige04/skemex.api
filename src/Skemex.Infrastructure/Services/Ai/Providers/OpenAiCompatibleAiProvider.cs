@@ -66,7 +66,7 @@ public sealed class OpenAiCompatibleAiProvider(
                 Id = item.Id.Trim(),
                 Author = ResolveAuthor(item.OwnedBy),
             })
-            .Where(item => IsChatCompletionModel(item.Id))
+            // TODO: re-enable chat-completion filtering once IsChatCompletionModel is reliable.
             .GroupBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .Select(item => new RemoteAiModel(
@@ -89,23 +89,57 @@ public sealed class OpenAiCompatibleAiProvider(
         EnsureConfigured();
 
         var modelId = request.Model.Trim();
-        using var httpRequest = CreateRequest(HttpMethod.Post, "chat/completions");
-        httpRequest.Content = new StringContent(
-            JsonSerializer.Serialize(
-                new
-                {
-                    model = modelId,
-                    messages = new[]
-                    {
-                        new { role = "system", content = request.SystemPrompt },
-                        new { role = "user", content = request.UserPrompt },
-                    },
-                }),
-            Encoding.UTF8,
-            "application/json");
-
         var client = httpClientFactory.CreateClient(HttpClientName);
-        using var response = await client.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
+
+        using var response = await SendChatAsync(
+                client,
+                modelId,
+                request.SystemPrompt,
+                request.UserPrompt,
+                useJsonObjectFormat: true,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var maybeUnsupportedFormat =
+                (int)response.StatusCode is 400 or 422
+                && body.Contains("response_format", StringComparison.OrdinalIgnoreCase);
+
+            if (!maybeUnsupportedFormat)
+            {
+                logger.LogWarning(
+                    "AI provider {Provider} chat completion failed with {Status}: {Body}",
+                    Name,
+                    (int)response.StatusCode,
+                    body);
+                response.EnsureSuccessStatusCode();
+            }
+
+            logger.LogInformation(
+                "AI provider {Provider} rejected response_format=json_object; retrying without it.",
+                Name);
+
+            using var retryResponse = await SendChatAsync(
+                    client,
+                    modelId,
+                    request.SystemPrompt,
+                    request.UserPrompt,
+                    useJsonObjectFormat: false,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return await ReadChatResultAsync(retryResponse, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await ReadChatResultAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<AiChatResult> ReadChatResultAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
         if (!response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -123,6 +157,44 @@ public sealed class OpenAiCompatibleAiProvider(
 
         var text = payload?.Choices?.FirstOrDefault()?.Message?.Content ?? string.Empty;
         return new AiChatResult { Text = text };
+    }
+
+    private async Task<HttpResponseMessage> SendChatAsync(
+        HttpClient client,
+        string modelId,
+        string systemPrompt,
+        string userPrompt,
+        bool useJsonObjectFormat,
+        CancellationToken cancellationToken)
+    {
+        using var httpRequest = CreateRequest(HttpMethod.Post, "chat/completions");
+        object body = useJsonObjectFormat
+            ? new
+            {
+                model = modelId,
+                response_format = new { type = "json_object" },
+                messages = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userPrompt },
+                },
+            }
+            : new
+            {
+                model = modelId,
+                messages = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userPrompt },
+                },
+            };
+
+        httpRequest.Content = new StringContent(
+            JsonSerializer.Serialize(body),
+            Encoding.UTF8,
+            "application/json");
+
+        return await client.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string relativePath)
@@ -208,6 +280,7 @@ public sealed class OpenAiCompatibleAiProvider(
 
     /// <summary>
     /// Keep chat-completion models only (drop video/image/audio/embedding/…).
+    /// Temporarily unused — all provider models are synced until this heuristic is improved.
     /// </summary>
     internal static bool IsChatCompletionModel(string modelId)
     {

@@ -21,6 +21,13 @@ using Skemex.Application.Features.Commands.Projects.UpdateAiChat;
 using Skemex.Application.Features.Commands.Projects.UpdateAiChatMessage;
 using Skemex.Application.Features.Commands.Projects.UpdateProject;
 using Skemex.Application.Features.Commands.Projects.UpdateProjectTask;
+using Skemex.Application.Features.Commands.Projects.CreateProjectTaskWorkLog;
+using Skemex.Application.Features.Commands.Projects.DeleteProjectTaskAttachment;
+using Skemex.Application.Features.Commands.Projects.DeleteProjectTaskWorkLog;
+using Skemex.Application.Features.Commands.Projects.UpdateProjectTaskWorkLog;
+using Skemex.Application.Features.Commands.Projects.UploadProjectTaskAttachment;
+using Skemex.Application.Features.Queries.Projects.GetProjectTaskAttachments;
+using Skemex.Application.Features.Queries.Projects.GetProjectTaskWorkLogs;
 using Skemex.Application.Features.Commands.Projects.ReorderProjectColumns;
 using Skemex.Application.Features.Commands.Projects.UpdateProjectColumn;
 using Skemex.Application.Features.Commands.Projects.UpdateProjectSettings;
@@ -212,6 +219,7 @@ public class ProjectsController(ISender sender) : BaseController
                 ProjectId = id,
                 Title = body.Title,
                 Description = body.Description,
+                Type = body.Type,
                 AssigneeId = body.AssigneeId,
                 ParentId = body.ParentId,
             },
@@ -472,9 +480,151 @@ public class ProjectsController(ISender sender) : BaseController
                 ClearDescription = body.ClearDescription,
                 AssigneeId = body.AssigneeId,
                 ClearAssignee = body.ClearAssignee,
+                OriginalEstimateMinutes = body.OriginalEstimateMinutes,
+                ClearOriginalEstimate = body.ClearOriginalEstimate,
+                RemainingEstimateMinutes = body.RemainingEstimateMinutes,
+                ClearRemainingEstimate = body.ClearRemainingEstimate,
+                StoryPoints = body.StoryPoints,
+                ClearStoryPoints = body.ClearStoryPoints,
+                Type = body.Type,
             },
             cancellationToken);
         return result.Match(Ok, Problem);
+    }
+
+    [HttpGet("{id:guid}/tasks/{taskId:guid}/work-logs")]
+    public async Task<IActionResult> ListTaskWorkLogs(
+        Guid id,
+        Guid taskId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new GetProjectTaskWorkLogsQuery { ProjectId = id, TaskId = taskId },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpGet("{id:guid}/tasks/{taskId:guid}/attachments")]
+    public async Task<IActionResult> ListTaskAttachments(
+        Guid id,
+        Guid taskId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new GetProjectTaskAttachmentsQuery { ProjectId = id, TaskId = taskId },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("{id:guid}/tasks/{taskId:guid}/attachments")]
+    [RequestSizeLimit(26 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 26 * 1024 * 1024)]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> UploadTaskAttachment(
+        Guid id,
+        Guid taskId,
+        [FromForm] UploadProjectTaskAttachmentForm form,
+        CancellationToken cancellationToken)
+    {
+        var command = new UploadProjectTaskAttachmentCommand
+        {
+            ProjectId = id,
+            TaskId = taskId,
+        };
+
+        if (form.File is { Length: > 0 })
+        {
+            var ms = new MemoryStream();
+            await form.File.CopyToAsync(ms, cancellationToken);
+            ms.Position = 0;
+            command.FileContent = ms;
+            command.ContentType = form.File.ContentType;
+            command.FileName = form.File.FileName;
+        }
+
+        var result = await sender.Send(command, cancellationToken);
+        return result.Match(
+            dto => CreatedAtAction(nameof(ListTaskAttachments), new { id, taskId }, dto),
+            Problem);
+    }
+
+    [HttpDelete("{id:guid}/tasks/{taskId:guid}/attachments/{attachmentId:guid}")]
+    public async Task<IActionResult> DeleteTaskAttachment(
+        Guid id,
+        Guid taskId,
+        Guid attachmentId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new DeleteProjectTaskAttachmentCommand
+            {
+                ProjectId = id,
+                TaskId = taskId,
+                AttachmentId = attachmentId,
+            },
+            cancellationToken);
+        return result.Match(_ => NoContent(), Problem);
+    }
+
+    [HttpPost("{id:guid}/tasks/{taskId:guid}/work-logs")]
+    public async Task<IActionResult> CreateTaskWorkLog(
+        Guid id,
+        Guid taskId,
+        [FromBody] CreateProjectTaskWorkLogRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new CreateProjectTaskWorkLogCommand
+            {
+                ProjectId = id,
+                TaskId = taskId,
+                StartedAt = body.StartedAt,
+                EndedAt = body.EndedAt,
+                Comment = body.Comment,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPatch("{id:guid}/tasks/{taskId:guid}/work-logs/{workLogId:guid}")]
+    public async Task<IActionResult> UpdateTaskWorkLog(
+        Guid id,
+        Guid taskId,
+        Guid workLogId,
+        [FromBody] UpdateProjectTaskWorkLogRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new UpdateProjectTaskWorkLogCommand
+            {
+                ProjectId = id,
+                TaskId = taskId,
+                WorkLogId = workLogId,
+                StartedAt = body.StartedAt,
+                EndedAt = body.EndedAt,
+                Comment = body.Comment,
+                ClearComment = body.ClearComment,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpDelete("{id:guid}/tasks/{taskId:guid}/work-logs/{workLogId:guid}")]
+    public async Task<IActionResult> DeleteTaskWorkLog(
+        Guid id,
+        Guid taskId,
+        Guid workLogId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await sender.Send(
+            new DeleteProjectTaskWorkLogCommand
+            {
+                ProjectId = id,
+                TaskId = taskId,
+                WorkLogId = workLogId,
+            },
+            cancellationToken);
+        return result.Match(_ => NoContent(), Problem);
     }
 
     [HttpDelete("{id:guid}/columns/{columnId:guid}/tasks/{taskId:guid}")]

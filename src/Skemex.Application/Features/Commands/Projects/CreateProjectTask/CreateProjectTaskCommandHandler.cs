@@ -88,6 +88,12 @@ public sealed class CreateProjectTaskCommandHandler(
             columnId = parentValidation.Value.ProjectColumnId;
         }
 
+        var typeResult = ResolveCreateType(request);
+        if (typeResult.IsError)
+        {
+            return typeResult.Errors;
+        }
+
         await using var transaction = await projectTaskRepository.BeginTransactionAsync(cancellationToken);
 
         int taskNumber;
@@ -114,6 +120,7 @@ public sealed class CreateProjectTaskCommandHandler(
             ParentId = request.ParentId,
             Code = ProjectTaskCodeFormatter.Format(project.Code, taskNumber),
             Title = request.Title.Trim(),
+            Type = typeResult.Value,
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
             AssigneeId = request.AssigneeId,
             ReporterId = reporterId.Value,
@@ -138,6 +145,30 @@ public sealed class CreateProjectTaskCommandHandler(
             .LoadAvatarUrlsAsync([created], urlService, cancellationToken)
             .ConfigureAwait(false);
         return ProjectTaskDtoMapper.Map(created, avatarUrls);
+    }
+
+    private static ErrorOr<ProjectTaskType> ResolveCreateType(CreateProjectTaskCommand request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Type))
+        {
+            return ProjectTaskType.Task;
+        }
+
+        if (!ProjectTaskTypeExtensions.TryParse(request.Type, out var normalized))
+        {
+            return Error.Validation(
+                "ProjectTask.InvalidType",
+                "Type must be Feature, Task, or Bug.");
+        }
+
+        if (request.ParentId is not null && normalized == ProjectTaskType.Feature)
+        {
+            return Error.Validation(
+                "ProjectTask.InvalidChildType",
+                "Child items cannot be Features. Use Task or Bug.");
+        }
+
+        return normalized;
     }
 
     private async Task<ErrorOr<Success>> ValidateAssigneeAsync(
@@ -173,6 +204,13 @@ public sealed class CreateProjectTaskCommandHandler(
         if (parent is null)
         {
             return Error.NotFound("ProjectTask.ParentNotFound", "Parent task was not found.");
+        }
+
+        if (parent.ParentId is not null)
+        {
+            return Error.Validation(
+                "ProjectTask.NestingTooDeep",
+                "Tasks can only nest one level under a parent Feature.");
         }
 
         return parent;

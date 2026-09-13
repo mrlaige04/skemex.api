@@ -665,6 +665,10 @@ namespace Skemex.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AcceptanceCriteria")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
                     b.Property<Guid?>("AssigneeId")
                         .HasColumnType("uuid");
 
@@ -680,6 +684,9 @@ namespace Skemex.Infrastructure.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<int?>("OriginalEstimateMinutes")
+                        .HasColumnType("integer");
+
                     b.Property<Guid?>("ParentId")
                         .HasColumnType("uuid");
 
@@ -689,16 +696,39 @@ namespace Skemex.Infrastructure.Migrations
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("RemainingEstimateMinutes")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("ReporterId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("SpentMinutes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<decimal?>("StoryPoints")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("numeric(8,2)");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("TestCases")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
 
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("Task");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -719,6 +749,61 @@ namespace Skemex.Infrastructure.Migrations
                     b.HasIndex("ProjectId", "ProjectColumnId");
 
                     b.ToTable("project_tasks", (string)null);
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskAttachment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BlobId")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<long>("FileSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UploadedById")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UploadedById");
+
+                    b.HasIndex("ProjectId", "TaskId");
+
+                    b.HasIndex("TaskId", "CreatedAt");
+
+                    b.HasIndex("TenantId", "ProjectId");
+
+                    b.ToTable("project_task_attachments", (string)null);
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskCounter", b =>
@@ -748,6 +833,54 @@ namespace Skemex.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("project_task_counters", (string)null);
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskWorkLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SpentMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("ProjectId", "UserId");
+
+                    b.HasIndex("TaskId", "StartedAt");
+
+                    b.ToTable("project_task_work_logs", (string)null);
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectUser", b =>
@@ -1432,6 +1565,33 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("Reporter");
                 });
 
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskAttachment", b =>
+                {
+                    b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectTask", "Task")
+                        .WithMany("Attachments")
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Skemex.Domain.Entities.Users.User", "UploadedBy")
+                        .WithMany()
+                        .HasForeignKey("UploadedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+
+                    b.Navigation("Task");
+
+                    b.Navigation("UploadedBy");
+                });
+
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskCounter", b =>
                 {
                     b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
@@ -1441,6 +1601,33 @@ namespace Skemex.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskWorkLog", b =>
+                {
+                    b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectTask", "Task")
+                        .WithMany("WorkLogs")
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Skemex.Domain.Entities.Users.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+
+                    b.Navigation("Task");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectUser", b =>
@@ -1596,7 +1783,11 @@ namespace Skemex.Infrastructure.Migrations
 
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTask", b =>
                 {
+                    b.Navigation("Attachments");
+
                     b.Navigation("Subtasks");
+
+                    b.Navigation("WorkLogs");
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Users.Permission", b =>

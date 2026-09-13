@@ -14,6 +14,7 @@ public sealed class GetProjectTaskByCodeQueryHandler(
     ICurrentUser currentUser,
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectTask> projectTaskRepository,
+    ITenantRepository<ProjectTaskWorkLog> workLogRepository,
     IUrlService urlService)
     : IQueryHandler<GetProjectTaskByCodeQuery, ProjectTaskDto>
 {
@@ -64,6 +65,48 @@ public sealed class GetProjectTaskByCodeQueryHandler(
             .LoadAvatarUrlsAsync(allTasks, urlService, cancellationToken)
             .ConfigureAwait(false);
 
-        return ProjectTaskDtoMapper.MapWithSubtasksFromLookup(task, childrenByParentId, avatarUrls);
+        var dto = ProjectTaskDtoMapper.MapWithSubtasksFromLookup(task, childrenByParentId, avatarUrls);
+
+        var workLogs = await workLogRepository.GetAllAsync(
+            filter: log => log.TaskId == task.Id && log.ProjectId == request.ProjectId,
+            include: query => query.Include(log => log.User),
+            cancellationToken: cancellationToken);
+
+        var orderedLogs = workLogs
+            .OrderByDescending(log => log.StartedAt)
+            .ThenByDescending(log => log.CreatedAt)
+            .ToList();
+
+        var workLogAvatars = await ProjectTaskWorkLogDtoMapper
+            .LoadAvatarUrlsAsync(orderedLogs, urlService, cancellationToken)
+            .ConfigureAwait(false);
+
+        return new ProjectTaskDto
+        {
+            Id = dto.Id,
+            ProjectId = dto.ProjectId,
+            ProjectColumnId = dto.ProjectColumnId,
+            ColumnKey = dto.ColumnKey,
+            ColumnTitle = dto.ColumnTitle,
+            ParentId = dto.ParentId,
+            Code = dto.Code,
+            Type = dto.Type,
+            Title = dto.Title,
+            Description = dto.Description,
+            AcceptanceCriteria = dto.AcceptanceCriteria,
+            TestCases = dto.TestCases,
+            OriginalEstimateMinutes = dto.OriginalEstimateMinutes,
+            RemainingEstimateMinutes = dto.RemainingEstimateMinutes,
+            StoryPoints = dto.StoryPoints,
+            SpentMinutes = dto.SpentMinutes,
+            WorkLogs = orderedLogs
+                .Select(log => ProjectTaskWorkLogDtoMapper.Map(log, workLogAvatars))
+                .ToList(),
+            CreatedAt = dto.CreatedAt,
+            UpdatedAt = dto.UpdatedAt,
+            Assignee = dto.Assignee,
+            Reporter = dto.Reporter,
+            Subtasks = dto.Subtasks,
+        };
     }
 }
