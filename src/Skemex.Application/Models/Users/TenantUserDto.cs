@@ -12,6 +12,8 @@ public sealed class TenantUserDto
     public IReadOnlyList<string> Roles { get; init; } = [];
     public TenantUserStatus Status { get; init; }
     public string? AvatarUrl { get; init; }
+    public IReadOnlyList<string> Skills { get; init; } = [];
+    public IReadOnlyList<TenantSpecializationSummaryDto> Specializations { get; init; } = [];
 }
 
 public sealed class TenantRoleDto

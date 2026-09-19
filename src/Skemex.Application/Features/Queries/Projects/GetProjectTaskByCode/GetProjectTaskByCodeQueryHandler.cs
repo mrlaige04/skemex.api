@@ -95,6 +95,8 @@ public sealed class GetProjectTaskByCodeQueryHandler(
             Description = dto.Description,
             AcceptanceCriteria = dto.AcceptanceCriteria,
             TestCases = dto.TestCases,
+            Tags = dto.Tags,
+            Risks = dto.Risks,
             OriginalEstimateMinutes = dto.OriginalEstimateMinutes,
             RemainingEstimateMinutes = dto.RemainingEstimateMinutes,
             StoryPoints = dto.StoryPoints,

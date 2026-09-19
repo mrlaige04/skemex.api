@@ -480,6 +480,7 @@ public class ProjectsController(ISender sender) : BaseController
                 ClearDescription = body.ClearDescription,
                 AssigneeId = body.AssigneeId,
                 ClearAssignee = body.ClearAssignee,
+                ReporterId = body.ReporterId,
                 OriginalEstimateMinutes = body.OriginalEstimateMinutes,
                 ClearOriginalEstimate = body.ClearOriginalEstimate,
                 RemainingEstimateMinutes = body.RemainingEstimateMinutes,
@@ -487,6 +488,7 @@ public class ProjectsController(ISender sender) : BaseController
                 StoryPoints = body.StoryPoints,
                 ClearStoryPoints = body.ClearStoryPoints,
                 Type = body.Type,
+                Tags = body.Tags,
             },
             cancellationToken);
         return result.Match(Ok, Problem);

@@ -13,6 +13,7 @@ public sealed class UpdateProjectTaskCommand : ICommand<ProjectTaskDto>
     public bool ClearDescription { get; init; }
     public Guid? AssigneeId { get; init; }
     public bool ClearAssignee { get; init; }
+    public Guid? ReporterId { get; init; }
     public int? OriginalEstimateMinutes { get; init; }
     public bool ClearOriginalEstimate { get; init; }
     public int? RemainingEstimateMinutes { get; init; }
@@ -20,4 +21,7 @@ public sealed class UpdateProjectTaskCommand : ICommand<ProjectTaskDto>
     public decimal? StoryPoints { get; init; }
     public bool ClearStoryPoints { get; init; }
     public string? Type { get; init; }
+
+    /// <summary>When set (including empty), replaces the task tags.</summary>
+    public IReadOnlyList<string>? Tags { get; init; }
 }

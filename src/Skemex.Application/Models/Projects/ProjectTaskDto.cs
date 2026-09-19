@@ -23,6 +23,8 @@ public sealed class ProjectTaskDto
     public string? Description { get; init; }
     public IReadOnlyList<string> AcceptanceCriteria { get; init; } = [];
     public IReadOnlyList<ProjectTaskTestCaseDto> TestCases { get; init; } = [];
+    public IReadOnlyList<string> Tags { get; init; } = [];
+    public IReadOnlyList<string> Risks { get; init; } = [];
     public int? OriginalEstimateMinutes { get; init; }
     public int? RemainingEstimateMinutes { get; init; }
     public decimal? StoryPoints { get; init; }

@@ -8,6 +8,7 @@ public sealed class UpdateProjectTaskRequest
     public bool ClearDescription { get; set; }
     public Guid? AssigneeId { get; set; }
     public bool ClearAssignee { get; set; }
+    public Guid? ReporterId { get; set; }
     public int? OriginalEstimateMinutes { get; set; }
     public bool ClearOriginalEstimate { get; set; }
     public int? RemainingEstimateMinutes { get; set; }
@@ -15,4 +16,5 @@ public sealed class UpdateProjectTaskRequest
     public decimal? StoryPoints { get; set; }
     public bool ClearStoryPoints { get; set; }
     public string? Type { get; set; }
+    public List<string>? Tags { get; set; }
 }

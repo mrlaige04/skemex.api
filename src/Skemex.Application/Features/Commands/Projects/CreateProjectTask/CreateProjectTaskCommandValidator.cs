@@ -11,7 +11,7 @@ public sealed class CreateProjectTaskCommandValidator : AbstractValidator<Create
             .MaximumLength(256);
 
         RuleFor(command => command.Description)
-            .MaximumLength(2000)
+            .MaximumLength(50000)
             .When(command => command.Description is not null);
     }
 }

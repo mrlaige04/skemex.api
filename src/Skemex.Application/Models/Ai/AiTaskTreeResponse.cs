@@ -37,6 +37,9 @@ public sealed class AiTaskNode
     [JsonPropertyName("acceptanceCriteria")]
     public List<string> AcceptanceCriteria { get; set; } = [];
 
+    [JsonPropertyName("risks")]
+    public List<string> Risks { get; set; } = [];
+
     [JsonPropertyName("testCases")]
     public List<AiTaskTestCase> TestCases { get; set; } = [];
 
@@ -48,6 +51,10 @@ public sealed class AiTaskNode
 
     [JsonPropertyName("storyPoints")]
     public decimal? StoryPoints { get; set; }
+
+    /// <summary>User id of suggested assignee; null for Features or when no match.</summary>
+    [JsonPropertyName("assigneeId")]
+    public Guid? AssigneeId { get; set; }
 
     [JsonPropertyName("subtasks")]
     public List<AiTaskNode> Subtasks { get; set; } = [];
