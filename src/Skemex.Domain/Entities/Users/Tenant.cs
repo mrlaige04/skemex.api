@@ -14,6 +14,7 @@ public class Tenant : BaseEntity
     public IList<TenantUser> Users { get; set; } = [];
     public IList<Project> Projects { get; set; } = [];
     public IList<TenantColumn> Columns { get; set; } = [];
+    public IList<TenantSpecialization> Specializations { get; set; } = [];
     public IList<Role> Roles { get; set; } = [];
     public IList<PermissionGroup> PermissionGroups { get; set; } = [];
 }

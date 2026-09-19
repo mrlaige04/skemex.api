@@ -681,8 +681,8 @@ namespace Skemex.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Description")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
+                        .HasMaxLength(50000)
+                        .HasColumnType("character varying(50000)");
 
                     b.Property<int?>("OriginalEstimateMinutes")
                         .HasColumnType("integer");
@@ -702,6 +702,12 @@ namespace Skemex.Infrastructure.Migrations
                     b.Property<Guid>("ReporterId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Risks")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValueSql("'[]'::jsonb");
+
                     b.Property<int>("SpentMinutes")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -710,6 +716,12 @@ namespace Skemex.Infrastructure.Migrations
                     b.Property<decimal?>("StoryPoints")
                         .HasPrecision(8, 2)
                         .HasColumnType("numeric(8,2)");
+
+                    b.Property<string>("Tags")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValueSql("'[]'::jsonb");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
@@ -1140,6 +1152,44 @@ namespace Skemex.Infrastructure.Migrations
                     b.ToTable("tenants", (string)null);
                 });
 
+            modelBuilder.Entity("Skemex.Domain.Entities.Users.TenantSpecialization", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DefaultSkills")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValueSql("'[]'::jsonb");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Title")
+                        .IsUnique();
+
+                    b.ToTable("tenant_specializations", (string)null);
+                });
+
             modelBuilder.Entity("Skemex.Domain.Entities.Users.TenantUser", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1155,6 +1205,12 @@ namespace Skemex.Infrastructure.Migrations
 
                     b.Property<DateTimeOffset?>("InvitationTokenExpiresAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Skills")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValueSql("'[]'::jsonb");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1181,6 +1237,21 @@ namespace Skemex.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("tenants_users", (string)null);
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Users.TenantUserSpecialization", b =>
+                {
+                    b.Property<Guid>("TenantUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantSpecializationId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("TenantUserId", "TenantSpecializationId");
+
+                    b.HasIndex("TenantSpecializationId");
+
+                    b.ToTable("tenants_users_specializations", (string)null);
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Users.User", b =>
@@ -1709,6 +1780,17 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("Role");
                 });
 
+            modelBuilder.Entity("Skemex.Domain.Entities.Users.TenantSpecialization", b =>
+                {
+                    b.HasOne("Skemex.Domain.Entities.Users.Tenant", "Tenant")
+                        .WithMany("Specializations")
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
+                });
+
             modelBuilder.Entity("Skemex.Domain.Entities.Users.TenantUser", b =>
                 {
                     b.HasOne("Skemex.Domain.Entities.Users.Tenant", "Tenant")
@@ -1726,6 +1808,25 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("Tenant");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Users.TenantUserSpecialization", b =>
+                {
+                    b.HasOne("Skemex.Domain.Entities.Users.TenantSpecialization", "Specialization")
+                        .WithMany("Users")
+                        .HasForeignKey("TenantSpecializationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Skemex.Domain.Entities.Users.TenantUser", "TenantUser")
+                        .WithMany("Specializations")
+                        .HasForeignKey("TenantUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Specialization");
+
+                    b.Navigation("TenantUser");
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Users.UserRole", b =>
@@ -1817,7 +1918,19 @@ namespace Skemex.Infrastructure.Migrations
 
                     b.Navigation("Roles");
 
+                    b.Navigation("Specializations");
+
                     b.Navigation("Users");
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Users.TenantSpecialization", b =>
+                {
+                    b.Navigation("Users");
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Users.TenantUser", b =>
+                {
+                    b.Navigation("Specializations");
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Users.User", b =>

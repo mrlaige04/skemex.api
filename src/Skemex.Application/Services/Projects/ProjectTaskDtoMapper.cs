@@ -25,6 +25,8 @@ public static class ProjectTaskDtoMapper
             Description = task.Description,
             AcceptanceCriteria = MapAcceptanceCriteria(task),
             TestCases = MapTestCases(task),
+            Tags = MapTags(task),
+            Risks = MapRisks(task),
             OriginalEstimateMinutes = task.OriginalEstimateMinutes,
             RemainingEstimateMinutes = task.RemainingEstimateMinutes,
             StoryPoints = task.StoryPoints,
@@ -43,20 +45,38 @@ public static class ProjectTaskDtoMapper
         Guid columnId,
         IReadOnlyDictionary<string, string?>? avatarUrlsByBlobId = null)
     {
+        var tasksById = allTasks.ToDictionary(task => task.Id);
+
+        // Nest only children that share this column with their parent.
         var childrenByParentId = allTasks
-            .Where(task => task.ParentId is not null)
+            .Where(task => task.ParentId is not null && task.ProjectColumnId == columnId)
             .GroupBy(task => task.ParentId!.Value)
             .ToDictionary(group => group.Key, group => group.ToList());
 
-        var roots = allTasks
-            .Where(task => task.ProjectColumnId == columnId && task.ParentId is null)
+        // Cards in this column: true roots, or children whose parent is in a different column.
+        var boardCards = allTasks
+            .Where(task => task.ProjectColumnId == columnId)
+            .Where(task =>
+            {
+                if (task.ParentId is null)
+                {
+                    return true;
+                }
+
+                if (!tasksById.TryGetValue(task.ParentId.Value, out var parent))
+                {
+                    return true;
+                }
+
+                return parent.ProjectColumnId != columnId;
+            })
             .OrderBy(task => task.CreatedAt)
             .ThenBy(task => task.Title)
             .ThenBy(task => task.Code)
             .Select(task => MapWithSubtasksRecursive(task, childrenByParentId, avatarUrlsByBlobId))
             .ToList();
 
-        return roots;
+        return boardCards;
     }
 
     public static ProjectTaskDto MapWithSubtasksFromLookup(
@@ -135,6 +155,8 @@ public static class ProjectTaskDtoMapper
             Description = task.Description,
             AcceptanceCriteria = MapAcceptanceCriteria(task),
             TestCases = MapTestCases(task),
+            Tags = MapTags(task),
+            Risks = MapRisks(task),
             OriginalEstimateMinutes = task.OriginalEstimateMinutes,
             RemainingEstimateMinutes = task.RemainingEstimateMinutes,
             StoryPoints = task.StoryPoints,
@@ -150,6 +172,18 @@ public static class ProjectTaskDtoMapper
 
     private static IReadOnlyList<string> MapAcceptanceCriteria(ProjectTask task) =>
         (task.AcceptanceCriteria ?? [])
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item.Trim())
+            .ToList();
+
+    private static IReadOnlyList<string> MapTags(ProjectTask task) =>
+        (task.Tags ?? [])
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item.Trim())
+            .ToList();
+
+    private static IReadOnlyList<string> MapRisks(ProjectTask task) =>
+        (task.Risks ?? [])
             .Where(item => !string.IsNullOrWhiteSpace(item))
             .Select(item => item.Trim())
             .ToList();

@@ -22,7 +22,9 @@ public sealed class UpdateProjectTaskCommandHandler(
     : ICommandHandler<UpdateProjectTaskCommand, ProjectTaskDto>
 {
     private const int MaxTitleLength = 256;
-    private const int MaxDescriptionLength = 2000;
+    private const int MaxDescriptionLength = 50000;
+    private const int MaxTags = 20;
+    private const int MaxTagLength = 40;
 
     public async Task<ErrorOr<ProjectTaskDto>> Handle(
         UpdateProjectTaskCommand request,
@@ -124,9 +126,11 @@ public sealed class UpdateProjectTaskCommandHandler(
         }
         else if (request.AssigneeId is not null)
         {
-            var assigneeValidation = await ValidateAssigneeAsync(
+            var assigneeValidation = await ValidateProjectMemberAsync(
                 request.ProjectId,
                 request.AssigneeId.Value,
+                roleLabel: "Assignee",
+                notInProjectCode: "ProjectTask.AssigneeNotInProject",
                 cancellationToken);
             if (assigneeValidation.IsError)
             {
@@ -136,6 +140,26 @@ public sealed class UpdateProjectTaskCommandHandler(
             if (task.AssigneeId != request.AssigneeId)
             {
                 task.AssigneeId = request.AssigneeId;
+                changed = true;
+            }
+        }
+
+        if (request.ReporterId is not null)
+        {
+            var reporterValidation = await ValidateProjectMemberAsync(
+                request.ProjectId,
+                request.ReporterId.Value,
+                roleLabel: "Reporter",
+                notInProjectCode: "ProjectTask.ReporterNotInProject",
+                cancellationToken);
+            if (reporterValidation.IsError)
+            {
+                return reporterValidation.Errors;
+            }
+
+            if (task.ReporterId != request.ReporterId)
+            {
+                task.ReporterId = request.ReporterId.Value;
                 changed = true;
             }
         }
@@ -177,6 +201,21 @@ public sealed class UpdateProjectTaskCommandHandler(
             }
         }
 
+        if (request.Tags is not null)
+        {
+            var tagsResult = NormalizeTags(request.Tags);
+            if (tagsResult.IsError)
+            {
+                return tagsResult.Errors;
+            }
+
+            if (!TagsEqual(task.Tags, tagsResult.Value))
+            {
+                task.Tags = tagsResult.Value;
+                changed = true;
+            }
+        }
+
         var estimateResult = ApplyEstimateUpdates(task, request);
         if (estimateResult.IsError)
         {
@@ -209,27 +248,29 @@ public sealed class UpdateProjectTaskCommandHandler(
         return await MapTaskAsync(request.ProjectId, reloaded, cancellationToken);
     }
 
-    private async Task<ErrorOr<Success>> ValidateAssigneeAsync(
+    private async Task<ErrorOr<Success>> ValidateProjectMemberAsync(
         Guid projectId,
-        Guid assigneeId,
+        Guid userId,
+        string roleLabel,
+        string notInProjectCode,
         CancellationToken cancellationToken)
     {
-        var assigneeExists = await userRepository.ExistsAsync(
-            filter: user => user.Id == assigneeId,
+        var userExists = await userRepository.ExistsAsync(
+            filter: user => user.Id == userId,
             cancellationToken: cancellationToken);
-        if (!assigneeExists)
+        if (!userExists)
         {
-            return Error.NotFound("User.NotFound", "Assignee was not found.");
+            return Error.NotFound("User.NotFound", $"{roleLabel} was not found.");
         }
 
         var isProjectMember = await projectUserRepository.ExistsAsync(
-            filter: membership => membership.ProjectId == projectId && membership.UserId == assigneeId,
+            filter: membership => membership.ProjectId == projectId && membership.UserId == userId,
             cancellationToken: cancellationToken);
         if (!isProjectMember)
         {
             return Error.Validation(
-                "ProjectTask.AssigneeNotInProject",
-                "Assignee must be a member of this project.");
+                notInProjectCode,
+                $"{roleLabel} must be a member of this project.");
         }
 
         return Result.Success;
@@ -290,6 +331,66 @@ public sealed class UpdateProjectTaskCommandHandler(
         }
 
         return changed;
+    }
+
+    private static ErrorOr<List<string>> NormalizeTags(IReadOnlyList<string> tags)
+    {
+        var normalized = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var raw in tags)
+        {
+            var tag = raw?.Trim() ?? string.Empty;
+            if (tag.Length == 0)
+            {
+                continue;
+            }
+
+            if (tag.Length > MaxTagLength)
+            {
+                return Error.Validation(
+                    "ProjectTask.TagTooLong",
+                    $"Each tag cannot exceed {MaxTagLength} characters.");
+            }
+
+            if (!seen.Add(tag))
+            {
+                continue;
+            }
+
+            normalized.Add(tag);
+            if (normalized.Count > MaxTags)
+            {
+                return Error.Validation(
+                    "ProjectTask.TooManyTags",
+                    $"A task cannot have more than {MaxTags} tags.");
+            }
+        }
+
+        return normalized;
+    }
+
+    private static bool TagsEqual(IEnumerable<string>? left, IReadOnlyList<string> right)
+    {
+        var leftList = (left ?? [])
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item.Trim())
+            .ToList();
+
+        if (leftList.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < leftList.Count; i++)
+        {
+            if (!string.Equals(leftList[i], right[i], StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private async Task<ProjectTaskDto> MapTaskAsync(

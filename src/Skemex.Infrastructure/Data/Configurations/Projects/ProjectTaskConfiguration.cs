@@ -42,7 +42,7 @@ public class ProjectTaskConfiguration : IEntityTypeConfiguration<ProjectTask>
             .HasSentinel(ProjectTaskType.Task);
 
         builder.Property(task => task.Description)
-            .HasMaxLength(2000);
+            .HasMaxLength(50000);
 
         builder.Property(task => task.OriginalEstimateMinutes);
         builder.Property(task => task.RemainingEstimateMinutes);
@@ -57,6 +57,22 @@ public class ProjectTaskConfiguration : IEntityTypeConfiguration<ProjectTask>
             .HasConversion(
                 value => JsonSerializer.Serialize(value, JsonOptions),
                 value => DeserializeList<string>(value))
+            .Metadata.SetValueComparer(CreateListComparer<string>());
+
+        builder.Property(task => task.Tags)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                value => JsonSerializer.Serialize(value, JsonOptions),
+                value => DeserializeList<string>(value))
+            .HasDefaultValueSql("'[]'::jsonb")
+            .Metadata.SetValueComparer(CreateListComparer<string>());
+
+        builder.Property(task => task.Risks)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                value => JsonSerializer.Serialize(value, JsonOptions),
+                value => DeserializeList<string>(value))
+            .HasDefaultValueSql("'[]'::jsonb")
             .Metadata.SetValueComparer(CreateListComparer<string>());
 
         builder.Property(task => task.TestCases)

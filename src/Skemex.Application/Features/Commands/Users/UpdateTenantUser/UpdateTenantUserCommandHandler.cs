@@ -6,6 +6,7 @@ using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Users;
 using Skemex.Application.Services;
+using Skemex.Application.Services.Users;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
@@ -34,7 +35,10 @@ public sealed class UpdateTenantUserCommandHandler(
 
         var tenantUser = await tenantUserRepository.GetAsync(
             filter: tu => tu.UserId == request.UserId,
-            include: q => q.Include(tu => tu.User),
+            include: q => q
+                .Include(tu => tu.User)
+                .Include(tu => tu.Specializations)
+                .ThenInclude(link => link.Specialization),
             cancellationToken: cancellationToken);
 
         if (tenantUser is null)
@@ -135,6 +139,16 @@ public sealed class UpdateTenantUserCommandHandler(
                 cancellationToken);
         }
 
+        if (request.Skills is not null)
+        {
+            var skills = TenantUserSkillMerge.NormalizeSkills(request.Skills);
+            if (!SkillsEqual(tenantUser.Skills, skills))
+            {
+                tenantUser.Skills = skills;
+                await tenantUserRepository.UpdateAsync(tenantUser, cancellationToken);
+            }
+        }
+
         var userRoles = await userRoleRepository.GetAllAsync(
             filter: ur => ur.TenantId == tenantId && ur.UserId == user.Id,
             include: q => q.Include(ur => ur.Role),
@@ -152,6 +166,30 @@ public sealed class UpdateTenantUserCommandHandler(
             Roles = userRoles.Select(ur => ur.Role.Name).Where(n => n is not null).Cast<string>().OrderBy(n => n).ToList(),
             Status = tenantUser.Status,
             AvatarUrl = avatarUrl,
+            Skills = TenantUserSkillMerge.NormalizeSkills(tenantUser.Skills),
+            Specializations = tenantUser.Specializations
+                .Where(link => link.Specialization is not null)
+                .Select(link => new TenantSpecializationSummaryDto
+                {
+                    Id = link.Specialization.Id,
+                    Title = link.Specialization.Title,
+                    Description = link.Specialization.Description,
+                })
+                .OrderBy(item => item.Title)
+                .ToList(),
         };
+    }
+
+    private static bool SkillsEqual(IEnumerable<string>? left, IReadOnlyList<string> right)
+    {
+        var leftList = left?.ToList() ?? [];
+        if (leftList.Count != right.Count)
+        {
+            return false;
+        }
+
+        return leftList
+            .Zip(right)
+            .All(pair => string.Equals(pair.First, pair.Second, StringComparison.Ordinal));
     }
 }

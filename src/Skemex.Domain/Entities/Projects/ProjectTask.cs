@@ -18,7 +18,9 @@ public class ProjectTask : TenantEntity
 
     public List<string> AcceptanceCriteria { get; set; } = [];
     public List<ProjectTaskTestCase> TestCases { get; set; } = [];
-    
+    public List<string> Tags { get; set; } = [];
+    public List<string> Risks { get; set; } = [];
+
     public int? OriginalEstimateMinutes { get; set; }
     public int? RemainingEstimateMinutes { get; set; }
     public decimal? StoryPoints { get; set; }

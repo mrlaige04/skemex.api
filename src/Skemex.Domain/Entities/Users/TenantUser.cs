@@ -14,4 +14,8 @@ public class TenantUser : TenantEntity
     public string? InvitationToken { get; set; }
 
     public DateTimeOffset? InvitationTokenExpiresAt { get; set; }
+
+    public List<string> Skills { get; set; } = [];
+
+    public ICollection<TenantUserSpecialization> Specializations { get; set; } = [];
 }

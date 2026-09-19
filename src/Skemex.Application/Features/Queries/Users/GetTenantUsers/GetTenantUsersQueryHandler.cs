@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Users;
 using Skemex.Application.Services;
+using Skemex.Application.Services.Users;
 using Skemex.Domain.Abstractions;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
@@ -48,6 +49,8 @@ public sealed class GetTenantUsersQueryHandler(
             filter: filter,
             include: q => q
                 .Include(tu => tu.User)
+                .Include(tu => tu.Specializations)
+                .ThenInclude(link => link.Specialization)
                 .OrderBy(tu => tu.User.LastName)
                 .ThenBy(tu => tu.User.FirstName),
             cancellationToken: cancellationToken);
@@ -85,6 +88,17 @@ public sealed class GetTenantUsersQueryHandler(
                     Roles = roles ?? [],
                     Status = tu.Status,
                     AvatarUrl = avatarUrl,
+                    Skills = TenantUserSkillMerge.NormalizeSkills(tu.Skills),
+                    Specializations = tu.Specializations
+                        .Where(link => link.Specialization is not null)
+                        .Select(link => new TenantSpecializationSummaryDto
+                        {
+                            Id = link.Specialization.Id,
+                            Title = link.Specialization.Title,
+                            Description = link.Specialization.Description,
+                        })
+                        .OrderBy(item => item.Title)
+                        .ToList(),
                 };
             })
             .ToList();

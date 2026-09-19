@@ -74,6 +74,7 @@ public class UsersController(ISender sender) : BaseController
             FirstName = body.FirstName,
             LastName = body.LastName,
             RoleName = body.RoleName,
+            Skills = body.Skills,
         };
 
         var result = await sender.Send(command, cancellationToken);
