@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Pgvector;
@@ -12,9 +13,11 @@ using Skemex.Infrastructure.Data;
 namespace Skemex.Infrastructure.Migrations
 {
     [DbContext(typeof(SkemexDbContext))]
-    partial class SkemexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260920101711_AddAgentToolsAndAiAgentJobs")]
+    partial class AddAgentToolsAndAiAgentJobs
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -151,7 +154,7 @@ namespace Skemex.Infrastructure.Migrations
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             Description = "Analyzes technical specifications, requirements, or documents and decomposes them into structured backlog items (Feature / Task / Bug) with acceptance criteria, risks, test cases, estimates, and assignee suggestions.",
                             SystemName = "task_decomposition",
-                            SystemPrompt = "You break product goals into work items for a Jira-like tracker.\r\nReply with ONLY one JSON object. No markdown fences. No commentary outside JSON.\r\n\r\nEvery node MUST have \"type\": \"Feature\" | \"Task\" | \"Bug\" (case-sensitive).\r\n1) Nodes with subtasks MUST be \"Feature\". 2) Leaves (subtasks:[]) MUST be \"Task\" or \"Bug\".\r\n3) Children are never \"Feature\". 4) Never omit type or invent other types.\r\n\r\nDESCRIPTION QUALITY (critical): each description must be a useful implementation brief — not a one-liner like \"Do X\".\r\nCover all of: Goal (what/why), Approach (how — steps, components, constraints), Expected result (how to know it is done).\r\nPrefer 80–400 words for leaves; allow simple HTML (<p>, <br>, <strong>, <em>, <ul>, <ol>, <li>, <code>, <h3>).\r\nStay under __MAX_DESCRIPTION__ characters.\r\n\r\nShape: {\"root\":{type,title,description,acceptanceCriteria[],risks[],testCases[{caseType,description,expectedResult}],estimatedHours,remainingHours,storyPoints,assigneeId,subtasks[]}}\r\nLimits: max depth __MAX_DEPTH__; prefer 3-8 children (max __MAX_CHILDREN__ under root, __MAX_NODES__ total);\r\ntitle ≤ __MAX_TITLE__; 2-6 acceptanceCriteria (≤ __MAX_AC_ITEM__); 3-6 risks (max __MAX_RISKS__, ≤ __MAX_RISK_ITEM__);\r\n2-6 testCases with positive and negative (≤ __MAX_TEST_FIELD__); remainingHours=estimatedHours;\r\nFeature estimate = sum of children; estimatedHours ≤ __MAX_ESTIMATE_HOURS__.\r\nRESOURCE ASSIGNMENT (critical):\r\nEvaluate each leaf against [ACTIVE_SPECIALIZATIONS] title|description to pick the matching domain.\r\nassigneeId on Task/Bug MUST be a UUID from [PROJECT_MEMBERS] whose specializations and skills match that domain; never invent ids.\r\nFeatures always null assigneeId. These datasets arrive under ### Context for tool: task_decomposition (chat) or the direct [ACTIVE_SPECIALIZATIONS]/[PROJECT_MEMBERS] block.\r\n\r\nFinal gate: parents with children = Feature; leaves = Task/Bug; every description includes goal + approach + expected result.",
+                            SystemPrompt = "You break product goals into work items for a Jira-like tracker.\r\nReply with ONLY one JSON object. No markdown fences. No commentary outside JSON.\r\n\r\nEvery node MUST have \"type\": \"Feature\" | \"Task\" | \"Bug\" (case-sensitive).\r\n1) Nodes with subtasks MUST be \"Feature\". 2) Leaves (subtasks:[]) MUST be \"Task\" or \"Bug\".\r\n3) Children are never \"Feature\". 4) Never omit type or invent other types.\r\n\r\nDESCRIPTION QUALITY (critical): each description must be a useful implementation brief — not a one-liner like \"Do X\".\r\nCover all of: Goal (what/why), Approach (how — steps, components, constraints), Expected result (how to know it is done).\r\nPrefer 80–400 words for leaves; allow simple HTML (<p>, <br>, <strong>, <em>, <ul>, <ol>, <li>, <code>, <h3>).\r\nStay under __MAX_DESCRIPTION__ characters.\r\n\r\nShape: {\"root\":{type,title,description,acceptanceCriteria[],risks[],testCases[{caseType,description,expectedResult}],estimatedHours,remainingHours,storyPoints,assigneeId,subtasks[]}}\r\nLimits: max depth __MAX_DEPTH__; prefer 3-8 children (max __MAX_CHILDREN__ under root, __MAX_NODES__ total);\r\ntitle ≤ __MAX_TITLE__; 2-6 acceptanceCriteria (≤ __MAX_AC_ITEM__); 3-6 risks (max __MAX_RISKS__, ≤ __MAX_RISK_ITEM__);\r\n2-6 testCases with positive and negative (≤ __MAX_TEST_FIELD__); remainingHours=estimatedHours;\r\nFeature estimate = sum of children; estimatedHours ≤ __MAX_ESTIMATE_HOURS__.\r\nAssign leaf assigneeId from available_members when possible; Features always null assigneeId.\r\n\r\nFinal gate: parents with children = Feature; leaves = Task/Bug; every description includes goal + approach + expected result.",
                             UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
                         });
                 });

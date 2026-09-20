@@ -7,13 +7,18 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Http.Resilience;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Minio;
+using Polly;
+using Polly.Retry;
 using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Services;
 using Skemex.Application.Services.Ai;
 using Skemex.Application.Services.Projects;
+using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories;
 using Skemex.Domain.Repositories.Abstractions;
@@ -26,6 +31,7 @@ using Skemex.Infrastructure.Email;
 using Skemex.Infrastructure.Services;
 using Skemex.Infrastructure.Services.Ai;
 using Skemex.Infrastructure.Services.Ai.Providers;
+using Skemex.Infrastructure.Services.Ai.Tools;
 using Skemex.Infrastructure.Services.Documents;
 using Skemex.Infrastructure.Services.Embeddings;
 using Skemex.Infrastructure.Storage;
@@ -68,26 +74,151 @@ public static class RegisterDependencies
     {
         services.AddDataProtection();
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
+        AddAiResilience(services, configuration);
         services.AddSingleton<IEncryptService, EncryptService>();
-        services.AddScoped<IAiChatService, AiChatService>();
-        services.AddScoped<IAiTaskDecompositionService, AiTaskDecompositionService>();
+        services.AddScoped<TaskDecompositionTool>();
+        services.AddScoped<IAgentTool>(sp => sp.GetRequiredService<TaskDecompositionTool>());
+        services.AddScoped<AiTaskDecompositionService>();
+        services.AddScoped<IAiTaskDecompositionService>(sp => sp.GetRequiredService<AiTaskDecompositionService>());
+        services.AddScoped<IAiService, AiService>();
+        services.AddScoped<IAgentOrchestrator, AgentOrchestrator>();
         services.AddScoped<IAiModelCatalogService, AiModelCatalogService>();
         services.AddScoped<IAiProviderResolver, AiProviderResolver>();
 
-        services.AddHttpClient(OpenAiCompatibleAiProvider.HttpClientName, client =>
+        AddAiHttpResilience(
+            services.AddHttpClient(OpenAiCompatibleAiProvider.HttpClientName, client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(120);
+            }),
+            configuration);
+    }
+
+    private static void AddAiResilience(IServiceCollection services, IConfiguration configuration)
+    {
+        services.Configure<AiResilienceOptions>(configuration.GetSection(AiResilienceOptions.SectionName));
+        services.AddSingleton<IAiSemanticRetry, AiSemanticRetry>();
+
+        services.AddResiliencePipeline(AiResiliencePipelineNames.Semantic, (builder, context) =>
         {
-            client.Timeout = TimeSpan.FromSeconds(120);
+            var options = context.ServiceProvider
+                .GetRequiredService<IOptions<AiResilienceOptions>>()
+                .Value
+                .Semantic;
+            var logger = context.ServiceProvider
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger("AiSemanticResilience");
+
+            var maxRetries = Math.Clamp(options.MaxRetryAttempts, 0, 5);
+            var delay = TimeSpan.FromMilliseconds(Math.Clamp(options.DelayMilliseconds, 0, 30_000));
+
+            builder.AddRetry(new RetryStrategyOptions
+            {
+                MaxRetryAttempts = maxRetries,
+                Delay = delay,
+                BackoffType = DelayBackoffType.Constant,
+                ShouldHandle = new PredicateBuilder().Handle<AiSemanticValidationException>(),
+                OnRetry = args =>
+                {
+                    var reason = args.Outcome.Exception is AiSemanticValidationException semantic
+                        ? semantic.Reason
+                        : args.Outcome.Exception?.Message ?? "unknown";
+
+                    logger.LogWarning(
+                        args.Outcome.Exception,
+                        "AI semantic retry {AttemptNumber}/{MaxAttempts}: re-querying model. Reason: {Reason}",
+                        args.AttemptNumber + 1,
+                        maxRetries,
+                        reason);
+
+                    return ValueTask.CompletedTask;
+                },
+            });
+        });
+    }
+
+    private static void AddAiHttpResilience(IHttpClientBuilder httpClientBuilder, IConfiguration configuration)
+    {
+        var options = configuration
+            .GetSection(AiResilienceOptions.SectionName)
+            .Get<AiResilienceOptions>()?
+            .Http
+            ?? new AiHttpRetryOptions();
+
+        var maxRetries = Math.Clamp(options.MaxRetryAttempts, 0, 5);
+        var initialDelay = TimeSpan.FromSeconds(Math.Clamp(options.InitialDelaySeconds, 0.1, 30));
+
+        httpClientBuilder.AddResilienceHandler(AiResiliencePipelineNames.Http, (builder, context) =>
+        {
+            var logger = context.ServiceProvider
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger("AiHttpResilience");
+
+            builder.AddRetry(new HttpRetryStrategyOptions
+            {
+                MaxRetryAttempts = maxRetries,
+                Delay = initialDelay,
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                ShouldHandle = args =>
+                {
+                    if (args.Outcome.Exception is HttpRequestException or TimeoutException)
+                    {
+                        return PredicateResult.True();
+                    }
+
+                    if (args.Outcome.Exception is TaskCanceledException
+                        && !args.Context.CancellationToken.IsCancellationRequested)
+                    {
+                        return PredicateResult.True();
+                    }
+
+                    var status = args.Outcome.Result?.StatusCode;
+                    if (status is null)
+                    {
+                        return PredicateResult.False();
+                    }
+
+                    var code = (int)status.Value;
+                    return code is 429 || code >= 500
+                        ? PredicateResult.True()
+                        : PredicateResult.False();
+                },
+                OnRetry = args =>
+                {
+                    var response = args.Outcome.Result;
+                    var request = response?.RequestMessage;
+                    var method = request?.Method.Method ?? "?";
+                    var endpoint = request?.RequestUri?.ToString() ?? "?";
+                    var statusCode = response is null ? (int?)null : (int)response.StatusCode;
+                    var error = args.Outcome.Exception?.Message
+                        ?? (statusCode is int code ? $"HTTP {code}" : "unknown");
+
+                    logger.LogWarning(
+                        args.Outcome.Exception,
+                        "AI HTTP retry {AttemptNumber}/{MaxAttempts}: {Method} {Endpoint} Status={StatusCode} Error={Error}",
+                        args.AttemptNumber + 1,
+                        maxRetries,
+                        method,
+                        endpoint,
+                        statusCode,
+                        error);
+
+                    return ValueTask.CompletedTask;
+                },
+            });
         });
     }
 
     private static void AddEmbeddings(IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<EmbeddingsOptions>(configuration.GetSection(EmbeddingsOptions.SectionName));
+        services.Configure<RagSettings>(configuration.GetSection(RagSettings.SectionName));
         services.AddHttpClient(GoogleGeminiEmbeddingService.HttpClientName, client =>
         {
             client.Timeout = TimeSpan.FromSeconds(120);
         });
         services.AddScoped<IEmbeddingService, GoogleGeminiEmbeddingService>();
+        services.AddScoped<IProjectRagContextService, ProjectRagContextService>();
     }
 
     private static void AddDocumentIngestion(IServiceCollection services)

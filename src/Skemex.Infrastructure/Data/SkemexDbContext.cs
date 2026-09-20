@@ -26,10 +26,12 @@ public class SkemexDbContext(DbContextOptions<SkemexDbContext> options) : Identi
     public DbSet<ProjectTaskCounter> ProjectTaskCounters { get; set; } = null!;
     public DbSet<ProjectSettings> ProjectSettings { get; set; } = null!;
     public DbSet<AiDecompositionJob> AiDecompositionJobs { get; set; } = null!;
+    public DbSet<AiAgentJob> AiAgentJobs { get; set; } = null!;
     public DbSet<AiChat> AiChats { get; set; } = null!;
     public DbSet<AiChatMessage> AiChatMessages { get; set; } = null!;
     public DbSet<AiModel> AiModels { get; set; } = null!;
     public DbSet<AiProvider> AiProviders { get; set; } = null!;
+    public DbSet<AgentTool> AgentTools { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

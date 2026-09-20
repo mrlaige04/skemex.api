@@ -78,8 +78,8 @@ public sealed class OpenAiCompatibleAiProvider(
             .ToList();
     }
 
-    public async Task<AiChatResult> CompleteAsync(
-        AiChatRequest request,
+    public async Task<AiCompletionResult> CompleteAsync(
+        AiCompletionRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(request.SystemPrompt);
@@ -90,13 +90,15 @@ public sealed class OpenAiCompatibleAiProvider(
 
         var modelId = request.Model.Trim();
         var client = httpClientFactory.CreateClient(HttpClientName);
+        var useJsonObjectFormat = request.PreferJsonObject;
 
         using var response = await SendChatAsync(
                 client,
                 modelId,
                 request.SystemPrompt,
                 request.UserPrompt,
-                useJsonObjectFormat: true,
+                tools: null,
+                useJsonObjectFormat,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -104,7 +106,8 @@ public sealed class OpenAiCompatibleAiProvider(
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var maybeUnsupportedFormat =
-                (int)response.StatusCode is 400 or 422
+                useJsonObjectFormat
+                && (int)response.StatusCode is 400 or 422
                 && body.Contains("response_format", StringComparison.OrdinalIgnoreCase);
 
             if (!maybeUnsupportedFormat)
@@ -126,17 +129,49 @@ public sealed class OpenAiCompatibleAiProvider(
                     modelId,
                     request.SystemPrompt,
                     request.UserPrompt,
+                    tools: null,
                     useJsonObjectFormat: false,
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            return await ReadChatResultAsync(retryResponse, cancellationToken).ConfigureAwait(false);
+            return await ReadPlainCompletionAsync(retryResponse, cancellationToken).ConfigureAwait(false);
         }
 
-        return await ReadChatResultAsync(response, cancellationToken).ConfigureAwait(false);
+        return await ReadPlainCompletionAsync(response, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<AiChatResult> ReadChatResultAsync(
+    public async Task<AiFunctionCallResult> FunctionCallAsync(
+        AiFunctionCallRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.SystemPrompt);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.UserPrompt);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Model);
+        ArgumentNullException.ThrowIfNull(request.Tools);
+        if (request.Tools.Count == 0)
+        {
+            throw new ArgumentException("At least one tool is required for function calling.", nameof(request));
+        }
+
+        EnsureConfigured();
+
+        var modelId = request.Model.Trim();
+        var client = httpClientFactory.CreateClient(HttpClientName);
+
+        using var response = await SendChatAsync(
+                client,
+                modelId,
+                request.SystemPrompt,
+                request.UserPrompt,
+                request.Tools,
+                useJsonObjectFormat: false,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return await ReadFunctionCallResultAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<AiCompletionResult> ReadPlainCompletionAsync(
         HttpResponseMessage response,
         CancellationToken cancellationToken)
     {
@@ -156,7 +191,48 @@ public sealed class OpenAiCompatibleAiProvider(
             .ConfigureAwait(false);
 
         var text = payload?.Choices?.FirstOrDefault()?.Message?.Content ?? string.Empty;
-        return new AiChatResult { Text = text };
+        return new AiCompletionResult { Content = text };
+    }
+
+    private async Task<AiFunctionCallResult> ReadFunctionCallResultAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            logger.LogWarning(
+                "AI provider {Provider} function call failed with {Status}: {Body}",
+                Name,
+                (int)response.StatusCode,
+                body);
+            response.EnsureSuccessStatusCode();
+        }
+
+        var payload = await response.Content
+            .ReadFromJsonAsync<ChatCompletionResponse>(JsonOptions, cancellationToken)
+            .ConfigureAwait(false);
+
+        var message = payload?.Choices?.FirstOrDefault()?.Message;
+        var toolCall = message?.ToolCalls?.FirstOrDefault(call =>
+            !string.IsNullOrWhiteSpace(call.Function?.Name));
+
+        if (toolCall?.Function is { } function
+            && !string.IsNullOrWhiteSpace(function.Name))
+        {
+            return new AiFunctionCallResult
+            {
+                Content = message?.Content,
+                FunctionCall = new AiFunctionCall(
+                    function.Name.Trim(),
+                    string.IsNullOrWhiteSpace(function.Arguments) ? "{}" : function.Arguments),
+            };
+        }
+
+        return new AiFunctionCallResult
+        {
+            Content = message?.Content ?? string.Empty,
+        };
     }
 
     private async Task<HttpResponseMessage> SendChatAsync(
@@ -164,30 +240,57 @@ public sealed class OpenAiCompatibleAiProvider(
         string modelId,
         string systemPrompt,
         string userPrompt,
+        IReadOnlyList<AiToolDefinition>? tools,
         bool useJsonObjectFormat,
         CancellationToken cancellationToken)
     {
         using var httpRequest = CreateRequest(HttpMethod.Post, "chat/completions");
-        object body = useJsonObjectFormat
-            ? new
+
+        var messages = new object[]
+        {
+            new { role = "system", content = systemPrompt },
+            new { role = "user", content = userPrompt },
+        };
+
+        object body;
+        if (tools is { Count: > 0 })
+        {
+            var toolPayload = tools.Select(tool => new
+            {
+                type = "function",
+                function = new
+                {
+                    name = tool.Name,
+                    description = tool.Description,
+                    parameters = tool.ParametersSchema,
+                },
+            }).ToArray();
+
+            body = new
+            {
+                model = modelId,
+                messages,
+                tools = toolPayload,
+                tool_choice = "auto",
+            };
+        }
+        else if (useJsonObjectFormat)
+        {
+            body = new
             {
                 model = modelId,
                 response_format = new { type = "json_object" },
-                messages = new[]
-                {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user", content = userPrompt },
-                },
-            }
-            : new
+                messages,
+            };
+        }
+        else
+        {
+            body = new
             {
                 model = modelId,
-                messages = new[]
-                {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user", content = userPrompt },
-                },
+                messages,
             };
+        }
 
         httpRequest.Content = new StringContent(
             JsonSerializer.Serialize(body),
@@ -458,5 +561,29 @@ public sealed class OpenAiCompatibleAiProvider(
     {
         [JsonPropertyName("content")]
         public string? Content { get; set; }
+
+        [JsonPropertyName("tool_calls")]
+        public List<ChatToolCallPayload>? ToolCalls { get; set; }
+    }
+
+    private sealed class ChatToolCallPayload
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("type")]
+        public string? Type { get; set; }
+
+        [JsonPropertyName("function")]
+        public ChatToolFunctionPayload? Function { get; set; }
+    }
+
+    private sealed class ChatToolFunctionPayload
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        [JsonPropertyName("arguments")]
+        public string? Arguments { get; set; }
     }
 }
