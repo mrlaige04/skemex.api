@@ -25,8 +25,14 @@ public interface IAiProvider
     Task<IReadOnlyList<RemoteAiModel>> ListModelsAsync(
         CancellationToken cancellationToken = default);
 
-    Task<AiChatResult> CompleteAsync(
-        AiChatRequest request,
+    /// <summary>Plain completion without tools (direct agent tool execution).</summary>
+    Task<AiCompletionResult> CompleteAsync(
+        AiCompletionRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Chat completion with tool schemas for function calling.</summary>
+    Task<AiFunctionCallResult> FunctionCallAsync(
+        AiFunctionCallRequest request,
         CancellationToken cancellationToken = default);
 }
 
@@ -48,9 +54,10 @@ public interface IAiProviderResolver
         CancellationToken cancellationToken = default);
 }
 
-/// <summary>Syncs provider catalogs into the local <c>ai_models</c> table and lists them.</summary>
+/// <summary>Lists the local AI model catalog (read-only) and syncs providers via SA commands.</summary>
 public interface IAiModelCatalogService
 {
+    /// <summary>Read-only list of active models. Does not call providers or write to the DB.</summary>
     Task<IReadOnlyList<AiModelDto>> ListAsync(
         bool forceRefresh = false,
         CancellationToken cancellationToken = default);

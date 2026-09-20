@@ -7,7 +7,7 @@ using Skemex.Domain.Repositories.Abstractions;
 namespace Skemex.Infrastructure.Services.Ai;
 
 /// <summary>
-/// Syncs remote catalogs from all enabled DB AI providers into <c>ai_models</c>.
+/// Local AI model catalog. Listing is read-only; sync writes happen only via SA commands.
 /// </summary>
 public sealed class AiModelCatalogService(
     IAiProviderResolver providerResolver,
@@ -15,28 +15,14 @@ public sealed class AiModelCatalogService(
     IBaseRepository<AiProvider> providerRepository,
     ILogger<AiModelCatalogService> logger) : IAiModelCatalogService
 {
-    private static readonly TimeSpan SyncTtl = TimeSpan.FromMinutes(30);
-    private static readonly object SyncGate = new();
-    private static DateTimeOffset? LastSyncUtc;
-
     public async Task<IReadOnlyList<AiModelDto>> ListAsync(
         bool forceRefresh = false,
         CancellationToken cancellationToken = default)
     {
-        var shouldSync = forceRefresh;
-        lock (SyncGate)
-        {
-            if (!shouldSync
-                && (LastSyncUtc is null || DateTimeOffset.UtcNow - LastSyncUtc > SyncTtl))
-            {
-                shouldSync = true;
-            }
-        }
-
-        if (shouldSync)
-        {
-            await SyncAllProvidersAsync(cancellationToken).ConfigureAwait(false);
-        }
+        // Read-only: never mutate on list. Catalog writes happen only via
+        // SyncProviderByKeyAsync (SA create/update/sync commands).
+        // forceRefresh is accepted for API compatibility but does not sync.
+        _ = forceRefresh;
 
         var models = await modelRepository
             .GetAllAsync(
@@ -140,46 +126,6 @@ public sealed class AiModelCatalogService(
         }
     }
 
-    private async Task SyncAllProvidersAsync(CancellationToken cancellationToken)
-    {
-        var providers = await providerResolver
-            .GetAllEnabledAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        if (providers.Count == 0)
-        {
-            logger.LogWarning(
-                "No enabled AI providers in the database; returning local catalog only.");
-            MarkSynced();
-            return;
-        }
-
-        foreach (var provider in providers)
-        {
-            try
-            {
-                await SyncProviderAsync(provider, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(
-                    ex,
-                    "Failed to sync AI models from provider {Provider}. Returning local catalog.",
-                    provider.Name);
-            }
-        }
-
-        MarkSynced();
-    }
-
-    private static void MarkSynced()
-    {
-        lock (SyncGate)
-        {
-            LastSyncUtc = DateTimeOffset.UtcNow;
-        }
-    }
-
     private async Task SyncProviderAsync(
         IAiProvider provider,
         CancellationToken cancellationToken)
@@ -204,9 +150,22 @@ public sealed class AiModelCatalogService(
             if (byExternalId.TryGetValue(remoteModel.ExternalId, out var model))
             {
                 // Preserve SA-managed DisplayName and IsActive.
-                model.ProviderName = provider.DisplayName;
-                model.Author = remoteModel.Author;
-                model.IconKey = remoteModel.IconKey;
+                var providerName = provider.DisplayName;
+                var author = remoteModel.Author;
+                var iconKey = remoteModel.IconKey;
+                var changed =
+                    !string.Equals(model.ProviderName, providerName, StringComparison.Ordinal)
+                    || !string.Equals(model.Author, author, StringComparison.Ordinal)
+                    || !string.Equals(model.IconKey, iconKey, StringComparison.Ordinal);
+
+                if (!changed)
+                {
+                    continue;
+                }
+
+                model.ProviderName = providerName;
+                model.Author = author;
+                model.IconKey = iconKey;
                 model.UpdatedAt = DateTime.UtcNow;
                 await modelRepository.UpdateAsync(model, cancellationToken).ConfigureAwait(false);
             }
