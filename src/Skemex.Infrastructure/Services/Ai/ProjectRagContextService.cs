@@ -21,27 +21,79 @@ public sealed class ProjectRagContextService(
         Guid projectId,
         string query,
         CancellationToken cancellationToken = default)
-        => BuildContextAsync(projectId, [query], cancellationToken);
+        => BuildContextAsync(
+            projectId,
+            new RagSearchRequest { RefinedQueryEn = query, Keywords = [] },
+            cancellationToken);
 
-    public async Task<string?> BuildContextAsync(
+    public Task<string?> BuildContextAsync(
         Guid projectId,
         IReadOnlyList<string> queries,
         CancellationToken cancellationToken = default)
     {
-        if (projectId == Guid.Empty || queries is null || queries.Count == 0)
+        var primary = queries?
+            .Select(q => q?.Trim() ?? string.Empty)
+            .FirstOrDefault(q => q.Length > 0) ?? string.Empty;
+        return BuildContextAsync(
+            projectId,
+            new RagSearchRequest { RefinedQueryEn = primary, Keywords = [] },
+            cancellationToken);
+    }
+
+    public async Task<string?> BuildContextAsync(
+        Guid projectId,
+        RagSearchRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var matches = await SearchChunksAsync(projectId, request, cancellationToken)
+            .ConfigureAwait(false);
+        if (matches.Count == 0)
         {
             return null;
         }
 
-        var normalized = queries
-            .Select(q => q?.Trim() ?? string.Empty)
-            .Where(q => q.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var maxChunkChars = Math.Clamp(ragSettings.Value.MaxChunkChars, 200, 8000);
+        return FormatContext(matches, maxChunkChars);
+    }
 
-        if (normalized.Count == 0)
+    public Task<IReadOnlyList<RagChunkMatch>> SearchChunksAsync(
+        Guid projectId,
+        string query,
+        CancellationToken cancellationToken = default)
+        => SearchChunksAsync(
+            projectId,
+            new RagSearchRequest { RefinedQueryEn = query, Keywords = [] },
+            cancellationToken);
+
+    public Task<IReadOnlyList<RagChunkMatch>> SearchChunksAsync(
+        Guid projectId,
+        IReadOnlyList<string> queries,
+        CancellationToken cancellationToken = default)
+    {
+        var primary = queries?
+            .Select(q => q?.Trim() ?? string.Empty)
+            .FirstOrDefault(q => q.Length > 0) ?? string.Empty;
+        return SearchChunksAsync(
+            projectId,
+            new RagSearchRequest { RefinedQueryEn = primary, Keywords = [] },
+            cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<RagChunkMatch>> SearchChunksAsync(
+        Guid projectId,
+        RagSearchRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty || request is null)
         {
-            return null;
+            return [];
+        }
+
+        var refinedQuery = request.RefinedQueryEn?.Trim() ?? string.Empty;
+        var keywords = NormalizeKeywords(request.Keywords);
+        if (refinedQuery.Length == 0 && keywords.Count == 0)
+        {
+            return [];
         }
 
         try
@@ -52,107 +104,58 @@ public sealed class ProjectRagContextService(
                 .ConfigureAwait(false);
             if (!hasChunks)
             {
-                return null;
+                return [];
             }
 
             var settings = ragSettings.Value;
             var topK = Math.Clamp(settings.TopK, 1, 32);
-            var maxChunkChars = Math.Clamp(settings.MaxChunkChars, 200, 8000);
-            var merged = new Dictionary<Guid, RagChunkMatch>();
+            var rrfK = Math.Max(1, settings.RrfConstant);
 
-            foreach (var query in normalized)
-            {
-                var matches = await SearchChunksCoreAsync(projectId, query, topK, cancellationToken)
-                    .ConfigureAwait(false);
-                foreach (var match in matches)
-                {
-                    if (!merged.TryGetValue(match.Id, out var existing)
-                        || match.Distance < existing.Distance)
-                    {
-                        merged[match.Id] = match;
-                    }
-                }
-            }
+            var vectorTask = refinedQuery.Length > 0
+                ? SearchByVectorAsync(projectId, refinedQuery, topK, cancellationToken)
+                : Task.FromResult<IReadOnlyList<RagChunkMatch>>([]);
+            var keywordTask = keywords.Count > 0
+                ? SearchByKeywordsAsync(projectId, keywords, topK, cancellationToken)
+                : Task.FromResult<IReadOnlyList<RagChunkMatch>>([]);
 
-            if (merged.Count == 0)
-            {
-                logger.LogDebug(
-                    "RAG project {ProjectId}: no chunks met threshold across {QueryCount} quer(y/ies).",
-                    projectId,
-                    normalized.Count);
-                return null;
-            }
+            await Task.WhenAll(vectorTask, keywordTask).ConfigureAwait(false);
 
-            var maxTotal = Math.Clamp(topK * Math.Max(1, normalized.Count), topK, 16);
-            var ordered = merged.Values
-                .OrderBy(match => match.Distance)
-                .Take(maxTotal)
-                .ToList();
+            var fused = ReciprocalRankFusion(vectorTask.Result, keywordTask.Result, rrfK, topK);
 
             if (logger.IsEnabled(LogLevel.Debug))
             {
-                var scores = string.Join(
-                    ", ",
-                    ordered.Select(match =>
-                        $"{match.Similarity:F3} ({match.FileName ?? "unknown"})"));
                 logger.LogDebug(
-                    "RAG project {ProjectId}: {MatchCount} unique chunk(s) from {QueryCount} quer(y/ies). Similarities: {Scores}",
+                    "Hybrid RAG project {ProjectId}: vector={VectorCount}, keyword={KeywordCount}, fused={FusedCount}.",
                     projectId,
-                    ordered.Count,
-                    normalized.Count,
-                    scores);
+                    vectorTask.Result.Count,
+                    keywordTask.Result.Count,
+                    fused.Count);
             }
 
-            return FormatContext(ordered, maxChunkChars);
+            return fused;
         }
         catch (Exception ex)
         {
             logger.LogWarning(
                 ex,
-                "RAG multi-query retrieval failed for project {ProjectId}; continuing without document context.",
-                projectId);
-            return null;
-        }
-    }
-
-    public async Task<IReadOnlyList<RagChunkMatch>> SearchChunksAsync(
-        Guid projectId,
-        string query,
-        CancellationToken cancellationToken = default)
-    {
-        var trimmedQuery = query?.Trim() ?? string.Empty;
-        if (projectId == Guid.Empty || trimmedQuery.Length == 0)
-        {
-            return [];
-        }
-
-        try
-        {
-            var topK = Math.Clamp(ragSettings.Value.TopK, 1, 32);
-            return await SearchChunksCoreAsync(projectId, trimmedQuery, topK, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(
-                ex,
-                "RAG search failed for project {ProjectId}; returning empty.",
+                "Hybrid RAG retrieval failed for project {ProjectId}; continuing without document context.",
                 projectId);
             return [];
         }
     }
 
-    private async Task<IReadOnlyList<RagChunkMatch>> SearchChunksCoreAsync(
+    private async Task<IReadOnlyList<RagChunkMatch>> SearchByVectorAsync(
         Guid projectId,
-        string trimmedQuery,
+        string refinedQueryEn,
         int topK,
         CancellationToken cancellationToken)
     {
-        var minSimilarity = Math.Clamp(ragSettings.Value.MinSimilarity, 0.0, 1.0);
+        var settings = ragSettings.Value;
+        var minSimilarity = Math.Clamp(settings.MinSimilarity, 0.0, 1.0);
         var maxDistance = Math.Clamp(1.0 - minSimilarity, 0.0, 1.0);
 
         var embedding = await embeddingService
-            .EmbedAsync(trimmedQuery, cancellationToken)
+            .EmbedAsync(refinedQueryEn, cancellationToken)
             .ConfigureAwait(false);
         if (embedding.Length == 0)
         {
@@ -160,7 +163,7 @@ public sealed class ProjectRagContextService(
         }
 
         var queryVector = new Vector(embedding);
-        var matches = await dbContext.ProjectDocumentChunks
+        return await dbContext.ProjectDocumentChunks
             .AsNoTracking()
             .Where(chunk =>
                 chunk.ProjectId == projectId
@@ -170,14 +173,112 @@ public sealed class ProjectRagContextService(
             .Select(chunk => new RagChunkMatch
             {
                 Id = chunk.Id,
+                // Critical: always return original Text for prompt citations.
                 Text = chunk.Text,
                 FileName = chunk.Document.FileName,
                 Distance = chunk.Embedding.CosineDistance(queryVector),
             })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
 
-        return matches;
+    private async Task<IReadOnlyList<RagChunkMatch>> SearchByKeywordsAsync(
+        Guid projectId,
+        IReadOnlyList<string> keywords,
+        int topK,
+        CancellationToken cancellationToken)
+    {
+        // GIN-friendly overlap: any stored keyword equals any query keyword (keywords stored lowercased).
+        var keywordArray = keywords.ToArray();
+
+        var rows = await dbContext.ProjectDocumentChunks
+            .AsNoTracking()
+            .Where(chunk =>
+                chunk.ProjectId == projectId
+                && chunk.Keywords.Any(k => keywordArray.Contains(k)))
+            .Select(chunk => new
+            {
+                chunk.Id,
+                chunk.Text,
+                FileName = chunk.Document.FileName,
+                chunk.Keywords,
+            })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return rows
+            .Select(row =>
+            {
+                var overlap = row.Keywords.Count(k =>
+                    keywordArray.Contains(k, StringComparer.OrdinalIgnoreCase));
+                return new
+                {
+                    Match = new RagChunkMatch
+                    {
+                        Id = row.Id,
+                        Text = row.Text,
+                        FileName = row.FileName,
+                        // Placeholder distance; RRF ordering is authoritative for keyword hits.
+                        Distance = overlap > 0 ? Math.Max(0.0, 1.0 - (overlap / (double)keywordArray.Length)) : 1.0,
+                    },
+                    Overlap = overlap,
+                };
+            })
+            .OrderByDescending(row => row.Overlap)
+            .ThenBy(row => row.Match.Distance)
+            .Take(topK)
+            .Select(row => row.Match)
+            .ToList();
+    }
+
+    private static IReadOnlyList<RagChunkMatch> ReciprocalRankFusion(
+        IReadOnlyList<RagChunkMatch> vectorResults,
+        IReadOnlyList<RagChunkMatch> keywordResults,
+        int rrfConstant,
+        int topK)
+    {
+        var scores = new Dictionary<Guid, double>();
+        var byId = new Dictionary<Guid, RagChunkMatch>();
+
+        Accumulate(vectorResults);
+        Accumulate(keywordResults);
+
+        return scores
+            .OrderByDescending(pair => pair.Value)
+            .ThenBy(pair => byId[pair.Key].Distance)
+            .Take(topK)
+            .Select(pair => byId[pair.Key])
+            .ToList();
+
+        void Accumulate(IReadOnlyList<RagChunkMatch> ranked)
+        {
+            for (var rank = 0; rank < ranked.Count; rank++)
+            {
+                var match = ranked[rank];
+                if (!byId.TryGetValue(match.Id, out var existing)
+                    || match.Distance < existing.Distance)
+                {
+                    byId[match.Id] = match;
+                }
+
+                scores[match.Id] = scores.GetValueOrDefault(match.Id)
+                    + (1.0 / (rrfConstant + rank + 1));
+            }
+        }
+    }
+
+    private static IReadOnlyList<string> NormalizeKeywords(IReadOnlyList<string>? keywords)
+    {
+        if (keywords is null || keywords.Count == 0)
+        {
+            return [];
+        }
+
+        return keywords
+            .Select(k => k?.Trim().ToLowerInvariant() ?? string.Empty)
+            .Where(k => k.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
 
     private static string? FormatContext(IReadOnlyList<RagChunkMatch> matches, int maxChunkChars)
@@ -196,6 +297,7 @@ public sealed class ProjectRagContextService(
         foreach (var match in matches)
         {
             var source = string.IsNullOrWhiteSpace(match.FileName) ? "Unknown document" : match.FileName.Trim();
+            // Inject original Text only (never EnglishText).
             var text = Truncate(match.Text?.Trim() ?? string.Empty, maxChunkChars);
             if (text.Length == 0)
             {

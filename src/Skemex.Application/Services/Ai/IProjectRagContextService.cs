@@ -6,8 +6,17 @@ namespace Skemex.Application.Services.Ai;
 public interface IProjectRagContextService
 {
     /// <summary>
-    /// Embeds <paramref name="query"/> and returns a formatted context block from the most similar
-    /// project chunks, or <c>null</c> when there is nothing useful.
+    /// Hybrid retrieval (vector + keyword RRF) using <paramref name="request"/>, then formats
+    /// a context block from original chunk <c>Text</c> values (or <c>null</c>).
+    /// </summary>
+    Task<string?> BuildContextAsync(
+        Guid projectId,
+        RagSearchRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Convenience: treats <paramref name="query"/> as <see cref="RagSearchRequest.RefinedQueryEn"/>
+    /// with no keywords.
     /// </summary>
     Task<string?> BuildContextAsync(
         Guid projectId,
@@ -15,19 +24,34 @@ public interface IProjectRagContextService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Multi-query semantic search: embeds each query, retrieves top matches, merges and deduplicates
-    /// by chunk id, then formats a single context block (or <c>null</c>).
+    /// Legacy multi-query convenience: uses the first non-empty query as refined English query.
+    /// Prefer <see cref="BuildContextAsync(Guid, RagSearchRequest, CancellationToken)"/>.
     /// </summary>
     Task<string?> BuildContextAsync(
         Guid projectId,
         IReadOnlyList<string> queries,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Hybrid retrieval returning ranked matches (original <c>Text</c> for citations).</summary>
+    Task<IReadOnlyList<RagChunkMatch>> SearchChunksAsync(
+        Guid projectId,
+        RagSearchRequest request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
-    /// Returns ranked chunk matches for a single query (project-scoped, similarity-filtered, Top-K).
+    /// Convenience: treats <paramref name="query"/> as <see cref="RagSearchRequest.RefinedQueryEn"/>.
     /// </summary>
     Task<IReadOnlyList<RagChunkMatch>> SearchChunksAsync(
         Guid projectId,
         string query,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Legacy multi-query convenience. Prefer
+    /// <see cref="SearchChunksAsync(Guid, RagSearchRequest, CancellationToken)"/>.
+    /// </summary>
+    Task<IReadOnlyList<RagChunkMatch>> SearchChunksAsync(
+        Guid projectId,
+        IReadOnlyList<string> queries,
         CancellationToken cancellationToken = default);
 }

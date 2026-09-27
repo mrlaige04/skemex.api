@@ -48,15 +48,19 @@ public sealed partial class TaskDecompositionTool(
               "type": "string",
               "description": "Exact copy of the user's request text. Do not rewrite, expand, or invent additional instructions."
             },
-            "searchQueries": {
+            "refinedQueryEn": {
+              "type": "string",
+              "description": "Canonical, grammatically normalized technical English search query representing the user's goal for document retrieval. Produce this regardless of the user's input language or slang."
+            },
+            "keywords": {
               "type": "array",
-              "description": "2-3 distinct technical queries for multi-angle semantic document retrieval only. Ephemeral RAG parameters — never treated as user instructions.",
+              "description": "4–8 technical English terms, identifiers, and concepts for exact keyword matching against indexed document chunks.",
               "items": { "type": "string" },
-              "minItems": 2,
-              "maxItems": 3
+              "minItems": 4,
+              "maxItems": 8
             }
           },
-          "required": ["userInput", "searchQueries"]
+          "required": ["userInput", "refinedQueryEn", "keywords"]
         }
         """)!;
 
@@ -172,21 +176,28 @@ public sealed partial class TaskDecompositionTool(
                 return "userInput is required.";
             }
 
-            if (!root.TryGetProperty("searchQueries", out var queriesElement)
-                || queriesElement.ValueKind != JsonValueKind.Array)
+            var refinedQueryEn = ReadString(root, "refinedQueryEn");
+            if (string.IsNullOrWhiteSpace(refinedQueryEn))
             {
-                return "searchQueries must be an array of 2-3 strings.";
+                return "refinedQueryEn is required.";
             }
 
-            var queries = queriesElement.EnumerateArray()
+            if (!root.TryGetProperty("keywords", out var keywordsElement)
+                || keywordsElement.ValueKind != JsonValueKind.Array)
+            {
+                return "keywords must be an array of 4-8 strings.";
+            }
+
+            var keywords = keywordsElement.EnumerateArray()
                 .Select(item => item.ValueKind == JsonValueKind.String ? item.GetString()?.Trim() : null)
                 .Where(item => !string.IsNullOrWhiteSpace(item))
                 .Cast<string>()
+                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            if (queries.Count is < 2 or > 3)
+            if (keywords.Count is < 4 or > 8)
             {
-                return "searchQueries must contain 2 or 3 non-empty strings.";
+                return "keywords must contain 4 to 8 non-empty strings.";
             }
 
             return null;
@@ -205,7 +216,8 @@ public sealed partial class TaskDecompositionTool(
         var userInput = ReadString(directArgs, "userInput")
             ?? ReadString(directArgs, "instructions")
             ?? string.Empty;
-        var searchQueries = ReadStringArray(directArgs, "searchQueries");
+        var refinedQueryEn = ReadString(directArgs, "refinedQueryEn");
+        var keywords = ReadStringArray(directArgs, "keywords");
 
         if (string.IsNullOrWhiteSpace(userInput))
         {
@@ -221,7 +233,8 @@ public sealed partial class TaskDecompositionTool(
             new
             {
                 userInput,
-                searchQueries = searchQueries is { Count: > 0 } ? searchQueries : null,
+                refinedQueryEn,
+                keywords = keywords is { Count: > 0 } ? keywords : null,
             },
             JsonOptions);
 
@@ -240,7 +253,8 @@ public sealed partial class TaskDecompositionTool(
         if (!TryParseInvocationArgs(
                 preparedContext.ArgumentsJson,
                 out var userInput,
-                out var searchQueries,
+                out var refinedQueryEn,
+                out var keywords,
                 out var parseError))
         {
             return new AiToolExecutionResult(false, null, "task_tree", null, parseError);
@@ -267,8 +281,9 @@ public sealed partial class TaskDecompositionTool(
         {
             ragContext = await ResolveRagContextAsync(
                     projectId,
+                    refinedQueryEn,
+                    keywords,
                     userInput,
-                    searchQueries,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -280,7 +295,7 @@ public sealed partial class TaskDecompositionTool(
                 .ConfigureAwait(false);
         }
 
-        // Stage-1 userInput / searchQueries are routing + RAG only; Stage-2 prompt uses the genuine request.
+        // Stage-1 refinedQueryEn / keywords are retrieval only; Stage-2 prompt uses the genuine request.
         var promptUserRequest = !string.IsNullOrWhiteSpace(executionContext.UserInput)
             ? executionContext.UserInput
             : userInput;
@@ -440,30 +455,37 @@ public sealed partial class TaskDecompositionTool(
 
     private async Task<string?> ResolveRagContextAsync(
         Guid projectId,
-        string userInput,
-        IReadOnlyList<string>? searchQueries,
+        string? refinedQueryEn,
+        IReadOnlyList<string>? keywords,
+        string userInputFallback,
         CancellationToken cancellationToken)
     {
-        if (searchQueries is { Count: > 0 })
-        {
-            return await RagContextService
-                .BuildContextAsync(projectId, searchQueries, cancellationToken)
-                .ConfigureAwait(false);
-        }
+        var query = !string.IsNullOrWhiteSpace(refinedQueryEn)
+            ? refinedQueryEn.Trim()
+            : userInputFallback.Trim();
 
         return await RagContextService
-            .BuildContextAsync(projectId, userInput, cancellationToken)
+            .BuildContextAsync(
+                projectId,
+                new Application.Models.Rag.RagSearchRequest
+                {
+                    RefinedQueryEn = query,
+                    Keywords = keywords ?? [],
+                },
+                cancellationToken)
             .ConfigureAwait(false);
     }
 
     private static bool TryParseInvocationArgs(
         string argumentsJson,
         out string userInput,
-        out IReadOnlyList<string>? searchQueries,
+        out string? refinedQueryEn,
+        out IReadOnlyList<string>? keywords,
         out string? error)
     {
         userInput = string.Empty;
-        searchQueries = null;
+        refinedQueryEn = null;
+        keywords = null;
         error = null;
 
         try
@@ -474,7 +496,8 @@ public sealed partial class TaskDecompositionTool(
             userInput = ReadString(root, "userInput")
                 ?? ReadString(root, "instructions")
                 ?? string.Empty;
-            searchQueries = ReadStringArray(root, "searchQueries");
+            refinedQueryEn = ReadString(root, "refinedQueryEn");
+            keywords = ReadStringArray(root, "keywords");
 
             if (string.IsNullOrWhiteSpace(userInput))
             {

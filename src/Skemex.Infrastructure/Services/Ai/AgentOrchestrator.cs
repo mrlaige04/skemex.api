@@ -3,6 +3,7 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Skemex.Application.Models.Ai;
+using Skemex.Application.Models.Rag;
 using Skemex.Application.Services.Ai;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Ai;
@@ -27,7 +28,10 @@ public sealed class AgentOrchestrator(
         You are an intent-routing assistant for an engineering delivery product.
         Analyze the user message and call exactly one registered tool that best matches their intent.
         Populate that tool's arguments strictly according to its JSON schema.
-        Copy the user's request into userInput without inventing extra instructions or synthetic "additional instructions".
+        Copy the user's request into userInput / userQuery without inventing extra instructions or synthetic "additional instructions".
+        When a tool schema includes refinedQueryEn and keywords, always fill them for retrieval:
+        - refinedQueryEn: a canonical, grammatically normalized technical English search query for the user's goal (even if the user wrote in another language or slang).
+        - keywords: 4–8 technical English terms, identifiers, and concepts for exact keyword matching.
         Do not answer the user directly. Do not invent tools. Prefer the most specific matching tool.
         """;
 
@@ -173,8 +177,8 @@ public sealed class AgentOrchestrator(
 
         var context = BuildContext(request, tool, dbByName);
         var args = BuildDirectArgs(request);
-        var ragQuery = ResolveDirectRagQuery(args, request.UserInput);
-        var ragContext = await ResolveRagContextAsync(request.ProjectId, ragQuery, cancellationToken)
+        var ragRequest = ResolveDirectRagSearchRequest(args, request.UserInput);
+        var ragContext = await ResolveRagContextAsync(request.ProjectId, ragRequest, cancellationToken)
             .ConfigureAwait(false);
         var dynamicContext = await tool.BuildDynamicContextAsync(context, cancellationToken)
             .ConfigureAwait(false);
@@ -327,31 +331,43 @@ public sealed class AgentOrchestrator(
 
     private async Task<string?> ResolveRagContextAsync(
         Guid? projectId,
-        string? query,
+        RagSearchRequest? request,
         CancellationToken cancellationToken)
     {
-        if (projectId is not Guid id || string.IsNullOrWhiteSpace(query))
+        if (projectId is not Guid id || request is null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.RefinedQueryEn) && request.Keywords.Count == 0)
         {
             return null;
         }
 
         return await ragContextService
-            .BuildContextAsync(id, query, cancellationToken)
+            .BuildContextAsync(id, request, cancellationToken)
             .ConfigureAwait(false);
     }
 
-    private static string ResolveDirectRagQuery(JsonElement args, string fallbackUserInput)
+    private static RagSearchRequest ResolveDirectRagSearchRequest(
+        JsonElement args,
+        string fallbackUserInput)
     {
-        var fromArgs = ReadString(args, "userInput")
+        var refinedQueryEn = ReadString(args, "refinedQueryEn")
+            ?? ReadString(args, "userInput")
+            ?? ReadString(args, "userQuery")
             ?? ReadString(args, "instructions")
             ?? ReadString(args, "title")
-            ?? ReadString(args, "query");
-        if (!string.IsNullOrWhiteSpace(fromArgs))
-        {
-            return fromArgs.Trim();
-        }
+            ?? ReadString(args, "query")
+            ?? fallbackUserInput;
 
-        return fallbackUserInput?.Trim() ?? string.Empty;
+        var keywords = ReadStringArray(args, "keywords") ?? [];
+
+        return new RagSearchRequest
+        {
+            RefinedQueryEn = refinedQueryEn?.Trim() ?? string.Empty,
+            Keywords = keywords,
+        };
     }
 
     private static string? ReadString(JsonElement element, string propertyName)
@@ -363,6 +379,28 @@ public sealed class AgentOrchestrator(
         }
 
         return property.ValueKind == JsonValueKind.String ? property.GetString() : property.ToString();
+    }
+
+    private static IReadOnlyList<string>? ReadStringArray(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object
+            || !element.TryGetProperty(propertyName, out var property)
+            || property.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var values = new List<string>();
+        foreach (var item in property.EnumerateArray())
+        {
+            var text = item.ValueKind == JsonValueKind.String ? item.GetString() : item.ToString();
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                values.Add(text.Trim());
+            }
+        }
+
+        return values;
     }
 
     private static AgentExecutionContext BuildContext(
