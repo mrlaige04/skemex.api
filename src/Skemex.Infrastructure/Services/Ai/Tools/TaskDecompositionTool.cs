@@ -29,76 +29,110 @@ public sealed partial class TaskDecompositionTool(
     IAiSemanticRetry semanticRetry,
     IProjectRagContextService ragContextService,
     SkemexDbContext dbContext,
-    ILogger<TaskDecompositionTool> logger) : IAgentTool
+    ILogger<TaskDecompositionTool> logger)
+    : BaseAgentTool(projectSettingsRepository, ragContextService, aiService, logger)
 {
     public const string ToolSystemName = TaskDecompositionToolDefaults.SystemName;
     public const string ToolDefaultDescription = TaskDecompositionToolDefaults.Description;
     public const string ToolDefaultSystemPrompt = TaskDecompositionToolDefaults.SystemPrompt;
 
-    public string SystemName => ToolSystemName;
-    public string DefaultDescription => ToolDefaultDescription;
-    public string DefaultSystemPrompt => ToolDefaultSystemPrompt;
+    public override string SystemName => ToolSystemName;
+    public override string DefaultDescription => ToolDefaultDescription;
+    public override string DefaultSystemPrompt => ToolDefaultSystemPrompt;
 
-    public object ParameterSchema => JsonSerializer.Deserialize<object>("""
+    public override object ParameterSchema => JsonSerializer.Deserialize<object>("""
         {
           "type": "object",
           "properties": {
-            "projectId": { "type": "string", "format": "uuid" },
-            "instructions": { "type": "string" },
+            "userInput": {
+              "type": "string",
+              "description": "Exact copy of the user's request text. Do not rewrite, expand, or invent additional instructions."
+            },
+            "searchQueries": {
+              "type": "array",
+              "description": "2-3 distinct technical queries for multi-angle semantic document retrieval only. Ephemeral RAG parameters — never treated as user instructions.",
+              "items": { "type": "string" },
+              "minItems": 2,
+              "maxItems": 3
+            }
+          },
+          "required": ["userInput", "searchQueries"]
+        }
+        """)!;
+
+    public override object? OutputSchema => JsonSerializer.Deserialize<object>("""
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["root"],
+          "properties": {
             "root": { "$ref": "#/$defs/taskNode" }
           },
-          "required": ["root"],
           "$defs": {
-            "testCase": {
-              "type": "object",
-              "properties": {
-                "caseType": { "type": "string", "enum": ["positive", "negative"] },
-                "description": { "type": "string" },
-                "expectedResult": { "type": "string" }
-              },
-              "required": ["caseType", "description", "expectedResult"]
-            },
             "taskNode": {
               "type": "object",
-              "properties": {
-                "type": { "type": "string", "enum": ["Feature", "Task", "Bug"] },
-                "title": { "type": "string" },
-                "description": { "type": "string" },
-                "acceptanceCriteria": { 
-                  "type": "array", 
-                  "items": { "type": "string" },
-                  "minItems": 1
-                },
-                "risks": { 
-                  "type": "array", 
-                  "items": { "type": "string" },
-                  "minItems": 1
-                },
-                "testCases": { 
-                  "type": "array", 
-                  "items": { "$ref": "#/$defs/testCase" },
-                  "minItems": 1
-                },
-                "estimatedHours": { "type": "number" },
-                "remainingHours": { "type": "number" },
-                "storyPoints": { "type": "number" },
-                "assigneeId": { "type": "string", "format": "uuid" },
-                "subtasks": { 
-                  "type": "array", 
-                  "items": { "$ref": "#/$defs/taskNode" } 
-                }
-              },
+              "additionalProperties": false,
               "required": [
-                "type", 
-                "title", 
-                "description", 
-                "acceptanceCriteria", 
-                "risks", 
-                "testCases", 
-                "estimatedHours", 
-                "remainingHours", 
+                "type",
+                "title",
+                "description",
+                "acceptanceCriteria",
+                "risks",
+                "testCases",
+                "estimatedHours",
+                "remainingHours",
+                "storyPoints",
+                "assigneeId",
                 "subtasks"
-              ]
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["Feature", "Task", "Bug"],
+                  "description": "Feature when node has children; Task or Bug for leaves."
+                },
+                "title": { "type": "string" },
+                "description": {
+                  "type": "string",
+                  "description": "HTML brief covering Goal, Approach, and Expected result."
+                },
+                "acceptanceCriteria": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "risks": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "testCases": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/testCase" }
+                },
+                "estimatedHours": { "type": ["number", "null"] },
+                "remainingHours": { "type": ["number", "null"] },
+                "storyPoints": { "type": ["number", "null"] },
+                "assigneeId": {
+                  "type": ["string", "null"],
+                  "description": "UUID from [PROJECT_MEMBERS] for Task/Bug; always null for Feature."
+                },
+                "subtasks": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/taskNode" }
+                }
+              }
+            },
+            "testCase": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["caseType", "description", "expectedResult"],
+              "properties": {
+                "caseType": {
+                  "type": "string",
+                  "enum": ["positive", "negative"]
+                },
+                "description": { "type": "string" },
+                "expectedResult": { "type": "string" }
+              }
             }
           }
         }
@@ -118,46 +152,52 @@ public sealed partial class TaskDecompositionTool(
         PropertyNameCaseInsensitive = true,
     };
 
-    private async Task<string?> ResolveModelExternalIdAsync(
-        AiDecompositionJob job,
-        ProjectSettings settings,
-        CancellationToken cancellationToken)
-    {
-        if (job.AiChatId is { } chatId)
-        {
-            var chat = await chatRepository.GetAsync(
-                filter: entry => entry.Id == chatId,
-                include: query => query.Include(entry => entry.AiModel),
-                cancellationToken: cancellationToken);
-            if (!string.IsNullOrWhiteSpace(chat?.AiModel?.ExternalId))
-            {
-                return chat.AiModel.ExternalId;
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(settings.DefaultAiModel?.ExternalId))
-        {
-            return settings.DefaultAiModel.ExternalId;
-        }
-
-        return null;
-    }
-
-    public string? ValidateFunctionCallArguments(
+    public override string? ValidateFunctionCallArguments(
         string argumentsJson,
         AgentExecutionContext context)
     {
-        // Side-effect-free schema/domain check; depth/node caps match typical project defaults.
-        var parseResult = ParseTree(argumentsJson, maxDepth: 2, maxNodes: 64);
-        if (parseResult.IsError)
+        try
         {
-            return string.Join("; ", parseResult.Errors.Select(error => error.Description));
-        }
+            using var document = JsonDocument.Parse(
+                string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return "Arguments must be a JSON object.";
+            }
 
-        return null;
+            var userInput = ReadString(root, "userInput") ?? ReadString(root, "instructions");
+            if (string.IsNullOrWhiteSpace(userInput))
+            {
+                return "userInput is required.";
+            }
+
+            if (!root.TryGetProperty("searchQueries", out var queriesElement)
+                || queriesElement.ValueKind != JsonValueKind.Array)
+            {
+                return "searchQueries must be an array of 2-3 strings.";
+            }
+
+            var queries = queriesElement.EnumerateArray()
+                .Select(item => item.ValueKind == JsonValueKind.String ? item.GetString()?.Trim() : null)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Cast<string>()
+                .ToList();
+
+            if (queries.Count is < 2 or > 3)
+            {
+                return "searchQueries must contain 2 or 3 non-empty strings.";
+            }
+
+            return null;
+        }
+        catch (JsonException)
+        {
+            return "Arguments JSON is invalid.";
+        }
     }
 
-    public async Task<AiToolExecutionResult> ExecuteDirectAsync(
+    public override async Task<AiToolExecutionResult> ExecuteDirectAsync(
         JsonElement directArgs,
         AgentExecutionContext context,
         CancellationToken cancellationToken = default)
@@ -165,7 +205,7 @@ public sealed partial class TaskDecompositionTool(
         var userInput = ReadString(directArgs, "userInput")
             ?? ReadString(directArgs, "instructions")
             ?? string.Empty;
-        var customInstructions = ReadString(directArgs, "customInstructions");
+        var searchQueries = ReadStringArray(directArgs, "searchQueries");
 
         if (string.IsNullOrWhiteSpace(userInput))
         {
@@ -177,76 +217,74 @@ public sealed partial class TaskDecompositionTool(
                 "userInput is required for task decomposition.");
         }
 
-        if (context.ProjectId is not Guid projectId)
-        {
-            return new AiToolExecutionResult(
-                false,
-                null,
-                "task_tree",
-                null,
-                "ProjectId is required for task decomposition.");
-        }
-
-        var settings = await projectSettingsRepository.GetAsync(
-            filter: entry => entry.ProjectId == projectId,
-            include: query => query.Include(entry => entry.DefaultAiModel),
-            cancellationToken: cancellationToken);
-        if (settings is null)
-        {
-            return new AiToolExecutionResult(false, null, "task_tree", null, "Project settings were not found.");
-        }
-
-        var maxDepth = 2;
-        var maxNodes = Math.Clamp(settings.AiMaxNodes, 1, 64);
-        var modelExternalId = context.Model;
-        if (string.IsNullOrWhiteSpace(modelExternalId))
-        {
-            if (context.DecompositionJobId is { } jobId)
+        var payload = JsonSerializer.Serialize(
+            new
             {
-                var job = await jobRepository.GetAsync(
-                    filter: entry => entry.Id == jobId,
-                    cancellationToken: cancellationToken);
-                if (job is not null)
-                {
-                    modelExternalId = await ResolveModelExternalIdAsync(job, settings, cancellationToken);
-                }
-            }
+                userInput,
+                searchQueries = searchQueries is { Count: > 0 } ? searchQueries : null,
+            },
+            JsonOptions);
 
-            modelExternalId ??= settings.DefaultAiModel?.ExternalId;
-        }
+        return await HandleFunctionCallAsync(payload, context, cancellationToken).ConfigureAwait(false);
+    }
 
-        if (string.IsNullOrWhiteSpace(modelExternalId))
+    protected override async Task<AiToolExecutionResult> ExecuteInternalAsync(
+        ToolPreparedContext preparedContext,
+        AgentExecutionContext executionContext,
+        CancellationToken cancellationToken)
+    {
+        var projectId = preparedContext.ProjectId;
+        var maxDepth = Math.Clamp(preparedContext.Settings.AiMaxTreeDepth, 1, 8);
+        var maxNodes = Math.Clamp(preparedContext.Settings.AiMaxNodes, 1, 64);
+
+        if (!TryParseInvocationArgs(
+                preparedContext.ArgumentsJson,
+                out var userInput,
+                out var searchQueries,
+                out var parseError))
         {
-            return new AiToolExecutionResult(
-                false,
-                null,
-                "task_tree",
-                null,
-                "No AI model selected. Set a default model in project AI settings, or pick a model for this chat.");
+            return new AiToolExecutionResult(false, null, "task_tree", null, parseError);
         }
 
         var assignmentContext = await BuildAssignmentContextAsync(
-            context.TenantId,
-            projectId,
-            cancellationToken);
-        var systemPrompt = ApplyPromptLimits(context.EffectiveSystemPrompt, maxDepth, maxNodes);
-        var ragContext = context.RagContext;
+                executionContext.TenantId,
+                projectId,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        var systemPrompt = ApplyPromptLimits(
+            executionContext.EffectiveSystemPrompt,
+            maxDepth,
+            maxNodes);
+        var outputSchemaBlock = BuildOutputSchemaInstructionBlock();
+        if (!string.IsNullOrWhiteSpace(outputSchemaBlock))
+        {
+            systemPrompt = $"{systemPrompt.TrimEnd()}{Environment.NewLine}{Environment.NewLine}{outputSchemaBlock}";
+        }
+
+        var ragContext = executionContext.RagContext;
         if (string.IsNullOrWhiteSpace(ragContext))
         {
-            // Hangfire / callers that skip the orchestrator still get RAG.
-            ragContext = await ragContextService
-                .BuildContextAsync(projectId, userInput, cancellationToken)
+            ragContext = await ResolveRagContextAsync(
+                    projectId,
+                    userInput,
+                    searchQueries,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        var dynamicContext = context.DynamicToolContext;
+        var dynamicContext = executionContext.DynamicToolContext;
         if (string.IsNullOrWhiteSpace(dynamicContext))
         {
-            dynamicContext = await BuildDynamicContextAsync(context, cancellationToken)
+            dynamicContext = await BuildDynamicContextAsync(executionContext, cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        var userPrompt = BuildUserPrompt(userInput, customInstructions, ragContext, dynamicContext);
+        // Stage-1 userInput / searchQueries are routing + RAG only; Stage-2 prompt uses the genuine request.
+        var promptUserRequest = !string.IsNullOrWhiteSpace(executionContext.UserInput)
+            ? executionContext.UserInput
+            : userInput;
+        var userPrompt = BuildUserPrompt(promptUserRequest, ragContext, dynamicContext);
 
         AiTaskTreeResponse tree;
         try
@@ -255,12 +293,12 @@ public sealed partial class TaskDecompositionTool(
                 .ExecuteAsync(
                     async ct =>
                     {
-                        var aiResult = await aiService.CompleteAsync(
+                        var aiResult = await AiService.CompleteAsync(
                             new AiCompletionRequest
                             {
                                 SystemPrompt = systemPrompt,
                                 UserPrompt = userPrompt,
-                                Model = modelExternalId,
+                                Model = preparedContext.ModelExternalId,
                                 PreferJsonObject = true,
                             },
                             ct);
@@ -279,7 +317,7 @@ public sealed partial class TaskDecompositionTool(
         }
         catch (AiSemanticValidationException ex)
         {
-            logger.LogWarning(
+            Logger.LogWarning(
                 ex,
                 "Task decomposition semantic retries exhausted for project {ProjectId}: {Reason}",
                 projectId,
@@ -293,14 +331,15 @@ public sealed partial class TaskDecompositionTool(
         }
 
         var rootTaskId = await CreateTaskTreeAsync(
-            context.TenantId,
-            projectId,
-            context.UserId,
-            tree,
-            assignmentContext.ValidAssigneeIds,
-            cancellationToken);
+                executionContext.TenantId,
+                projectId,
+                executionContext.UserId,
+                tree,
+                assignmentContext.ValidAssigneeIds,
+                cancellationToken)
+            .ConfigureAwait(false);
 
-        if (context.DecompositionJobId is { } decompJobId)
+        if (executionContext.DecompositionJobId is { } decompJobId)
         {
             var job = await jobRepository.GetAsync(
                 filter: entry => entry.Id == decompJobId,
@@ -342,59 +381,43 @@ public sealed partial class TaskDecompositionTool(
             new { rootTaskId, rootTaskCode = code, title = rootTask.Title });
     }
 
-    public async Task<AiToolExecutionResult> HandleFunctionCallAsync(
-        string argumentsJson,
+    protected override async Task<string?> ResolveModelExternalIdAsync(
         AgentExecutionContext context,
-        CancellationToken cancellationToken = default)
+        ProjectSettings settings,
+        CancellationToken cancellationToken)
     {
-        if (context.ProjectId is not Guid projectId)
+        if (!string.IsNullOrWhiteSpace(context.Model))
         {
-            return new AiToolExecutionResult(
-                false,
-                null,
-                "task_tree",
-                null,
-                "ProjectId is required for task decomposition.");
+            return context.Model.Trim();
         }
 
-        var settings = await projectSettingsRepository.GetAsync(
-            filter: entry => entry.ProjectId == projectId,
-            cancellationToken: cancellationToken);
-        if (settings is null)
+        if (context.DecompositionJobId is { } jobId)
         {
-            return new AiToolExecutionResult(false, null, "task_tree", null, "Project settings were not found.");
+            var job = await jobRepository.GetAsync(
+                filter: entry => entry.Id == jobId,
+                cancellationToken: cancellationToken);
+            if (job is not null)
+            {
+                if (job.AiChatId is { } chatId)
+                {
+                    var chat = await chatRepository.GetAsync(
+                        filter: entry => entry.Id == chatId,
+                        include: query => query.Include(entry => entry.AiModel),
+                        cancellationToken: cancellationToken);
+                    if (!string.IsNullOrWhiteSpace(chat?.AiModel?.ExternalId))
+                    {
+                        return chat.AiModel.ExternalId;
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(settings.DefaultAiModel?.ExternalId))
+                {
+                    return settings.DefaultAiModel.ExternalId;
+                }
+            }
         }
 
-        var maxDepth = 2;
-        var maxNodes = Math.Clamp(settings.AiMaxNodes, 1, 64);
-        var parseResult = ParseTree(argumentsJson, maxDepth, maxNodes);
-        if (parseResult.IsError)
-        {
-            var error = string.Join("; ", parseResult.Errors.Select(e => e.Description));
-            return new AiToolExecutionResult(false, $"Decomposition failed: {error}", "task_tree", null, error);
-        }
-
-        var assignmentContext = await BuildAssignmentContextAsync(
-            context.TenantId,
-            projectId,
-            cancellationToken);
-        var rootTaskId = await CreateTaskTreeAsync(
-            context.TenantId,
-            projectId,
-            context.UserId,
-            parseResult.Value,
-            assignmentContext.ValidAssigneeIds,
-            cancellationToken);
-
-        var rootTask = await projectTaskRepository.GetAsync(
-            filter: task => task.Id == rootTaskId,
-            cancellationToken: cancellationToken);
-
-        return new AiToolExecutionResult(
-            true,
-            $"Done — I created a task tree from the tool call. Root task: {rootTask?.Code} — {rootTask?.Title}",
-            "task_tree",
-            new { rootTaskId, rootTaskCode = rootTask?.Code, title = rootTask?.Title });
+        return settings.DefaultAiModel?.ExternalId;
     }
 
     private static string ApplyPromptLimits(string template, int maxDepth, int maxNodes)
@@ -415,10 +438,60 @@ public sealed partial class TaskDecompositionTool(
             .Replace("__MAX_ESTIMATE_HOURS__", maxEstimateHours.ToString());
     }
 
-    private static string BuildSystemPrompt(int maxDepth, int maxNodes) =>
-        ApplyPromptLimits(TaskDecompositionToolDefaults.SystemPrompt, maxDepth, maxNodes);
+    private async Task<string?> ResolveRagContextAsync(
+        Guid projectId,
+        string userInput,
+        IReadOnlyList<string>? searchQueries,
+        CancellationToken cancellationToken)
+    {
+        if (searchQueries is { Count: > 0 })
+        {
+            return await RagContextService
+                .BuildContextAsync(projectId, searchQueries, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
-    public async Task<string?> BuildDynamicContextAsync(
+        return await RagContextService
+            .BuildContextAsync(projectId, userInput, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static bool TryParseInvocationArgs(
+        string argumentsJson,
+        out string userInput,
+        out IReadOnlyList<string>? searchQueries,
+        out string? error)
+    {
+        userInput = string.Empty;
+        searchQueries = null;
+        error = null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(
+                string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson);
+            var root = document.RootElement;
+            userInput = ReadString(root, "userInput")
+                ?? ReadString(root, "instructions")
+                ?? string.Empty;
+            searchQueries = ReadStringArray(root, "searchQueries");
+
+            if (string.IsNullOrWhiteSpace(userInput))
+            {
+                error = "userInput is required for task decomposition.";
+                return false;
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            error = "Arguments JSON is invalid.";
+            return false;
+        }
+    }
+
+    public override async Task<string?> BuildDynamicContextAsync(
         AgentExecutionContext context,
         CancellationToken cancellationToken = default)
     {
@@ -484,39 +557,36 @@ public sealed partial class TaskDecompositionTool(
 
     private static string BuildUserPrompt(
         string userInput,
-        string? customInstructions,
         string? ragContext,
         string? dynamicToolContext)
     {
         var parts = new List<string>();
+        var hasContext = !string.IsNullOrWhiteSpace(ragContext)
+            || !string.IsNullOrWhiteSpace(dynamicToolContext);
 
-        if (!string.IsNullOrWhiteSpace(ragContext))
+        if (hasContext)
         {
-            parts.Add(ragContext.Trim());
-            parts.Add(string.Empty);
-            parts.Add("Align every task (titles, descriptions, acceptance criteria, risks, test cases) with the documentation above when relevant.");
+            parts.Add("### CONTEXT");
+            if (!string.IsNullOrWhiteSpace(dynamicToolContext))
+            {
+                parts.Add(dynamicToolContext.Trim());
+            }
+
+            if (!string.IsNullOrWhiteSpace(ragContext))
+            {
+                if (!string.IsNullOrWhiteSpace(dynamicToolContext))
+                {
+                    parts.Add(string.Empty);
+                }
+
+                parts.Add(ragContext.Trim());
+            }
+
             parts.Add(string.Empty);
         }
 
-        if (!string.IsNullOrWhiteSpace(dynamicToolContext))
-        {
-            parts.Add(dynamicToolContext.Trim());
-            parts.Add(string.Empty);
-        }
-
-        parts.Add("## USER PROMPT");
+        parts.Add("## USER REQUEST");
         parts.Add(userInput.Trim());
-
-        if (!string.IsNullOrWhiteSpace(customInstructions))
-        {
-            parts.Add(string.Empty);
-            parts.Add("Additional instructions from the user:");
-            parts.Add(customInstructions.Trim());
-        }
-
-        parts.Add(string.Empty);
-        parts.Add("Return the JSON object with root.");
-        parts.Add("Write informative HTML descriptions (goal, approach, expected result) for every node — not short imperatives.");
 
         return string.Join(Environment.NewLine, parts);
     }
@@ -594,6 +664,35 @@ public sealed partial class TaskDecompositionTool(
         Guid UserId,
         IReadOnlyList<string> Skills,
         IReadOnlyList<SpecializationProjection> Specializations);
+
+    private static string? ReadString(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object
+            || !element.TryGetProperty(propertyName, out var property))
+        {
+            return null;
+        }
+
+        return property.ValueKind == JsonValueKind.String ? property.GetString() : property.ToString();
+    }
+
+    private static IReadOnlyList<string>? ReadStringArray(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object
+            || !element.TryGetProperty(propertyName, out var property)
+            || property.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var values = property.EnumerateArray()
+            .Select(item => item.ValueKind == JsonValueKind.String ? item.GetString()?.Trim() : item.ToString())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Cast<string>()
+            .ToList();
+
+        return values.Count == 0 ? null : values;
+    }
 
     private static ErrorOr<AiTaskTreeResponse> ParseTree(string rawText, int maxDepth, int maxNodes)
     {
@@ -1002,7 +1101,7 @@ public sealed partial class TaskDecompositionTool(
             cancellationToken: cancellationToken)
             ?? throw new InvalidOperationException("Project was not found.");
 
-        var settings = await projectSettingsRepository.GetAsync(
+        var settings = await ProjectSettingsRepository.GetAsync(
             filter: entry => entry.ProjectId == projectId,
             cancellationToken: cancellationToken)
             ?? throw new InvalidOperationException("Project settings were not found.");
@@ -1133,18 +1232,4 @@ public sealed partial class TaskDecompositionTool(
     [GeneratedRegex(@"```(?:json)?\s*([\s\S]*?)\s*```", RegexOptions.IgnoreCase)]
     private static partial Regex MarkdownFenceRegex();
 
-    private static string? ReadString(JsonElement element, string propertyName)
-    {
-        if (element.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return null;
-        }
-
-        return property.ValueKind == JsonValueKind.String ? property.GetString() : property.ToString();
-    }
 }

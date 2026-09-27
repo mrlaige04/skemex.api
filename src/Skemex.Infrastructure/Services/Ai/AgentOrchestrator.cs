@@ -23,23 +23,13 @@ public sealed class AgentOrchestrator(
     IProjectRagContextService ragContextService,
     ILogger<AgentOrchestrator> logger) : IAgentOrchestrator
 {
-    private const string ChatSystemPrompt = """
-        You are a Principal Software Architect and Technical Delivery Lead assisting an engineering team.
-        
-        Your responsibilities:
-        1. Technical Advisory: Provide crisp, production-grade technical guidance on architecture, engineering trade-offs, system design, and implementation details.
-        2. Backlog & Scope Analysis: When asked to analyze, break down, or plan product goals, technical specifications, or user stories, always utilize the provided specialized tools rather than replying with raw unstructured text.
-        3. Documentation Authority: Whenever project documentation context is provided (via knowledge base / RAG), treat it as the absolute source of truth for business domain logic, naming conventions, technical constraints, and architectural boundaries. Never contradict project documentation.
-        4. Professional Style: Communicate concisely, factually, and pragmatically. Avoid generic conversational filler, sycophancy, or vague corporate speak. Focus on actionable outcomes, technical rigor, and delivery risk mitigation.
+    private const string IntentRoutingSystemPrompt = """
+        You are an intent-routing assistant for an engineering delivery product.
+        Analyze the user message and call exactly one registered tool that best matches their intent.
+        Populate that tool's arguments strictly according to its JSON schema.
+        Copy the user's request into userInput without inventing extra instructions or synthetic "additional instructions".
+        Do not answer the user directly. Do not invent tools. Prefer the most specific matching tool.
         """;
-
-    // Keep in sync with TaskDecompositionTool prompt limits (chat path substitutes the same tokens).
-    private const int MaxTitleLength = 256;
-    private const int MaxDescriptionLength = 50000;
-    private const int MaxAcceptanceCriterionLength = 500;
-    private const int MaxRisks = 8;
-    private const int MaxRiskLength = 500;
-    private const int MaxTestCaseFieldLength = 500;
 
     public string Enqueue(Guid agentJobId, Guid tenantId, Guid requestedByUserId) =>
         BackgroundJob.Enqueue<AgentOrchestrator>(orchestrator =>
@@ -104,7 +94,6 @@ public sealed class AgentOrchestrator(
                     AgentJobId = job.Id,
                     ToolName = job.ToolName,
                     UserInput = job.UserInput,
-                    CustomInstructions = job.CustomInstructions,
                     Model = model,
                     ArgumentsJson = job.ArgumentsJson,
                 },
@@ -219,6 +208,7 @@ public sealed class AgentOrchestrator(
                 "No AI model selected. Set a default model in project AI settings, or pick a model for this chat.");
         }
 
+        // Stage 1: lightweight intent routing — tools + schemas only (no RAG / dynamic / tool system prompts).
         var definitions = new List<AiToolDefinition>();
         foreach (var tool in toolMap.Values.OrderBy(item => item.SystemName, StringComparer.Ordinal))
         {
@@ -230,86 +220,49 @@ public sealed class AgentOrchestrator(
             definitions.Add(new AiToolDefinition(tool.SystemName, description, tool.ParameterSchema));
         }
 
-        var systemPrompt = await BuildCombinedSystemPromptAsync(
-                toolMap,
-                dbByName,
-                request.ProjectId,
-                cancellationToken)
-            .ConfigureAwait(false);
+        var stage1UserPrompt = $"## USER REQUEST{Environment.NewLine}{request.UserInput.Trim()}";
 
-        var userGoal = string.IsNullOrWhiteSpace(request.CustomInstructions)
-            ? request.UserInput
-            : $"{request.UserInput}{Environment.NewLine}{Environment.NewLine}Additional instructions:{Environment.NewLine}{request.CustomInstructions}";
-
-        var ragContext = await ResolveRagContextAsync(request.ProjectId, request.UserInput, cancellationToken)
-            .ConfigureAwait(false);
-
-        var toolContextBlocks = new List<(string ToolName, string Content)>();
-        foreach (var tool in toolMap.Values.OrderBy(item => item.SystemName, StringComparer.Ordinal))
-        {
-            var toolContext = BuildContext(request, tool, dbByName);
-            var dynamicContext = await tool.BuildDynamicContextAsync(toolContext, cancellationToken)
-                .ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(dynamicContext))
-            {
-                continue;
-            }
-
-            toolContextBlocks.Add((tool.SystemName, dynamicContext.Trim()));
-        }
-
-        var userPrompt = AssembleChatUserPrompt(ragContext, toolContextBlocks, userGoal);
-
+        AiFunctionCall call;
         try
         {
-            return await semanticRetry
+            call = await semanticRetry
                 .ExecuteAsync(
                     async ct =>
                     {
                         var completion = await aiService.FunctionCallAsync(
                             new AiFunctionCallRequest
                             {
-                                SystemPrompt = systemPrompt,
-                                UserPrompt = userPrompt,
+                                SystemPrompt = IntentRoutingSystemPrompt,
+                                UserPrompt = stage1UserPrompt,
                                 Model = request.Model,
                                 Tools = definitions,
                             },
                             ct);
 
-                        if (!completion.HasFunctionCall || completion.FunctionCall is not { } call)
+                        if (!completion.HasFunctionCall || completion.FunctionCall is not { } routed)
                         {
                             throw new AiSemanticValidationException(
                                 "The model did not return a function call.");
                         }
 
-                        if (!toolMap.TryGetValue(call.Name, out var tool))
+                        if (!toolMap.ContainsKey(routed.Name))
                         {
-                            // Unknown tool name is not a parse failure — do not retry.
-                            return new AiToolExecutionResult(
-                                false,
-                                null,
-                                "error",
-                                null,
-                                $"Model requested unknown tool '{call.Name}'.");
+                            throw new AiSemanticValidationException(
+                                $"Model requested unknown tool '{routed.Name}'.");
                         }
 
-                        var context = BuildContext(request, tool, dbByName) with { RagContext = ragContext };
-                        var validationError = tool.ValidateFunctionCallArguments(
-                            call.ArgumentsJson,
-                            context);
+                        var candidate = toolMap[routed.Name];
+                        var routingContext = BuildContext(request, candidate, dbByName);
+                        var validationError = candidate.ValidateFunctionCallArguments(
+                            routed.ArgumentsJson,
+                            routingContext);
                         if (!string.IsNullOrWhiteSpace(validationError))
                         {
                             throw new AiSemanticValidationException(
-                                $"Tool '{tool.SystemName}' arguments invalid: {validationError}");
+                                $"Tool '{candidate.SystemName}' arguments invalid: {validationError}");
                         }
 
-                        logger.LogInformation(
-                            "Agent function call {Tool} for tenant {TenantId}",
-                            tool.SystemName,
-                            request.TenantId);
-
-                        return await tool.HandleFunctionCallAsync(call.ArgumentsJson, context, ct)
-                            .ConfigureAwait(false);
+                        return routed;
                     },
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -318,7 +271,7 @@ public sealed class AgentOrchestrator(
         {
             logger.LogWarning(
                 ex,
-                "Chat semantic retries exhausted for tenant {TenantId}: {Reason}",
+                "Stage-1 intent routing retries exhausted for tenant {TenantId}: {Reason}",
                 request.TenantId,
                 ex.Reason);
             return new AiToolExecutionResult(
@@ -328,6 +281,26 @@ public sealed class AgentOrchestrator(
                 null,
                 ex.Reason);
         }
+
+        if (!toolMap.TryGetValue(call.Name, out var selectedTool))
+        {
+            return new AiToolExecutionResult(
+                false,
+                null,
+                "error",
+                null,
+                $"Model requested unknown tool '{call.Name}'.");
+        }
+
+        // Stage 2: selected tool builds RAG / dynamic context and executes.
+        var context = BuildContext(request, selectedTool, dbByName);
+        logger.LogInformation(
+            "Agent Stage-2 execution of {Tool} for tenant {TenantId}",
+            selectedTool.SystemName,
+            request.TenantId);
+
+        return await selectedTool.HandleFunctionCallAsync(call.ArgumentsJson, context, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private async Task AppendAssistantMessageAsync(
@@ -352,74 +325,6 @@ public sealed class AgentOrchestrator(
             cancellationToken);
     }
 
-    private async Task<string> BuildCombinedSystemPromptAsync(
-        IReadOnlyDictionary<string, IAgentTool> toolMap,
-        IReadOnlyDictionary<string, AgentTool> dbByName,
-        Guid? projectId,
-        CancellationToken cancellationToken)
-    {
-        var maxDepth = 2;
-        var maxNodes = 16;
-        if (projectId is Guid pid)
-        {
-            var settings = await projectSettingsRepository.GetAsync(
-                filter: entry => entry.ProjectId == pid,
-                cancellationToken: cancellationToken);
-            if (settings is not null)
-            {
-                maxDepth = Math.Clamp(settings.AiMaxTreeDepth, 1, 8);
-                maxNodes = Math.Clamp(settings.AiMaxNodes, 1, 64);
-            }
-        }
-
-        var parts = new List<string>
-        {
-            "## Main system prompt",
-            ChatSystemPrompt.Trim(),
-        };
-
-        foreach (var tool in toolMap.Values.OrderBy(item => item.SystemName, StringComparer.Ordinal))
-        {
-            var toolPrompt = tool.DefaultSystemPrompt;
-            if (dbByName.TryGetValue(tool.SystemName, out var row)
-                && !string.IsNullOrWhiteSpace(row.SystemPrompt))
-            {
-                toolPrompt = row.SystemPrompt;
-            }
-
-            if (string.IsNullOrWhiteSpace(toolPrompt))
-            {
-                continue;
-            }
-
-            parts.Add(string.Empty);
-            parts.Add($"## Tool system prompt: {tool.SystemName}");
-            parts.Add(
-                "When calling this tool, follow these rules for the tool arguments:");
-            parts.Add(ApplyToolPromptPlaceholders(toolPrompt.Trim(), maxDepth, maxNodes));
-        }
-
-        return string.Join(Environment.NewLine, parts);
-    }
-
-    private static string ApplyToolPromptPlaceholders(string template, int maxDepth, int maxNodes)
-    {
-        var maxChildrenHint = Math.Max(1, maxNodes - 1);
-        var maxEstimateHours = ProjectTaskTimeTracking.MaxEstimateHours;
-
-        return template
-            .Replace("__MAX_DEPTH__", maxDepth.ToString())
-            .Replace("__MAX_CHILDREN__", maxChildrenHint.ToString())
-            .Replace("__MAX_NODES__", maxNodes.ToString())
-            .Replace("__MAX_TITLE__", MaxTitleLength.ToString())
-            .Replace("__MAX_DESCRIPTION__", MaxDescriptionLength.ToString())
-            .Replace("__MAX_AC_ITEM__", MaxAcceptanceCriterionLength.ToString())
-            .Replace("__MAX_RISKS__", MaxRisks.ToString())
-            .Replace("__MAX_RISK_ITEM__", MaxRiskLength.ToString())
-            .Replace("__MAX_TEST_FIELD__", MaxTestCaseFieldLength.ToString())
-            .Replace("__MAX_ESTIMATE_HOURS__", maxEstimateHours.ToString());
-    }
-
     private async Task<string?> ResolveRagContextAsync(
         Guid? projectId,
         string? query,
@@ -433,37 +338,6 @@ public sealed class AgentOrchestrator(
         return await ragContextService
             .BuildContextAsync(id, query, cancellationToken)
             .ConfigureAwait(false);
-    }
-
-    private static string AssembleChatUserPrompt(
-        string? ragContext,
-        IReadOnlyList<(string ToolName, string Content)> toolContextBlocks,
-        string userGoal)
-    {
-        var parts = new List<string>();
-
-        if (!string.IsNullOrWhiteSpace(ragContext))
-        {
-            parts.Add(ragContext.Trim());
-        }
-
-        if (toolContextBlocks.Count > 0)
-        {
-            parts.Add("## TOOL EXECUTION CONTEXTS");
-            parts.Add("The following datasets provide dynamic runtime context strictly intended for evaluating arguments of specific tools:");
-            parts.Add(string.Empty);
-
-            foreach (var (toolName, content) in toolContextBlocks)
-            {
-                parts.Add($"### Context for tool: {toolName}");
-                parts.Add(content);
-                parts.Add(string.Empty);
-            }
-        }
-
-        parts.Add("## USER PROMPT");
-        parts.Add(userGoal.Trim());
-        return string.Join(Environment.NewLine, parts);
     }
 
     private static string ResolveDirectRagQuery(JsonElement args, string fallbackUserInput)
@@ -520,6 +394,7 @@ public sealed class AgentOrchestrator(
             DecompositionJobId = request.DecompositionJobId,
             AgentJobId = request.AgentJobId,
             Model = request.Model,
+            UserInput = request.UserInput?.Trim() ?? string.Empty,
             EffectiveDescription = description,
             EffectiveSystemPrompt = systemPrompt,
         };
@@ -545,7 +420,6 @@ public sealed class AgentOrchestrator(
         var payload = new Dictionary<string, object?>
         {
             ["userInput"] = request.UserInput,
-            ["customInstructions"] = request.CustomInstructions,
             ["projectId"] = request.ProjectId?.ToString(),
         };
 

@@ -60,7 +60,6 @@ public sealed class AiController(
                 ChatId = body.ChatId,
                 ToolName = body.ToolName,
                 UserInput = body.UserInput ?? string.Empty,
-                CustomInstructions = body.CustomInstructions,
                 ArgumentsJson = body.ArgumentsJson,
                 Model = body.Model,
             },

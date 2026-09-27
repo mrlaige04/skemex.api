@@ -7,5 +7,4 @@ public sealed class EnqueueAiTaskDecompositionCommand : ICommand<AiDecomposition
 {
     public Guid ProjectId { get; set; }
     public string UserInput { get; set; } = string.Empty;
-    public string? CustomInstructions { get; set; }
 }

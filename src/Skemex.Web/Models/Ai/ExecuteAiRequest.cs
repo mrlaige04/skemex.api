@@ -9,7 +9,6 @@ public sealed class ExecuteAiRequest
     public Guid? ChatId { get; set; }
 
     public string UserInput { get; set; } = string.Empty;
-    public string? CustomInstructions { get; set; }
     public string? ArgumentsJson { get; set; }
     public string? Model { get; set; }
 }

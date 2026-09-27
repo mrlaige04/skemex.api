@@ -10,6 +10,11 @@ public interface IAgentTool
     string DefaultSystemPrompt { get; }
     object ParameterSchema { get; }
 
+    /// <summary>
+    /// Optional JSON Schema for the Stage-2 model response. Null for unstructured (text/markdown) tools.
+    /// </summary>
+    object? OutputSchema => null;
+
     Task<AiToolExecutionResult> ExecuteDirectAsync(
         JsonElement directArgs,
         AgentExecutionContext context,
@@ -55,6 +60,9 @@ public sealed record AgentExecutionContext
     public Guid? DecompositionJobId { get; init; }
     public Guid? AgentJobId { get; init; }
     public string? Model { get; init; }
+
+    /// <summary>Genuine human user request; never Stage-1 rewrites or synthetic instructions.</summary>
+    public required string UserInput { get; init; }
 
     /// <summary>DB-overridden or in-code default system prompt for this tool.</summary>
     public required string EffectiveSystemPrompt { get; init; }

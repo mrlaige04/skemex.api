@@ -243,7 +243,6 @@ public class ProjectsController(ISender sender) : BaseController
             {
                 ProjectId = id,
                 UserInput = body.UserInput,
-                CustomInstructions = body.CustomInstructions,
             },
             cancellationToken);
         return result.Match(
@@ -406,7 +405,6 @@ public class ProjectsController(ISender sender) : BaseController
                 ProjectId = id,
                 ChatId = chatId,
                 UserInput = body.UserInput,
-                CustomInstructions = body.CustomInstructions,
             },
             cancellationToken);
         return result.Match(

@@ -59,9 +59,6 @@ public sealed class EnqueueAiTaskDecompositionCommandHandler(
             ProjectId = request.ProjectId,
             RequestedByUserId = userId.Value,
             UserInput = request.UserInput.Trim(),
-            CustomInstructions = string.IsNullOrWhiteSpace(request.CustomInstructions)
-                ? null
-                : request.CustomInstructions.Trim(),
             Status = AiDecompositionJobStatus.Pending,
         };
 
