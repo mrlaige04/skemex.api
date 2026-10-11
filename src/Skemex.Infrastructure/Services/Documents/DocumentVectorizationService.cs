@@ -1,7 +1,11 @@
 using Hangfire;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Pgvector;
+using Skemex.Application.Configuration;
 using Skemex.Application.Services;
+using Skemex.Application.Services.Documents;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 
@@ -10,10 +14,13 @@ namespace Skemex.Infrastructure.Services.Documents;
 public sealed class DocumentVectorizationService(
     ITenantRepository<ProjectDocument> documentRepository,
     ITenantRepository<ProjectDocumentChunk> chunkRepository,
+    ITenantRepository<ProjectSettings> projectSettingsRepository,
     IProjectDocumentStorageService documentStorage,
     IDocumentTextExtractor textExtractor,
     ITextChunker textChunker,
+    IDocumentChunkEnrichmentService chunkEnrichmentService,
     IEmbeddingService embeddingService,
+    IOptions<DocumentIngestionOptions> ingestionOptions,
     ILogger<DocumentVectorizationService> logger) : IDocumentVectorizationService
 {
     public string Enqueue(Guid documentId, Guid projectId, Guid tenantId, Guid requestedByUserId) =>
@@ -100,22 +107,33 @@ public sealed class DocumentVectorizationService(
                 return;
             }
 
-            var embeddings = await embeddingService
-                .EmbedBatchAsync(chunks, cancellationToken)
+            var enrichmentModel = await ResolveEnrichmentModelAsync(projectId, cancellationToken)
+                .ConfigureAwait(false);
+            var enriched = await chunkEnrichmentService
+                .EnrichAsync(chunks, enrichmentModel, cancellationToken)
                 .ConfigureAwait(false);
 
-            await ReplaceChunksAsync(document, chunks, embeddings, cancellationToken).ConfigureAwait(false);
+            var embedInputs = enriched
+                .Select(BuildEmbeddingInput)
+                .ToList();
+
+            var embeddings = await embeddingService
+                .EmbedBatchAsync(embedInputs, cancellationToken)
+                .ConfigureAwait(false);
+
+            await ReplaceChunksAsync(document, enriched, embeddings, cancellationToken)
+                .ConfigureAwait(false);
 
             document.VectorizationStatus = ProjectDocumentVectorizationStatus.Ready;
             document.VectorizationError = null;
-            document.VectorizedChunkCount = chunks.Count;
+            document.VectorizedChunkCount = enriched.Count;
             document.UpdatedAt = DateTime.UtcNow;
             await documentRepository.UpdateAsync(document, cancellationToken);
 
             logger.LogInformation(
-                "Vectorized document {DocumentId} into {ChunkCount} chunks.",
+                "Vectorized document {DocumentId} into {ChunkCount} enriched chunks.",
                 documentId,
-                chunks.Count);
+                enriched.Count);
         }
         catch (Exception ex)
         {
@@ -127,9 +145,42 @@ public sealed class DocumentVectorizationService(
         }
     }
 
+    private async Task<string> ResolveEnrichmentModelAsync(
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var configured = ingestionOptions.Value.EnrichmentModel?.Trim();
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured;
+        }
+
+        var settings = await projectSettingsRepository.GetAsync(
+            filter: entry => entry.ProjectId == projectId,
+            include: query => query.Include(entry => entry.DefaultAiModel),
+            cancellationToken: cancellationToken);
+
+        var fromProject = settings?.DefaultAiModel?.ExternalId?.Trim();
+        if (!string.IsNullOrWhiteSpace(fromProject))
+        {
+            return fromProject;
+        }
+
+        throw new InvalidOperationException(
+            "No enrichment model configured. Set DocumentIngestion:EnrichmentModel in appsettings, " +
+            "or configure a project default AI model.");
+    }
+
+    private static string BuildEmbeddingInput(EnrichedChunk chunk)
+    {
+        var keywords = string.Join(", ", chunk.Keywords);
+        var content = chunk.EnglishText ?? chunk.Text;
+        return $"Keywords: {keywords}\nContent: {content}";
+    }
+
     private async Task ReplaceChunksAsync(
         ProjectDocument document,
-        IReadOnlyList<string> chunks,
+        IReadOnlyList<EnrichedChunk> chunks,
         IReadOnlyList<float[]> embeddings,
         CancellationToken cancellationToken)
     {
@@ -143,14 +194,20 @@ public sealed class DocumentVectorizationService(
         }
 
         var entities = chunks
-            .Select((text, index) => new ProjectDocumentChunk
+            .Select((chunk, index) => new ProjectDocumentChunk
             {
                 Id = Guid.NewGuid(),
                 TenantId = document.TenantId,
                 ProjectId = document.ProjectId,
                 DocumentId = document.Id,
                 ChunkIndex = index,
-                Text = text,
+                Text = chunk.Text,
+                EnglishText = chunk.EnglishText,
+                Keywords = chunk.Keywords
+                    .Select(k => k.Trim().ToLowerInvariant())
+                    .Where(k => k.Length > 0)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList(),
                 Embedding = new Vector(embeddings[index]),
             })
             .ToList();

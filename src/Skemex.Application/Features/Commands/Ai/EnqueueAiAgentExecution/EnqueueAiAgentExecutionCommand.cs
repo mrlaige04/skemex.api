@@ -11,7 +11,6 @@ public sealed class EnqueueAiAgentExecutionCommand : ICommand<AiAgentJobDto>
     public Guid? ChatId { get; init; }
     public string? ToolName { get; init; }
     public required string UserInput { get; init; }
-    public string? CustomInstructions { get; init; }
     public string? ArgumentsJson { get; init; }
     public string? Model { get; init; }
 }

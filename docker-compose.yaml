@@ -1,5 +1,4 @@
-﻿
-services:
+﻿services:
   db:
     image: pgvector/pgvector:pg17
     environment:
@@ -32,6 +31,20 @@ services:
     networks:
       - skemex
 
+  seq:
+    image: datalust/seq:latest
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      SEQ_FIRSTRUN_ADMINUSERNAME: ${SEQ_ADMIN_USERNAME:-admin}
+      SEQ_FIRSTRUN_ADMINPASSWORD: ${SEQ_ADMIN_PASSWORD}
+    volumes:
+      - skemex_seq:/data
+    ports:
+      - "5341:80"
+    networks:
+      - skemex
+
   api:
     build:
       context: .
@@ -41,6 +54,8 @@ services:
       db:
         condition: service_healthy
       minio:
+        condition: service_started
+      seq:
         condition: service_started
     ports:
       - "8080:8080"
@@ -64,6 +79,8 @@ services:
       Smtp__Username: ${SMTP_USERNAME}
       Smtp__Password: ${SMTP_PASSWORD}
       Embeddings__ApiKey: ${EMBEDDINGS__APIKEY}
+      Serilog__WriteTo__1__Args__serverUrl: http://seq
+      Serilog__WriteTo__1__Args__apiKey: ${SEQ_API_KEY}
     networks:
       - skemex
 
@@ -75,3 +92,4 @@ networks:
 volumes:
   skemex_pgdata:
   skemex_minio:
+  skemex_seq:

@@ -68,9 +68,6 @@ public sealed class EnqueueAiChatDecompositionCommandHandler(
             AiChatId = chat.Id,
             UserMessageId = userMessage.Id,
             UserInput = userInput,
-            CustomInstructions = string.IsNullOrWhiteSpace(request.CustomInstructions)
-                ? null
-                : request.CustomInstructions.Trim(),
             Status = AiDecompositionJobStatus.Pending,
         };
 

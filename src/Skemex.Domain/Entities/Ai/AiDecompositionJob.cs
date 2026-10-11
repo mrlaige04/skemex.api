@@ -27,7 +27,6 @@ public class AiDecompositionJob : TenantEntity
     public AiChatMessage? UserMessage { get; set; }
 
     public string UserInput { get; set; } = string.Empty;
-    public string? CustomInstructions { get; set; }
 
     public AiDecompositionJobStatus Status { get; set; } = AiDecompositionJobStatus.Pending;
     public string? Error { get; set; }

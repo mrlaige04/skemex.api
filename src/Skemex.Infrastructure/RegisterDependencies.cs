@@ -17,6 +17,7 @@ using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Services;
 using Skemex.Application.Services.Ai;
+using Skemex.Application.Services.Documents;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Users;
@@ -46,7 +47,7 @@ public static class RegisterDependencies
         AddStorage(services, configuration);
         AddAi(services, configuration);
         AddEmbeddings(services, configuration);
-        AddDocumentIngestion(services);
+        AddDocumentIngestion(services, configuration);
         AddAppAuthentication(services, configuration);
         AddBackgroundJobs(services, configuration);
         AddEmailing(services, configuration);
@@ -78,6 +79,8 @@ public static class RegisterDependencies
         services.AddSingleton<IEncryptService, EncryptService>();
         services.AddScoped<TaskDecompositionTool>();
         services.AddScoped<IAgentTool>(sp => sp.GetRequiredService<TaskDecompositionTool>());
+        services.AddScoped<ProjectQaTool>();
+        services.AddScoped<IAgentTool>(sp => sp.GetRequiredService<ProjectQaTool>());
         services.AddScoped<AiTaskDecompositionService>();
         services.AddScoped<IAiTaskDecompositionService>(sp => sp.GetRequiredService<AiTaskDecompositionService>());
         services.AddScoped<IAiService, AiService>();
@@ -221,10 +224,13 @@ public static class RegisterDependencies
         services.AddScoped<IProjectRagContextService, ProjectRagContextService>();
     }
 
-    private static void AddDocumentIngestion(IServiceCollection services)
+    private static void AddDocumentIngestion(IServiceCollection services, IConfiguration configuration)
     {
+        services.Configure<DocumentIngestionOptions>(
+            configuration.GetSection(DocumentIngestionOptions.SectionName));
         services.AddScoped<IDocumentTextExtractor, DocumentTextExtractor>();
         services.AddSingleton<ITextChunker, TextChunker>();
+        services.AddScoped<IDocumentChunkEnrichmentService, DocumentChunkEnrichmentService>();
         services.AddScoped<IDocumentVectorizationService, DocumentVectorizationService>();
     }
 

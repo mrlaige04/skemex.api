@@ -69,6 +69,7 @@ public sealed class AiTaskDecompositionService(
                 ChatId = job.AiChatId,
                 DecompositionJobId = job.Id,
                 Model = null,
+                UserInput = job.UserInput,
                 EffectiveDescription = !string.IsNullOrWhiteSpace(dbTool?.Description)
                     ? dbTool.Description
                     : decompositionTool.DefaultDescription,
@@ -80,7 +81,6 @@ public sealed class AiTaskDecompositionService(
             var args = JsonSerializer.SerializeToElement(new
             {
                 userInput = job.UserInput,
-                customInstructions = job.CustomInstructions,
                 projectId = job.ProjectId.ToString(),
             });
 

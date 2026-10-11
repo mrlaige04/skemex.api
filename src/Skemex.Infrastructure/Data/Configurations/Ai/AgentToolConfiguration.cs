@@ -27,6 +27,15 @@ public class AgentToolConfiguration : IEntityTypeConfiguration<AgentTool>
                 SystemPrompt = TaskDecompositionToolDefaults.SystemPrompt,
                 CreatedAt = TaskDecompositionToolDefaults.SeedTimestamp,
                 UpdatedAt = TaskDecompositionToolDefaults.SeedTimestamp,
+            },
+            new AgentTool
+            {
+                Id = ProjectQaToolDefaults.SeedId,
+                SystemName = ProjectQaToolDefaults.SystemName,
+                Description = ProjectQaToolDefaults.Description,
+                SystemPrompt = ProjectQaToolDefaults.SystemPrompt,
+                CreatedAt = ProjectQaToolDefaults.SeedTimestamp,
+                UpdatedAt = ProjectQaToolDefaults.SeedTimestamp,
             });
     }
 }

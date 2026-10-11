@@ -7,7 +7,6 @@ public sealed class AiAgentJobDto
     public string? ToolName { get; init; }
     public string Status { get; init; } = string.Empty;
     public string UserInput { get; init; } = string.Empty;
-    public string? CustomInstructions { get; init; }
     public string? Error { get; init; }
     public string? AssistantMessage { get; init; }
     public string? ArtifactType { get; init; }
@@ -22,7 +21,6 @@ public sealed class AiAgentJobDto
         ToolName = job.ToolName,
         Status = job.Status.ToString(),
         UserInput = job.UserInput,
-        CustomInstructions = job.CustomInstructions,
         Error = job.Error,
         AssistantMessage = job.AssistantMessage,
         ArtifactType = job.ArtifactType,

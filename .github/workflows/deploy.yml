@@ -29,6 +29,9 @@ jobs:
       SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       EMBEDDINGS__APIKEY: ${{ secrets.GOOGLE_GEMINI_API_KEY }}
+      SEQ_ADMIN_USERNAME: ${{ secrets.SEQ_ADMIN_USERNAME }}
+      SEQ_ADMIN_PASSWORD: ${{ secrets.SEQ_ADMIN_PASSWORD }}
+      SEQ_API_KEY: ${{ secrets.SEQ_API_KEY }}
 
     steps:
       - name: Checkout
@@ -50,6 +53,8 @@ jobs:
           : "${SMTP_USERNAME:?Set repository secret SMTP_USERNAME}"
           : "${SMTP_PASSWORD:?Set repository secret SMTP_PASSWORD}"
           : "${EMBEDDINGS__APIKEY:?Set repository secret GOOGLE_GEMINI_API_KEY (Google Gemini API key for document embeddings)}"
+          : "${SEQ_ADMIN_PASSWORD:?Set repository secret SEQ_ADMIN_PASSWORD (Seq UI admin password; applied on first Seq volume init)}"
+          : "${SEQ_API_KEY:?Set repository secret SEQ_API_KEY (Seq ingestion API key for Serilog)}"
 
       - name: Ensure Docker network exists
         run: |

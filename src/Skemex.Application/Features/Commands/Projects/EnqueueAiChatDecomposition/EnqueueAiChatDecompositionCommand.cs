@@ -8,5 +8,4 @@ public sealed class EnqueueAiChatDecompositionCommand : ICommand<AiDecomposition
     public Guid ProjectId { get; init; }
     public Guid ChatId { get; init; }
     public required string UserInput { get; init; }
-    public string? CustomInstructions { get; init; }
 }

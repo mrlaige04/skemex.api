@@ -12,7 +12,6 @@ public class AiDecompositionJobConfiguration : IEntityTypeConfiguration<AiDecomp
         builder.HasKey(job => job.Id);
 
         builder.Property(job => job.UserInput).HasMaxLength(8000).IsRequired();
-        builder.Property(job => job.CustomInstructions).HasMaxLength(4000);
         builder.Property(job => job.Error).HasMaxLength(4000);
         builder.Property(job => job.HangfireJobId).HasMaxLength(64);
         builder.Property(job => job.Status).HasConversion<string>().HasMaxLength(32);

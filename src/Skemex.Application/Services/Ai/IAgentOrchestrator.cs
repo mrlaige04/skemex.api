@@ -36,7 +36,6 @@ public sealed class AgentOrchestratorRequest
     public string? ToolName { get; init; }
 
     public required string UserInput { get; init; }
-    public string? CustomInstructions { get; init; }
     public string? Model { get; init; }
 
     /// <summary>Optional JSON object of direct tool arguments (merged with userInput).</summary>

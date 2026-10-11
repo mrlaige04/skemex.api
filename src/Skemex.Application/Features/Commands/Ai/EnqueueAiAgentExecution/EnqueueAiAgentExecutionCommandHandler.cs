@@ -104,9 +104,6 @@ public sealed class EnqueueAiAgentExecutionCommandHandler(
             AiChatId = request.ChatId,
             ToolName = string.IsNullOrWhiteSpace(request.ToolName) ? null : request.ToolName.Trim(),
             UserInput = userInput,
-            CustomInstructions = string.IsNullOrWhiteSpace(request.CustomInstructions)
-                ? null
-                : request.CustomInstructions.Trim(),
             ArgumentsJson = string.IsNullOrWhiteSpace(request.ArgumentsJson)
                 ? null
                 : request.ArgumentsJson,
