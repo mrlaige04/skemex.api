@@ -2,8 +2,10 @@ using ErrorOr;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Ai;
 using Skemex.Application.Services.Ai;
+using Skemex.Application.Services.Ai.Usage;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Entities.Projects;
+using Skemex.Domain.Enums;
 using Skemex.Domain.Repositories.Abstractions;
 
 namespace Skemex.Application.Features.Commands.Ai.EnqueueAiAgentExecution;
@@ -15,7 +17,8 @@ public sealed class EnqueueAiAgentExecutionCommandHandler(
     ITenantRepository<AiChatMessage> messageRepository,
     ITenantRepository<AiAgentJob> jobRepository,
     IEnumerable<IAgentTool> tools,
-    IAgentOrchestrator orchestrator)
+    IAgentOrchestrator orchestrator,
+    IAiExecutionLifecycle executionLifecycle)
     : ICommandHandler<EnqueueAiAgentExecutionCommand, AiAgentJobDto>
 {
     public async Task<ErrorOr<AiAgentJobDto>> Handle(
@@ -112,6 +115,28 @@ public sealed class EnqueueAiAgentExecutionCommandHandler(
         };
 
         await jobRepository.AddAsync(job, cancellationToken);
+
+        var source = request.Source
+            ?? (request.ChatId is not null
+                ? AiExecutionSource.Chat
+                : !string.IsNullOrWhiteSpace(request.ToolName)
+                    ? AiExecutionSource.Ui
+                    : AiExecutionSource.Api);
+
+        await executionLifecycle.CreatePendingAsync(
+            new AiExecutionCreateRequest
+            {
+                TenantId = request.TenantId,
+                UserId = request.UserId,
+                ProjectId = request.ProjectId,
+                AiChatId = request.ChatId,
+                AiAgentJobId = job.Id,
+                Source = source,
+                ToolName = job.ToolName,
+                Model = job.Model,
+                UserInput = userInput,
+            },
+            cancellationToken);
 
         var hangfireJobId = orchestrator.Enqueue(job.Id, request.TenantId, request.UserId);
         job.HangfireJobId = hangfireJobId;

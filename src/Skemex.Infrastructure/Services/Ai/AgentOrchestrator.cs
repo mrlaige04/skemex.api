@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
@@ -5,9 +6,11 @@ using Microsoft.Extensions.Logging;
 using Skemex.Application.Models.Ai;
 using Skemex.Application.Models.Rag;
 using Skemex.Application.Services.Ai;
+using Skemex.Application.Services.Ai.Usage;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Entities.Projects;
+using Skemex.Domain.Enums;
 using Skemex.Domain.Repositories.Abstractions;
 
 namespace Skemex.Infrastructure.Services.Ai;
@@ -19,9 +22,12 @@ public sealed class AgentOrchestrator(
     ITenantRepository<AiChatMessage> messageRepository,
     ITenantRepository<ProjectSettings> projectSettingsRepository,
     ITenantRepository<AiChat> chatRepository,
+    ITenantRepository<AiExecution> executionRepository,
     IAiService aiService,
     IAiSemanticRetry semanticRetry,
     IProjectRagContextService ragContextService,
+    IAiUsageMeteringService usageMetering,
+    IAiExecutionLifecycle executionLifecycle,
     ILogger<AgentOrchestrator> logger) : IAgentOrchestrator
 {
     private const string IntentRoutingSystemPrompt = """
@@ -62,6 +68,42 @@ public sealed class AgentOrchestrator(
         {
             return;
         }
+
+        var execution = await executionRepository.GetAsync(
+            filter: entry => entry.AiAgentJobId == job.Id,
+            cancellationToken: cancellationToken);
+
+        if (execution is null)
+        {
+            execution = await executionLifecycle.CreatePendingAsync(
+                new AiExecutionCreateRequest
+                {
+                    TenantId = tenantId,
+                    UserId = requestedByUserId,
+                    ProjectId = job.ProjectId,
+                    AiChatId = job.AiChatId,
+                    AiAgentJobId = job.Id,
+                    Source = job.AiChatId is not null
+                        ? AiExecutionSource.Chat
+                        : !string.IsNullOrWhiteSpace(job.ToolName)
+                            ? AiExecutionSource.Ui
+                            : AiExecutionSource.Api,
+                    ToolName = job.ToolName,
+                    Model = job.Model,
+                    UserInput = job.UserInput,
+                },
+                cancellationToken);
+        }
+
+        await executionLifecycle.MarkRunningAsync(execution.Id, cancellationToken);
+
+        using var usageScope = AmbientAiUsageContext.Use(
+            correlationId: execution.Id,
+            projectId: job.ProjectId,
+            aiChatId: job.AiChatId,
+            aiAgentJobId: job.Id,
+            aiExecutionId: execution.Id,
+            toolName: job.ToolName);
 
         job.Status = AiAgentJobStatus.Running;
         job.Error = null;
@@ -113,6 +155,16 @@ public sealed class AgentOrchestrator(
                     job,
                     result.AssistantMessage ?? $"Failed: {job.Error}",
                     cancellationToken);
+                await executionLifecycle.CompleteAsync(
+                    execution.Id,
+                    new AiExecutionCompleteRequest
+                    {
+                        Success = false,
+                        ErrorMessage = job.Error,
+                        ToolName = job.ToolName,
+                        Model = model,
+                    },
+                    cancellationToken);
                 return;
             }
 
@@ -128,6 +180,15 @@ public sealed class AgentOrchestrator(
                 job,
                 result.AssistantMessage ?? "Done.",
                 cancellationToken);
+            await executionLifecycle.CompleteAsync(
+                execution.Id,
+                new AiExecutionCompleteRequest
+                {
+                    Success = true,
+                    ToolName = job.ToolName,
+                    Model = model,
+                },
+                cancellationToken);
         }
         catch (Exception ex)
         {
@@ -136,6 +197,16 @@ public sealed class AgentOrchestrator(
             job.Error = Truncate(ex.Message, 2000);
             await jobRepository.UpdateAsync(job, cancellationToken);
             await AppendAssistantMessageAsync(job, $"Failed: {job.Error}", cancellationToken);
+            await executionLifecycle.CompleteAsync(
+                execution.Id,
+                new AiExecutionCompleteRequest
+                {
+                    Success = false,
+                    ErrorMessage = job.Error,
+                    ToolName = job.ToolName,
+                    Model = job.Model,
+                },
+                cancellationToken);
             throw;
         }
     }
@@ -144,6 +215,8 @@ public sealed class AgentOrchestrator(
         AgentOrchestratorRequest request,
         CancellationToken cancellationToken = default)
     {
+        using var usageScope = EnsureUsageCorrelation(request);
+
         var toolMap = tools.ToDictionary(tool => tool.SystemName, StringComparer.OrdinalIgnoreCase);
         var dbTools = await toolRepository.GetAllAsync(cancellationToken: cancellationToken);
         var dbByName = dbTools.ToDictionary(tool => tool.SystemName, StringComparer.OrdinalIgnoreCase);
@@ -156,6 +229,22 @@ public sealed class AgentOrchestrator(
 
         return await ExecuteChatWithToolsAsync(request, toolMap, dbByName, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private static IDisposable EnsureUsageCorrelation(AgentOrchestratorRequest request)
+    {
+        if (AmbientAiUsageContext.Current is not null)
+        {
+            return NoopDisposable.Instance;
+        }
+
+        return AmbientAiUsageContext.Use(
+            correlationId: request.AgentJobId ?? Guid.NewGuid(),
+            projectId: request.ProjectId,
+            aiChatId: request.ChatId,
+            aiAgentJobId: request.AgentJobId,
+            aiExecutionId: AmbientAiUsageContext.Current?.AiExecutionId,
+            toolName: request.ToolName);
     }
 
     private async Task<AiToolExecutionResult> ExecuteDirectToolAsync(
@@ -193,7 +282,11 @@ public sealed class AgentOrchestrator(
             tool.SystemName,
             request.TenantId);
 
-        return await tool.ExecuteDirectAsync(args, context, cancellationToken).ConfigureAwait(false);
+        return await ExecuteToolWithMeteringAsync(
+                tool,
+                () => tool.ExecuteDirectAsync(args, context, cancellationToken),
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private async Task<AiToolExecutionResult> ExecuteChatWithToolsAsync(
@@ -229,6 +322,9 @@ public sealed class AgentOrchestrator(
         AiFunctionCall call;
         try
         {
+            using var stage1Scope = AmbientAiUsageContext.Push(
+                operationName: AiUsageOperationNames.Stage1Routing);
+
             call = await semanticRetry
                 .ExecuteAsync(
                     async ct =>
@@ -303,8 +399,80 @@ public sealed class AgentOrchestrator(
             selectedTool.SystemName,
             request.TenantId);
 
-        return await selectedTool.HandleFunctionCallAsync(call.ArgumentsJson, context, cancellationToken)
+        return await ExecuteToolWithMeteringAsync(
+                selectedTool,
+                () => selectedTool.HandleFunctionCallAsync(call.ArgumentsJson, context, cancellationToken),
+                cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private async Task<AiToolExecutionResult> ExecuteToolWithMeteringAsync(
+        IAgentTool tool,
+        Func<Task<AiToolExecutionResult>> execute,
+        CancellationToken cancellationToken)
+    {
+        var operationName = ResolveToolOperationName(tool.SystemName);
+        var parentActivityId = Guid.NewGuid();
+        var stopwatch = Stopwatch.StartNew();
+        AiToolExecutionResult result;
+        try
+        {
+            using var toolScope = AmbientAiUsageContext.Push(
+                operationName: operationName,
+                toolName: tool.SystemName,
+                parentActivityId: parentActivityId);
+            result = await execute().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            await usageMetering.RecordAsync(
+                new AiUsageRecord
+                {
+                    ActivityId = parentActivityId,
+                    OperationType = AiUsageOperationType.ToolExecution,
+                    OperationName = AiUsageOperationNames.ToolExecution,
+                    ToolName = tool.SystemName,
+                    Success = false,
+                    ErrorMessage = ex.Message,
+                    DurationMs = stopwatch.ElapsedMilliseconds,
+                    MetadataJson = $"{{\"toolOperation\":\"{operationName}\"}}",
+                },
+                cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+
+        stopwatch.Stop();
+        await usageMetering.RecordToolExecutionAsync(
+            new AiUsageRecord
+            {
+                ActivityId = parentActivityId,
+                OperationType = AiUsageOperationType.ToolExecution,
+                OperationName = AiUsageOperationNames.ToolExecution,
+                ToolName = tool.SystemName,
+                Success = result.Success,
+                ErrorMessage = result.ErrorMessage,
+                DurationMs = stopwatch.ElapsedMilliseconds,
+                MetadataJson = $"{{\"toolOperation\":\"{operationName}\",\"artifactType\":\"{result.ArtifactType}\"}}",
+            },
+            cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    private static string ResolveToolOperationName(string toolSystemName) =>
+        toolSystemName.Trim().ToLowerInvariant() switch
+        {
+            "task_decomposition" => AiUsageOperationNames.TaskDecomposition,
+            "project_qa" => AiUsageOperationNames.ProjectQa,
+            _ => toolSystemName.Trim().ToLowerInvariant(),
+        };
+
+    private sealed class NoopDisposable : IDisposable
+    {
+        public static readonly NoopDisposable Instance = new();
+        public void Dispose()
+        {
+        }
     }
 
     private async Task AppendAssistantMessageAsync(
@@ -325,8 +493,34 @@ public sealed class AgentOrchestrator(
                 ChatId = job.AiChatId.Value,
                 Role = AiChatMessageRole.Assistant,
                 Content = content,
+                RootTaskId = TryReadRootTaskId(job.ArtifactPayloadJson),
             },
             cancellationToken);
+    }
+
+    private static Guid? TryReadRootTaskId(string? artifactPayloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(artifactPayloadJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(artifactPayloadJson);
+            if (doc.RootElement.TryGetProperty("rootTaskId", out var prop)
+                && prop.ValueKind == JsonValueKind.String
+                && Guid.TryParse(prop.GetString(), out var id))
+            {
+                return id;
+            }
+        }
+        catch (JsonException)
+        {
+            // Ignore malformed artifact JSON.
+        }
+
+        return null;
     }
 
     private async Task<string?> ResolveRagContextAsync(
@@ -429,7 +623,6 @@ public sealed class AgentOrchestrator(
             UserId = request.UserId,
             ProjectId = request.ProjectId,
             ChatId = request.ChatId,
-            DecompositionJobId = request.DecompositionJobId,
             AgentJobId = request.AgentJobId,
             Model = request.Model,
             UserInput = request.UserInput?.Trim() ?? string.Empty,

@@ -24,12 +24,6 @@ public class AiChatMessageConfiguration : IEntityTypeConfiguration<AiChatMessage
             .OnDelete(DeleteBehavior.Cascade);
 
         builder
-            .HasOne(message => message.DecompositionJob)
-            .WithMany()
-            .HasForeignKey(message => message.DecompositionJobId)
-            .OnDelete(DeleteBehavior.SetNull);
-
-        builder
             .HasOne(message => message.RootTask)
             .WithMany()
             .HasForeignKey(message => message.RootTaskId)

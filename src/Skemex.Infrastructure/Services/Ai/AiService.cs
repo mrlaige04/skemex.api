@@ -24,7 +24,7 @@ public sealed class AiService(
         var modelExternalId = request.Model.Trim();
         var provider = await ResolveProviderAsync(modelExternalId, cancellationToken).ConfigureAwait(false);
 
-        return await provider
+        var result = await provider
             .CompleteAsync(
                 new AiCompletionRequest
                 {
@@ -35,6 +35,10 @@ public sealed class AiService(
                 },
                 cancellationToken)
             .ConfigureAwait(false);
+
+        result.Provider ??= provider.Name;
+        result.Model ??= modelExternalId;
+        return result;
     }
 
     public async Task<AiFunctionCallResult> FunctionCallAsync(
@@ -53,7 +57,7 @@ public sealed class AiService(
         var modelExternalId = request.Model.Trim();
         var provider = await ResolveProviderAsync(modelExternalId, cancellationToken).ConfigureAwait(false);
 
-        return await provider
+        var result = await provider
             .FunctionCallAsync(
                 new AiFunctionCallRequest
                 {
@@ -64,6 +68,10 @@ public sealed class AiService(
                 },
                 cancellationToken)
             .ConfigureAwait(false);
+
+        result.Provider ??= provider.Name;
+        result.Model ??= modelExternalId;
+        return result;
     }
 
     public Task<IReadOnlyList<AiModelDto>> ListModelsAsync(

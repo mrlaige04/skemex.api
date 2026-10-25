@@ -1,5 +1,6 @@
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Ai;
+using Skemex.Domain.Enums;
 
 namespace Skemex.Application.Features.Commands.Ai.EnqueueAiAgentExecution;
 
@@ -13,4 +14,7 @@ public sealed class EnqueueAiAgentExecutionCommand : ICommand<AiAgentJobDto>
     public required string UserInput { get; init; }
     public string? ArgumentsJson { get; init; }
     public string? Model { get; init; }
+
+    /// <summary>Optional explicit source; inferred from chat/tool when null.</summary>
+    public AiExecutionSource? Source { get; init; }
 }

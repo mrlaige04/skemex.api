@@ -29,7 +29,6 @@ public sealed class AgentOrchestratorRequest
     public required Guid UserId { get; init; }
     public Guid? ProjectId { get; init; }
     public Guid? ChatId { get; init; }
-    public Guid? DecompositionJobId { get; init; }
     public Guid? AgentJobId { get; init; }
 
     /// <summary>When set, runs that tool via <see cref="IAgentTool.ExecuteDirectAsync"/>.</summary>

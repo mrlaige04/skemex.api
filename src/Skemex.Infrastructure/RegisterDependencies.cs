@@ -17,6 +17,7 @@ using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Services;
 using Skemex.Application.Services.Ai;
+using Skemex.Application.Services.Ai.Usage;
 using Skemex.Application.Services.Documents;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Consts;
@@ -33,6 +34,7 @@ using Skemex.Infrastructure.Services;
 using Skemex.Infrastructure.Services.Ai;
 using Skemex.Infrastructure.Services.Ai.Providers;
 using Skemex.Infrastructure.Services.Ai.Tools;
+using Skemex.Infrastructure.Services.Ai.Usage;
 using Skemex.Infrastructure.Services.Documents;
 using Skemex.Infrastructure.Services.Embeddings;
 using Skemex.Infrastructure.Storage;
@@ -81,9 +83,11 @@ public static class RegisterDependencies
         services.AddScoped<IAgentTool>(sp => sp.GetRequiredService<TaskDecompositionTool>());
         services.AddScoped<ProjectQaTool>();
         services.AddScoped<IAgentTool>(sp => sp.GetRequiredService<ProjectQaTool>());
-        services.AddScoped<AiTaskDecompositionService>();
-        services.AddScoped<IAiTaskDecompositionService>(sp => sp.GetRequiredService<AiTaskDecompositionService>());
-        services.AddScoped<IAiService, AiService>();
+        services.AddScoped<AiService>();
+        services.AddScoped<IAiService, MeteringAiService>();
+        services.AddScoped<IAiUsageMeteringService, AiUsageMeteringService>();
+        services.AddScoped<IAiExecutionLifecycle, AiExecutionLifecycle>();
+        services.AddSingleton<IAiUsageQuotaEvaluator, AllowAllAiUsageQuotaEvaluator>();
         services.AddScoped<IAgentOrchestrator, AgentOrchestrator>();
         services.AddScoped<IAiModelCatalogService, AiModelCatalogService>();
         services.AddScoped<IAiProviderResolver, AiProviderResolver>();
@@ -220,7 +224,8 @@ public static class RegisterDependencies
         {
             client.Timeout = TimeSpan.FromSeconds(120);
         });
-        services.AddScoped<IEmbeddingService, GoogleGeminiEmbeddingService>();
+        services.AddScoped<GoogleGeminiEmbeddingService>();
+        services.AddScoped<IEmbeddingService, MeteringEmbeddingService>();
         services.AddScoped<IProjectRagContextService, ProjectRagContextService>();
     }
 

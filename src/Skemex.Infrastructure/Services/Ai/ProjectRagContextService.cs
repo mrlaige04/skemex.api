@@ -7,6 +7,7 @@ using Skemex.Application.Configuration;
 using Skemex.Application.Models.Rag;
 using Skemex.Application.Services;
 using Skemex.Application.Services.Ai;
+using Skemex.Application.Services.Ai.Usage;
 using Skemex.Infrastructure.Data;
 
 namespace Skemex.Infrastructure.Services.Ai;
@@ -154,9 +155,14 @@ public sealed class ProjectRagContextService(
         var minSimilarity = Math.Clamp(settings.MinSimilarity, 0.0, 1.0);
         var maxDistance = Math.Clamp(1.0 - minSimilarity, 0.0, 1.0);
 
-        var embedding = await embeddingService
-            .EmbedAsync(refinedQueryEn, cancellationToken)
-            .ConfigureAwait(false);
+        float[] embedding;
+        using (AmbientAiUsageContext.Push(operationName: AiUsageOperationNames.RagQueryEmbedding))
+        {
+            embedding = await embeddingService
+                .EmbedAsync(refinedQueryEn, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         if (embedding.Length == 0)
         {
             return [];
