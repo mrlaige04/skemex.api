@@ -25,6 +25,7 @@ public static class RegisterDependencies
                 .WithScopedLifetime());
 
         services.AddScoped<ISender, Sender>();
+        services.AddScoped<TenantColumnSeeder>();
         services.AddScoped<ProjectColumnSeeder>();
         services.AddTransient(typeof(IBehaviour<,>), typeof(LoggingBehaviour<,>));
         services.AddTransient(typeof(IBehaviour<,>), typeof(ValidationBehaviour<,>));

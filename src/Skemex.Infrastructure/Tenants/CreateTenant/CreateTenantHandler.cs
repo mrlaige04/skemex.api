@@ -1,10 +1,11 @@
 using ErrorOr;
 using Microsoft.AspNetCore.Identity;
 using Skemex.Application.Features.Abstractions;
+using Skemex.Application.Services;
+using Skemex.Application.Services.Projects;
 using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
-using Skemex.Application.Services;
 using Skemex.Domain.Services;
 using Skemex.Infrastructure.Authentication;
 using Skemex.Infrastructure.Authentication.Models;
@@ -18,7 +19,8 @@ public class CreateTenantHandler(
     IBaseRepository<Tenant> tenantRepository,
     IBaseRepository<TenantUser> tenantUserRepository,
     IBaseRepository<UserRole> userRoleRepository,
-    IUrlService urlService)
+    IUrlService urlService,
+    TenantColumnSeeder tenantColumnSeeder)
     : ICommandHandler<CreateTenantCommand, TenantSummaryResponse>
 {
     public async Task<ErrorOr<TenantSummaryResponse>> Handle(
@@ -105,6 +107,8 @@ public class CreateTenantHandler(
             TenantId = tenant.Id,
         };
         await userRoleRepository.AddAsync(userRole, cancellationToken);
+
+        await tenantColumnSeeder.EnsureDefaultsAsync(tenant.Id, cancellationToken);
 
         return new TenantSummaryResponse
         {

@@ -1,3 +1,6 @@
+using System.Text.Json.Serialization;
+using Skemex.Domain.Enums;
+
 namespace Skemex.Web.Models.Ai;
 
 public sealed class ExecuteAiRequest
@@ -11,4 +14,8 @@ public sealed class ExecuteAiRequest
     public string UserInput { get; set; } = string.Empty;
     public string? ArgumentsJson { get; set; }
     public string? Model { get; set; }
+
+    /// <summary>Origin of the call: Chat, Ui, Api. Inferred when omitted.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public AiExecutionSource? Source { get; set; }
 }

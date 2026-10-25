@@ -60,7 +60,6 @@ public sealed class AiChatMessageDto
     public Guid ChatId { get; set; }
     public string Role { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
-    public Guid? DecompositionJobId { get; set; }
     public Guid? RootTaskId { get; set; }
     public string? RootTaskCode { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -73,7 +72,6 @@ public sealed class AiChatMessageDto
             ChatId = message.ChatId,
             Role = message.Role.ToString(),
             Content = message.Content,
-            DecompositionJobId = message.DecompositionJobId,
             RootTaskId = message.RootTaskId,
             RootTaskCode = message.RootTask?.Code,
             CreatedAt = message.CreatedAt,

@@ -62,6 +62,7 @@ public sealed class AiController(
                 UserInput = body.UserInput ?? string.Empty,
                 ArgumentsJson = body.ArgumentsJson,
                 Model = body.Model,
+                Source = body.Source,
             },
             cancellationToken);
 

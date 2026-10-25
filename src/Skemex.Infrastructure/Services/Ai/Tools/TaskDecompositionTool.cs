@@ -18,7 +18,6 @@ using Skemex.Infrastructure.Services;
 namespace Skemex.Infrastructure.Services.Ai.Tools;
 
 public sealed partial class TaskDecompositionTool(
-    ITenantRepository<AiDecompositionJob> jobRepository,
     ITenantRepository<AiChat> chatRepository,
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectSettings> projectSettingsRepository,
@@ -354,20 +353,6 @@ public sealed partial class TaskDecompositionTool(
                 cancellationToken)
             .ConfigureAwait(false);
 
-        if (executionContext.DecompositionJobId is { } decompJobId)
-        {
-            var job = await jobRepository.GetAsync(
-                filter: entry => entry.Id == decompJobId,
-                cancellationToken: cancellationToken);
-            if (job is not null)
-            {
-                job.RootTaskId = rootTaskId;
-                job.Status = AiDecompositionJobStatus.Succeeded;
-                job.Error = null;
-                await jobRepository.UpdateAsync(job, cancellationToken);
-            }
-        }
-
         var rootTask = await projectTaskRepository.GetAsync(
             filter: task => task.Id == rootTaskId,
             cancellationToken: cancellationToken);
@@ -406,29 +391,15 @@ public sealed partial class TaskDecompositionTool(
             return context.Model.Trim();
         }
 
-        if (context.DecompositionJobId is { } jobId)
+        if (context.ChatId is { } chatId)
         {
-            var job = await jobRepository.GetAsync(
-                filter: entry => entry.Id == jobId,
+            var chat = await chatRepository.GetAsync(
+                filter: entry => entry.Id == chatId,
+                include: query => query.Include(entry => entry.AiModel),
                 cancellationToken: cancellationToken);
-            if (job is not null)
+            if (!string.IsNullOrWhiteSpace(chat?.AiModel?.ExternalId))
             {
-                if (job.AiChatId is { } chatId)
-                {
-                    var chat = await chatRepository.GetAsync(
-                        filter: entry => entry.Id == chatId,
-                        include: query => query.Include(entry => entry.AiModel),
-                        cancellationToken: cancellationToken);
-                    if (!string.IsNullOrWhiteSpace(chat?.AiModel?.ExternalId))
-                    {
-                        return chat.AiModel.ExternalId;
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(settings.DefaultAiModel?.ExternalId))
-                {
-                    return settings.DefaultAiModel.ExternalId;
-                }
+                return chat.AiModel.ExternalId;
             }
         }
 

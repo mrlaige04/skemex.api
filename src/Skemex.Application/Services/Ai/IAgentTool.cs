@@ -57,7 +57,6 @@ public sealed record AgentExecutionContext
     public required Guid UserId { get; init; }
     public Guid? ProjectId { get; init; }
     public Guid? ChatId { get; init; }
-    public Guid? DecompositionJobId { get; init; }
     public Guid? AgentJobId { get; init; }
     public string? Model { get; init; }
 

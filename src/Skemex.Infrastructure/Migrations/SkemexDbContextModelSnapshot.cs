@@ -301,9 +301,6 @@ namespace Skemex.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid?>("DecompositionJobId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("Role")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -320,8 +317,6 @@ namespace Skemex.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("DecompositionJobId");
-
                     b.HasIndex("RootTaskId");
 
                     b.HasIndex("ChatId", "CreatedAt");
@@ -331,69 +326,110 @@ namespace Skemex.Infrastructure.Migrations
                     b.ToTable("ai_chat_messages", (string)null);
                 });
 
-            modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiDecompositionJob", b =>
+            modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiExecution", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("AiAgentJobId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("AiChatId")
                         .HasColumnType("uuid");
+
+                    b.Property<long>("CompletionTokens")
+                        .HasColumnType("bigint");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Error")
-                        .HasMaxLength(4000)
-                        .HasColumnType("character varying(4000)");
+                    b.Property<long?>("DurationMs")
+                        .HasColumnType("bigint");
 
-                    b.Property<string>("HangfireJobId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("ProjectId")
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("OperationCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("ProjectDocumentId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("RequestedByUserId")
+                    b.Property<Guid?>("ProjectId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("RootTaskId")
-                        .HasColumnType("uuid");
+                    b.Property<long>("PromptTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<bool?>("Success")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ToolName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<long>("TotalTokens")
+                        .HasColumnType("bigint");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("UserInput")
-                        .IsRequired()
-                        .HasMaxLength(8000)
-                        .HasColumnType("character varying(8000)");
-
-                    b.Property<Guid?>("UserMessageId")
+                    b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("UserInputPreview")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AiAgentJobId");
+
                     b.HasIndex("AiChatId");
 
-                    b.HasIndex("RequestedByUserId");
+                    b.HasIndex("ProjectDocumentId");
 
-                    b.HasIndex("RootTaskId");
+                    b.HasIndex("UserId");
 
-                    b.HasIndex("UserMessageId");
+                    b.HasIndex("ProjectId", "StartedAt");
 
-                    b.HasIndex("ProjectId", "CreatedAt");
+                    b.HasIndex("TenantId", "CreatedAt");
 
-                    b.HasIndex("TenantId", "ProjectId");
+                    b.HasIndex("TenantId", "StartedAt");
 
-                    b.ToTable("ai_decomposition_jobs", (string)null);
+                    b.HasIndex("TenantId", "Source", "CreatedAt");
+
+                    b.ToTable("ai_executions", (string)null);
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiModel", b =>
@@ -495,6 +531,126 @@ namespace Skemex.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("ai_providers", (string)null);
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiUsageActivity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AiAgentJobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AiChatId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AiChatMessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AiExecutionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("CompletionTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("CorrelationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("DurationMs")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<int?>("InputItemCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("MetadataJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("OperationName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("OperationType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid?>("ParentActivityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ProjectDocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("PromptTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Provider")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<bool>("Success")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ToolName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int?>("TotalTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AiAgentJobId");
+
+                    b.HasIndex("AiChatId");
+
+                    b.HasIndex("AiChatMessageId");
+
+                    b.HasIndex("AiExecutionId");
+
+                    b.HasIndex("ParentActivityId");
+
+                    b.HasIndex("ProjectDocumentId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("ProjectId", "CreatedAt");
+
+                    b.HasIndex("TenantId", "CorrelationId");
+
+                    b.HasIndex("TenantId", "CreatedAt");
+
+                    b.HasIndex("TenantId", "OperationName", "CreatedAt");
+
+                    b.HasIndex("TenantId", "OperationType", "CreatedAt");
+
+                    b.HasIndex("TenantId", "UserId", "CreatedAt");
+
+                    b.ToTable("ai_usage_activities", (string)null);
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.EmailTemplates.EmailTemplate", b =>
@@ -1616,11 +1772,6 @@ namespace Skemex.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Skemex.Domain.Entities.Ai.AiDecompositionJob", "DecompositionJob")
-                        .WithMany()
-                        .HasForeignKey("DecompositionJobId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("Skemex.Domain.Entities.Projects.ProjectTask", "RootTask")
                         .WithMany()
                         .HasForeignKey("RootTaskId")
@@ -1628,49 +1779,99 @@ namespace Skemex.Infrastructure.Migrations
 
                     b.Navigation("Chat");
 
-                    b.Navigation("DecompositionJob");
-
                     b.Navigation("RootTask");
                 });
 
-            modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiDecompositionJob", b =>
+            modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiExecution", b =>
                 {
+                    b.HasOne("Skemex.Domain.Entities.Ai.AiAgentJob", "AiAgentJob")
+                        .WithMany()
+                        .HasForeignKey("AiAgentJobId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Skemex.Domain.Entities.Ai.AiChat", "AiChat")
                         .WithMany()
                         .HasForeignKey("AiChatId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectDocument", "ProjectDocument")
+                        .WithMany()
+                        .HasForeignKey("ProjectDocumentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
                         .WithMany()
                         .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("Skemex.Domain.Entities.Users.User", "RequestedByUser")
+                    b.HasOne("Skemex.Domain.Entities.Users.User", "User")
                         .WithMany()
-                        .HasForeignKey("RequestedByUserId")
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectTask", "RootTask")
-                        .WithMany()
-                        .HasForeignKey("RootTaskId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("Skemex.Domain.Entities.Ai.AiChatMessage", "UserMessage")
-                        .WithMany()
-                        .HasForeignKey("UserMessageId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                    b.Navigation("AiAgentJob");
 
                     b.Navigation("AiChat");
 
                     b.Navigation("Project");
 
-                    b.Navigation("RequestedByUser");
+                    b.Navigation("ProjectDocument");
 
-                    b.Navigation("RootTask");
+                    b.Navigation("User");
+                });
 
-                    b.Navigation("UserMessage");
+            modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiUsageActivity", b =>
+                {
+                    b.HasOne("Skemex.Domain.Entities.Ai.AiAgentJob", "AiAgentJob")
+                        .WithMany()
+                        .HasForeignKey("AiAgentJobId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Skemex.Domain.Entities.Ai.AiChat", "AiChat")
+                        .WithMany()
+                        .HasForeignKey("AiChatId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Skemex.Domain.Entities.Ai.AiChatMessage", "AiChatMessage")
+                        .WithMany()
+                        .HasForeignKey("AiChatMessageId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Skemex.Domain.Entities.Ai.AiExecution", "AiExecution")
+                        .WithMany("Activities")
+                        .HasForeignKey("AiExecutionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectDocument", "ProjectDocument")
+                        .WithMany()
+                        .HasForeignKey("ProjectDocumentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Skemex.Domain.Entities.Users.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AiAgentJob");
+
+                    b.Navigation("AiChat");
+
+                    b.Navigation("AiChatMessage");
+
+                    b.Navigation("AiExecution");
+
+                    b.Navigation("Project");
+
+                    b.Navigation("ProjectDocument");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.Project", b =>
@@ -2022,6 +2223,11 @@ namespace Skemex.Infrastructure.Migrations
             modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiChat", b =>
                 {
                     b.Navigation("Messages");
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiExecution", b =>
+                {
+                    b.Navigation("Activities");
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.Project", b =>

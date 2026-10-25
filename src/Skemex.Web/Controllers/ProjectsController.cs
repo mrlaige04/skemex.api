@@ -14,8 +14,6 @@ using Skemex.Application.Features.Commands.Projects.DeleteProject;
 using Skemex.Application.Features.Commands.Projects.DeleteProjectColumn;
 using Skemex.Application.Features.Commands.Projects.DeleteProjectDocument;
 using Skemex.Application.Features.Commands.Projects.DeleteProjectTask;
-using Skemex.Application.Features.Commands.Projects.EnqueueAiChatDecomposition;
-using Skemex.Application.Features.Commands.Projects.EnqueueAiTaskDecomposition;
 using Skemex.Application.Features.Commands.Projects.RemoveProjectUser;
 using Skemex.Application.Features.Commands.Projects.UpdateAiChat;
 using Skemex.Application.Features.Commands.Projects.UpdateAiChatMessage;
@@ -33,8 +31,10 @@ using Skemex.Application.Features.Commands.Projects.UpdateProjectColumn;
 using Skemex.Application.Features.Commands.Projects.UpdateProjectSettings;
 using Skemex.Application.Features.Commands.Projects.UploadProjectDocument;
 using Skemex.Application.Features.Queries.Projects.GetAiChat;
-using Skemex.Application.Features.Queries.Projects.GetAiDecompositionJob;
 using Skemex.Application.Features.Queries.Projects.GetAvailableProjectColumns;
+using Skemex.Application.Features.Queries.Projects.GetProjectAiUsageActivities;
+using Skemex.Application.Features.Queries.Projects.GetProjectAiUsageGroups;
+using Skemex.Application.Features.Queries.Projects.GetProjectAiUsageSummary;
 using Skemex.Application.Features.Queries.Projects.GetProjectById;
 using Skemex.Application.Features.Queries.Projects.GetProjectColumns;
 using Skemex.Application.Features.Queries.Projects.GetProjectDocumentById;
@@ -47,6 +47,7 @@ using Skemex.Application.Features.Queries.Projects.GetProjectUsers;
 using Skemex.Application.Features.Queries.Projects.GetProjects;
 using Skemex.Application.Features.Queries.Projects.ListAiChats;
 using Skemex.Domain.Entities.Ai;
+using Skemex.Domain.Enums;
 using Skemex.Web.Models.Projects;
 
 namespace Skemex.Web.Controllers;
@@ -232,25 +233,104 @@ public class ProjectsController(ISender sender) : BaseController
             Problem);
     }
 
-    [HttpPost("{id:guid}/ai/decompose")]
-    public async Task<IActionResult> EnqueueAiDecompose(
+    [HttpGet("{id:guid}/ai/usage/summary")]
+    public async Task<IActionResult> GetAiUsageSummary(
         Guid id,
-        [FromBody] EnqueueAiTaskDecompositionRequest body,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
         CancellationToken cancellationToken)
     {
         var result = await sender.Send(
-            new EnqueueAiTaskDecompositionCommand
+            new GetProjectAiUsageSummaryQuery
             {
                 ProjectId = id,
-                UserInput = body.UserInput,
+                FromUtc = from,
+                ToUtc = to,
             },
             cancellationToken);
-        return result.Match(
-            dto => AcceptedAtAction(
-                nameof(GetAiDecomposeJob),
-                new { id, jobId = dto.Id },
-                dto),
-            Problem);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpGet("{id:guid}/ai/usage")]
+    public async Task<IActionResult> ListAiUsage(
+        Guid id,
+        [FromQuery] string? search,
+        [FromQuery] string? operationType,
+        [FromQuery] string? operationName,
+        [FromQuery] bool? success,
+        [FromQuery] Guid? userId,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] string sort = AiUsageActivitySort.CreatedAtDesc,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        AiUsageOperationType? parsedType = null;
+        if (!string.IsNullOrWhiteSpace(operationType)
+            && Enum.TryParse<AiUsageOperationType>(operationType.Trim(), ignoreCase: true, out var type))
+        {
+            parsedType = type;
+        }
+
+        var result = await sender.Send(
+            new GetProjectAiUsageActivitiesQuery
+            {
+                ProjectId = id,
+                Search = search,
+                OperationType = parsedType,
+                OperationName = operationName,
+                Success = success,
+                UserId = userId,
+                FromUtc = from,
+                ToUtc = to,
+                Sort = sort,
+                PageNumber = page,
+                PageSize = pageSize,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpGet("{id:guid}/ai/usage/groups")]
+    public async Task<IActionResult> ListAiUsageGroups(
+        Guid id,
+        [FromQuery] string? search,
+        [FromQuery] string? operationType,
+        [FromQuery] string? operationName,
+        [FromQuery] bool? success,
+        [FromQuery] Guid? userId,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] string sort = AiUsageActivitySort.CreatedAtDesc,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        AiUsageOperationType? parsedType = null;
+        if (!string.IsNullOrWhiteSpace(operationType)
+            && Enum.TryParse<AiUsageOperationType>(operationType.Trim(), ignoreCase: true, out var type))
+        {
+            parsedType = type;
+        }
+
+        var result = await sender.Send(
+            new GetProjectAiUsageGroupsQuery
+            {
+                ProjectId = id,
+                Search = search,
+                OperationType = parsedType,
+                OperationName = operationName,
+                Success = success,
+                UserId = userId,
+                FromUtc = from,
+                ToUtc = to,
+                Sort = sort,
+                PageNumber = page,
+                PageSize = pageSize,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
     }
 
     [HttpGet("{id:guid}/ai/chats")]
@@ -390,45 +470,6 @@ public class ProjectsController(ISender sender) : BaseController
             },
             cancellationToken);
         return result.Match(_ => NoContent(), Problem);
-    }
-
-    [HttpPost("{id:guid}/ai/chats/{chatId:guid}/decompose")]
-    public async Task<IActionResult> EnqueueAiChatDecompose(
-        Guid id,
-        Guid chatId,
-        [FromBody] EnqueueAiTaskDecompositionRequest body,
-        CancellationToken cancellationToken)
-    {
-        var result = await sender.Send(
-            new EnqueueAiChatDecompositionCommand
-            {
-                ProjectId = id,
-                ChatId = chatId,
-                UserInput = body.UserInput,
-            },
-            cancellationToken);
-        return result.Match(
-            dto => AcceptedAtAction(
-                nameof(GetAiDecomposeJob),
-                new { id, jobId = dto.Id },
-                dto),
-            Problem);
-    }
-
-    [HttpGet("{id:guid}/ai/decompose/{jobId:guid}")]
-    public async Task<IActionResult> GetAiDecomposeJob(
-        Guid id,
-        Guid jobId,
-        CancellationToken cancellationToken)
-    {
-        var result = await sender.Send(
-            new GetAiDecompositionJobQuery
-            {
-                ProjectId = id,
-                JobId = jobId,
-            },
-            cancellationToken);
-        return result.Match(Ok, Problem);
     }
 
     [HttpGet("{id:guid}/settings")]

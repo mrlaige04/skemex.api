@@ -69,6 +69,13 @@
       Auth__JwtSecret: ${JWT_SECRET}
       Auth__TokenType: Bearer
       Auth__ExpiresInMinutes: "60"
+      Auth__External__CallbackBaseUrl: ${API_PUBLIC_BASE_URL:-}
+      Auth__External__Google__Enabled: "true"
+      Auth__External__Google__ClientId: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      Auth__External__Google__ClientSecret: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      Auth__External__GitHub__Enabled: "true"
+      Auth__External__GitHub__ClientId: ${GH_OAUTH_CLIENT_ID:-}
+      Auth__External__GitHub__ClientSecret: ${GH_OAUTH_CLIENT_SECRET:-}
       SuperAdmin__Email: ${SUPERADMIN_EMAIL}
       SuperAdmin__Password: ${SUPERADMIN_PASSWORD}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}

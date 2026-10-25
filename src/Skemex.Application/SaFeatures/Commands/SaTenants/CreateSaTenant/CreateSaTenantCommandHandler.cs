@@ -1,14 +1,15 @@
 using ErrorOr;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
 using Skemex.Application.Configuration;
 using Skemex.Application.Features.Abstractions;
+using Skemex.Application.SaModels.SaTenants;
+using Skemex.Application.Services;
+using Skemex.Application.Services.Projects;
 using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
-using Skemex.Application.Services;
-using Microsoft.Extensions.Options;
-using Skemex.Application.SaModels.SaTenants;
 
 namespace Skemex.Application.SaFeatures.Commands.SaTenants.CreateSaTenant;
 
@@ -20,7 +21,8 @@ public sealed class CreateSaTenantCommandHandler(
     IBaseRepository<TenantUser> tenantUserRepository,
     IBaseRepository<UserRole> userRoleRepository,
     IUrlService urlService,
-    IOptions<SuperAdminOptions> superAdminOptions)
+    IOptions<SuperAdminOptions> superAdminOptions,
+    TenantColumnSeeder tenantColumnSeeder)
     : ICommandHandler<CreateSaTenantCommand, SaTenantDto>
 {
     public async Task<ErrorOr<SaTenantDto>> Handle(
@@ -143,6 +145,8 @@ public sealed class CreateSaTenantCommandHandler(
             };
             await userRoleRepository.AddAsync(userRole, cancellationToken);
         }
+
+        await tenantColumnSeeder.EnsureDefaultsAsync(tenant.Id, cancellationToken);
 
         return new SaTenantDto
         {

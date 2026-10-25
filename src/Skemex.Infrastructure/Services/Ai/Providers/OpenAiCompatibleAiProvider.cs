@@ -191,7 +191,12 @@ public sealed class OpenAiCompatibleAiProvider(
             .ConfigureAwait(false);
 
         var text = payload?.Choices?.FirstOrDefault()?.Message?.Content ?? string.Empty;
-        return new AiCompletionResult { Content = text };
+        return new AiCompletionResult
+        {
+            Content = text,
+            Provider = Name,
+            Usage = MapUsage(payload?.Usage),
+        };
     }
 
     private async Task<AiFunctionCallResult> ReadFunctionCallResultAsync(
@@ -216,6 +221,7 @@ public sealed class OpenAiCompatibleAiProvider(
         var message = payload?.Choices?.FirstOrDefault()?.Message;
         var toolCall = message?.ToolCalls?.FirstOrDefault(call =>
             !string.IsNullOrWhiteSpace(call.Function?.Name));
+        var usage = MapUsage(payload?.Usage);
 
         if (toolCall?.Function is { } function
             && !string.IsNullOrWhiteSpace(function.Name))
@@ -226,12 +232,39 @@ public sealed class OpenAiCompatibleAiProvider(
                 FunctionCall = new AiFunctionCall(
                     function.Name.Trim(),
                     string.IsNullOrWhiteSpace(function.Arguments) ? "{}" : function.Arguments),
+                Provider = Name,
+                Usage = usage,
             };
         }
 
         return new AiFunctionCallResult
         {
             Content = message?.Content ?? string.Empty,
+            Provider = Name,
+            Usage = usage,
+        };
+    }
+
+    private static AiTokenUsage? MapUsage(ChatCompletionUsage? usage)
+    {
+        if (usage is null)
+        {
+            return null;
+        }
+
+        if (usage.PromptTokens is null
+            && usage.CompletionTokens is null
+            && usage.TotalTokens is null)
+        {
+            return null;
+        }
+
+        return new AiTokenUsage
+        {
+            PromptTokens = usage.PromptTokens,
+            CompletionTokens = usage.CompletionTokens,
+            TotalTokens = usage.TotalTokens
+                ?? ((usage.PromptTokens ?? 0) + (usage.CompletionTokens ?? 0)),
         };
     }
 
@@ -549,6 +582,21 @@ public sealed class OpenAiCompatibleAiProvider(
     {
         [JsonPropertyName("choices")]
         public List<ChatChoice>? Choices { get; set; }
+
+        [JsonPropertyName("usage")]
+        public ChatCompletionUsage? Usage { get; set; }
+    }
+
+    private sealed class ChatCompletionUsage
+    {
+        [JsonPropertyName("prompt_tokens")]
+        public int? PromptTokens { get; set; }
+
+        [JsonPropertyName("completion_tokens")]
+        public int? CompletionTokens { get; set; }
+
+        [JsonPropertyName("total_tokens")]
+        public int? TotalTokens { get; set; }
     }
 
     private sealed class ChatChoice

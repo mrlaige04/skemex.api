@@ -5,9 +5,12 @@ using Microsoft.Extensions.Options;
 using Pgvector;
 using Skemex.Application.Configuration;
 using Skemex.Application.Services;
+using Skemex.Application.Services.Ai.Usage;
 using Skemex.Application.Services.Documents;
 using Skemex.Domain.Entities.Projects;
+using Skemex.Domain.Enums;
 using Skemex.Domain.Repositories.Abstractions;
+using Skemex.Infrastructure.Services;
 
 namespace Skemex.Infrastructure.Services.Documents;
 
@@ -20,6 +23,7 @@ public sealed class DocumentVectorizationService(
     ITextChunker textChunker,
     IDocumentChunkEnrichmentService chunkEnrichmentService,
     IEmbeddingService embeddingService,
+    IAiExecutionLifecycle executionLifecycle,
     IOptions<DocumentIngestionOptions> ingestionOptions,
     ILogger<DocumentVectorizationService> logger) : IDocumentVectorizationService
 {
@@ -64,6 +68,27 @@ public sealed class DocumentVectorizationService(
             return;
         }
 
+        var execution = await executionLifecycle.CreatePendingAsync(
+            new AiExecutionCreateRequest
+            {
+                TenantId = tenantId,
+                UserId = requestedByUserId,
+                ProjectId = projectId,
+                ProjectDocumentId = documentId,
+                Source = AiExecutionSource.Documents,
+                Title = "Document indexing",
+                UserInput = document.FileName,
+            },
+            cancellationToken);
+        await executionLifecycle.MarkRunningAsync(execution.Id, cancellationToken);
+
+        using var usageScope = AmbientAiUsageContext.Use(
+            correlationId: execution.Id,
+            projectId: projectId,
+            projectDocumentId: documentId,
+            aiExecutionId: execution.Id,
+            operationName: AiUsageOperationNames.ChunkEnrichment);
+
         document.VectorizationStatus = ProjectDocumentVectorizationStatus.Processing;
         document.VectorizationError = null;
         document.UpdatedAt = DateTime.UtcNow;
@@ -76,6 +101,14 @@ public sealed class DocumentVectorizationService(
                 await MarkSkippedAsync(
                     document,
                     "Vectorization applies to PDF and DOCX files only.",
+                    cancellationToken);
+                await executionLifecycle.CompleteAsync(
+                    execution.Id,
+                    new AiExecutionCompleteRequest
+                    {
+                        Success = true,
+                        Title = "Document indexing (skipped)",
+                    },
                     cancellationToken);
                 return;
             }
@@ -94,6 +127,14 @@ public sealed class DocumentVectorizationService(
                     document,
                     "No extractable text was found in the document.",
                     cancellationToken);
+                await executionLifecycle.CompleteAsync(
+                    execution.Id,
+                    new AiExecutionCompleteRequest
+                    {
+                        Success = false,
+                        ErrorMessage = "No extractable text was found in the document.",
+                    },
+                    cancellationToken);
                 return;
             }
 
@@ -104,22 +145,39 @@ public sealed class DocumentVectorizationService(
                     document,
                     "Document text could not be split into chunks.",
                     cancellationToken);
+                await executionLifecycle.CompleteAsync(
+                    execution.Id,
+                    new AiExecutionCompleteRequest
+                    {
+                        Success = false,
+                        ErrorMessage = "Document text could not be split into chunks.",
+                    },
+                    cancellationToken);
                 return;
             }
 
             var enrichmentModel = await ResolveEnrichmentModelAsync(projectId, cancellationToken)
                 .ConfigureAwait(false);
-            var enriched = await chunkEnrichmentService
-                .EnrichAsync(chunks, enrichmentModel, cancellationToken)
-                .ConfigureAwait(false);
+
+            IReadOnlyList<EnrichedChunk> enriched;
+            using (AmbientAiUsageContext.Push(operationName: AiUsageOperationNames.ChunkEnrichment))
+            {
+                enriched = await chunkEnrichmentService
+                    .EnrichAsync(chunks, enrichmentModel, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             var embedInputs = enriched
                 .Select(BuildEmbeddingInput)
                 .ToList();
 
-            var embeddings = await embeddingService
-                .EmbedBatchAsync(embedInputs, cancellationToken)
-                .ConfigureAwait(false);
+            IReadOnlyList<float[]> embeddings;
+            using (AmbientAiUsageContext.Push(operationName: AiUsageOperationNames.DocumentEmbedding))
+            {
+                embeddings = await embeddingService
+                    .EmbedBatchAsync(embedInputs, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             await ReplaceChunksAsync(document, enriched, embeddings, cancellationToken)
                 .ConfigureAwait(false);
@@ -129,6 +187,16 @@ public sealed class DocumentVectorizationService(
             document.VectorizedChunkCount = enriched.Count;
             document.UpdatedAt = DateTime.UtcNow;
             await documentRepository.UpdateAsync(document, cancellationToken);
+
+            await executionLifecycle.CompleteAsync(
+                execution.Id,
+                new AiExecutionCompleteRequest
+                {
+                    Success = true,
+                    Title = "Document indexing",
+                    Model = enrichmentModel,
+                },
+                cancellationToken);
 
             logger.LogInformation(
                 "Vectorized document {DocumentId} into {ChunkCount} enriched chunks.",
@@ -142,8 +210,20 @@ public sealed class DocumentVectorizationService(
                 document,
                 ex.Message,
                 cancellationToken);
+            await executionLifecycle.CompleteAsync(
+                execution.Id,
+                new AiExecutionCompleteRequest
+                {
+                    Success = false,
+                    ErrorMessage = Truncate(ex.Message, 2000),
+                    Title = "Document indexing",
+                },
+                cancellationToken);
         }
     }
+
+    private static string Truncate(string value, int maxLength) =>
+        value.Length <= maxLength ? value : value[..maxLength];
 
     private async Task<string> ResolveEnrichmentModelAsync(
         Guid projectId,
@@ -238,7 +318,4 @@ public sealed class DocumentVectorizationService(
         document.UpdatedAt = DateTime.UtcNow;
         await documentRepository.UpdateAsync(document, cancellationToken);
     }
-
-    private static string Truncate(string value, int maxLength) =>
-        value.Length <= maxLength ? value : value[..maxLength];
 }

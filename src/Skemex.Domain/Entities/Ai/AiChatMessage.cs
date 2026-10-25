@@ -18,9 +18,6 @@ public class AiChatMessage : TenantEntity
     public AiChatMessageRole Role { get; set; }
     public string Content { get; set; } = string.Empty;
 
-    public Guid? DecompositionJobId { get; set; }
-    public AiDecompositionJob? DecompositionJob { get; set; }
-
     public Guid? RootTaskId { get; set; }
     public ProjectTask? RootTask { get; set; }
 }

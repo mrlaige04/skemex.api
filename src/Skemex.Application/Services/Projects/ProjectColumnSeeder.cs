@@ -3,13 +3,17 @@ using Skemex.Domain.Repositories.Abstractions;
 
 namespace Skemex.Application.Services.Projects;
 
-public sealed class ProjectColumnSeeder(ITenantRepository<TenantColumn> tenantColumnRepository)
+public sealed class ProjectColumnSeeder(
+    ITenantRepository<TenantColumn> tenantColumnRepository,
+    TenantColumnSeeder tenantColumnSeeder)
 {
     public async Task<IReadOnlyList<ProjectColumn>> CreateForProjectAsync(
         Guid tenantId,
         Guid projectId,
         CancellationToken cancellationToken)
     {
+        await tenantColumnSeeder.EnsureDefaultsAsync(tenantId, cancellationToken);
+
         var tenantColumns = await tenantColumnRepository.GetAllAsync(
             filter: column => column.TenantId == tenantId,
             include: query => query.OrderBy(column => column.SortOrder).ThenBy(column => column.Title),
