@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
+using Skemex.Domain.Consts;
+using Skemex.Web.Attributes;
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Features.Commands.TenantColumns.CreateTenantColumn;
@@ -15,6 +17,7 @@ namespace Skemex.Web.Controllers;
 [Authorize]
 public class TenantColumnsController(ISender sender) : BaseController
 {
+    [Permission(PermissionNames.SettingsColumnsView)]
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
@@ -22,6 +25,7 @@ public class TenantColumnsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.SettingsColumnsView)]
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -29,6 +33,7 @@ public class TenantColumnsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.SettingsColumnsCreate)]
     [HttpPost]
     public async Task<IActionResult> Create(
         [FromBody] CreateTenantColumnCommand command,
@@ -38,6 +43,7 @@ public class TenantColumnsController(ISender sender) : BaseController
         return result.Match(dto => CreatedAtAction(nameof(Get), new { id = dto.Id }, dto), Problem);
     }
 
+    [Permission(PermissionNames.SettingsColumnsEdit)]
     [HttpPatch("{id:guid}")]
     public async Task<IActionResult> Patch(
         Guid id,
@@ -57,6 +63,7 @@ public class TenantColumnsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.SettingsColumnsEdit)]
     [HttpPut("reorder")]
     public async Task<IActionResult> Reorder(
         [FromBody] ReorderTenantColumnsRequest body,
@@ -68,6 +75,7 @@ public class TenantColumnsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.SettingsColumnsDelete)]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {

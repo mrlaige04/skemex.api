@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using Microsoft.AspNetCore.Http;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Skemex.Domain.Services;
 using Skemex.Infrastructure.Authentication;
@@ -9,8 +8,11 @@ namespace Skemex.Web.Services;
 
 /// <summary>
 /// Resolves current user from HTTP claims, with AmbientUserContext override for Hangfire jobs.
+/// Permissions come from <see cref="RequestPermissionCache"/> (database), not JWT.
 /// </summary>
-public class HttpContextCurrentUser(IHttpContextAccessor httpContextAccessor) : ICurrentUser
+public class HttpContextCurrentUser(
+    IHttpContextAccessor httpContextAccessor,
+    RequestPermissionCache permissionCache) : ICurrentUser
 {
     private ClaimsPrincipal? User => httpContextAccessor.HttpContext?.User;
 
@@ -61,6 +63,18 @@ public class HttpContextCurrentUser(IHttpContextAccessor httpContextAccessor) : 
             .ToArray();
 
         return roles.Length == 0 ? null : roles;
+    }
+
+    public string[] GetPermissions() => permissionCache.Permissions.ToArray();
+
+    public bool HasPermission(string permission)
+    {
+        if (string.IsNullOrWhiteSpace(permission))
+        {
+            return true;
+        }
+
+        return permissionCache.Permissions.Contains(permission);
     }
 
     public void SetTenantId(Guid? tenantId)

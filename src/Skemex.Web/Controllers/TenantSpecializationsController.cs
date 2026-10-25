@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
+using Skemex.Domain.Consts;
+using Skemex.Web.Attributes;
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Features.Commands.TenantSpecializations.AssignTenantSpecialization;
@@ -16,6 +18,11 @@ namespace Skemex.Web.Controllers;
 [Authorize]
 public class TenantSpecializationsController(ISender sender) : BaseController
 {
+    [Permission(
+        PermissionCombining.AtLeastOne,
+        PermissionNames.SettingsSpecializationsView,
+        PermissionNames.UsersView,
+        PermissionNames.UsersEdit)]
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
@@ -23,6 +30,7 @@ public class TenantSpecializationsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.SettingsSpecializationsView)]
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -32,6 +40,7 @@ public class TenantSpecializationsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.SettingsSpecializationsCreate)]
     [HttpPost]
     public async Task<IActionResult> Create(
         [FromBody] CreateTenantSpecializationCommand command,
@@ -41,6 +50,7 @@ public class TenantSpecializationsController(ISender sender) : BaseController
         return result.Match(dto => CreatedAtAction(nameof(Get), new { id = dto.Id }, dto), Problem);
     }
 
+    [Permission(PermissionNames.SettingsSpecializationsEdit)]
     [HttpPatch("{id:guid}")]
     public async Task<IActionResult> Patch(
         Guid id,
@@ -59,6 +69,7 @@ public class TenantSpecializationsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.SettingsSpecializationsDelete)]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
@@ -68,6 +79,7 @@ public class TenantSpecializationsController(ISender sender) : BaseController
         return result.Match(_ => NoContent(), Problem);
     }
 
+    [Permission(PermissionNames.UsersEdit)]
     [HttpPost("{id:guid}/users/{userId:guid}")]
     public async Task<IActionResult> Assign(
         Guid id,
@@ -84,6 +96,7 @@ public class TenantSpecializationsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.UsersEdit)]
     [HttpDelete("{id:guid}/users/{userId:guid}")]
     public async Task<IActionResult> Unassign(
         Guid id,

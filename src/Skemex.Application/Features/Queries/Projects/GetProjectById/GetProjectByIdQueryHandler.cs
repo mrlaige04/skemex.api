@@ -1,22 +1,8 @@
 using ErrorOr;
-using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Projects;
-using Skemex.Application.Services.Ai.Agents;
-using Skemex.Application.Services.Ai.Chat;
-using Skemex.Application.Services.Ai.Completions;
-using Skemex.Application.Services.Ai.Embeddings;
-using Skemex.Application.Services.Ai.Providers;
-using Skemex.Application.Services.Ai.Rag;
-using Skemex.Application.Services.Ai.Usage;
 using Skemex.Application.Services.Common;
-using Skemex.Application.Services.Documents;
-using Skemex.Application.Services.Email;
-using Skemex.Application.Services.Encryption;
-using Skemex.Application.Services.Notifications;
 using Skemex.Application.Services.Projects;
-using Skemex.Application.Services.Storage;
-using Skemex.Application.Services.Users;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
@@ -26,6 +12,7 @@ namespace Skemex.Application.Features.Queries.Projects.GetProjectById;
 public sealed class GetProjectByIdQueryHandler(
     ICurrentUser currentUser,
     ITenantRepository<Project> projectRepository,
+    IProjectAccessService projectAccess,
     IUrlService urlService)
     : IQueryHandler<GetProjectByIdQuery, ProjectDto>
 {
@@ -36,6 +23,12 @@ public sealed class GetProjectByIdQueryHandler(
         if (currentUser.GetTenantId() is null)
         {
             return Error.Forbidden("Tenant.Required", "Select a workspace before managing projects.");
+        }
+
+        var access = await projectAccess.EnsureCanAccessProjectAsync(request.ProjectId, cancellationToken);
+        if (access.IsError)
+        {
+            return access.Errors;
         }
 
         var project = await projectRepository.GetAsync(

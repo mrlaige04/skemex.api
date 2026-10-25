@@ -7,5 +7,5 @@ public class PermissionGroup : TenantEntity
     public string Name { get; set; } = null!;
     public bool IsSystem { get; set; }
 
-    public IList<Permission> Permissions = [];
+    public IList<Permission> Permissions { get; set; } = [];
 }

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Services.Common;
 using Skemex.Application.Services.Projects;
+using Skemex.Application.Services.Users;
 using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
@@ -15,12 +16,13 @@ namespace Skemex.Infrastructure.Tenants.CreateTenant;
 public class CreateTenantHandler(
     ICurrentUser currentUser,
     UserManager<User> userManager,
-    RoleManager<Role> roleManager,
     IBaseRepository<Tenant> tenantRepository,
     IBaseRepository<TenantUser> tenantUserRepository,
     IBaseRepository<UserRole> userRoleRepository,
+    IBaseRepository<Role> roleRepository,
     IUrlService urlService,
-    TenantColumnSeeder tenantColumnSeeder)
+    TenantColumnSeeder tenantColumnSeeder,
+    TenantRbacSeeder tenantRbacSeeder)
     : ICommandHandler<CreateTenantCommand, TenantSummaryResponse>
 {
     public async Task<ErrorOr<TenantSummaryResponse>> Handle(
@@ -33,8 +35,8 @@ public class CreateTenantHandler(
             return Error.Unauthorized("Auth.Unauthenticated", "Authentication required.");
         }
 
-        var user = await userManager.FindByIdAsync(userId.Value.ToString());
-        if (user?.Email is null)
+        var creator = await userManager.FindByIdAsync(userId.Value.ToString());
+        if (creator?.Email is null)
         {
             return Error.NotFound(UserErrors.NotFound, UserErrors.NotFoundDescription);
         }
@@ -51,6 +53,41 @@ public class CreateTenantHandler(
             return Error.Conflict("Tenant.EmailTaken", "A company with this email already exists.");
         }
 
+        // Owner is the company email account (create if needed), matching SA tenant create.
+        var owner = await userManager.FindByEmailAsync(email);
+        if (owner is null)
+        {
+            owner = new User
+            {
+                UserName = email,
+                Email = email,
+                FirstName = ResolveFirstName(email, name),
+                LastName = string.Empty,
+                EmailConfirmed = true,
+            };
+
+            var createUser = await userManager.CreateAsync(owner);
+            if (!createUser.Succeeded)
+            {
+                if (createUser.Errors.Any(e => e.Code is "DuplicateEmail" or "DuplicateUserName"))
+                {
+                    owner = await userManager.FindByEmailAsync(email);
+                    if (owner is null)
+                    {
+                        return Error.Failure(
+                            "Tenant.UserCreateFailed",
+                            string.Join(' ', createUser.Errors.Select(e => e.Description)));
+                    }
+                }
+                else
+                {
+                    return Error.Validation(
+                        "Tenant.UserCreateFailed",
+                        string.Join(' ', createUser.Errors.Select(e => e.Description)));
+                }
+            }
+        }
+
         var tenant = new Tenant
         {
             Id = Guid.NewGuid(),
@@ -59,54 +96,23 @@ public class CreateTenantHandler(
         };
 
         await tenantRepository.AddAsync(tenant, cancellationToken);
+        await tenantRbacSeeder.SeedForNewTenantAsync(tenant.Id, cancellationToken);
 
-        var adminRole = new Role
+        var adminRole = await roleRepository.GetAsync(
+            r => r.TenantId == tenant.Id && r.Name == RoleNames.Admin,
+            cancellationToken: cancellationToken);
+        if (adminRole is null)
         {
-            Name = RoleNames.Admin,
-            TenantId = tenant.Id,
-            IsSystem = true,
-        };
-
-        var roleCreate = await roleManager.CreateAsync(adminRole);
-        if (!roleCreate.Succeeded)
-        {
-            return Error.Validation(
-                "Tenant.RoleCreateFailed",
-                string.Join(' ', roleCreate.Errors.Select(e => e.Description)));
+            return Error.Failure("Tenant.RoleCreateFailed", "Failed to seed Admin role for the workspace.");
         }
 
-        var userRoleEntity = new Role
-        {
-            Name = RoleNames.User,
-            TenantId = tenant.Id,
-            IsSystem = true,
-        };
+        await EnsureTenantAdminAsync(owner.Id, tenant.Id, adminRole.Id, cancellationToken);
 
-        var userRoleCreate = await roleManager.CreateAsync(userRoleEntity);
-        if (!userRoleCreate.Succeeded)
+        // Creator always gets Admin so they can enter the workspace they just created.
+        if (creator.Id != owner.Id)
         {
-            return Error.Validation(
-                "Tenant.RoleCreateFailed",
-                string.Join(' ', userRoleCreate.Errors.Select(e => e.Description)));
+            await EnsureTenantAdminAsync(creator.Id, tenant.Id, adminRole.Id, cancellationToken);
         }
-
-        var tenantUser = new TenantUser
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId.Value,
-            TenantId = tenant.Id,
-            Status = TenantUserStatus.Active,
-        };
-        await tenantUserRepository.AddAsync(tenantUser, cancellationToken);
-
-        var userRole = new UserRole
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId.Value,
-            RoleId = adminRole.Id,
-            TenantId = tenant.Id,
-        };
-        await userRoleRepository.AddAsync(userRole, cancellationToken);
 
         await tenantColumnSeeder.EnsureDefaultsAsync(tenant.Id, cancellationToken);
 
@@ -116,5 +122,57 @@ public class CreateTenantHandler(
             Name = tenant.Name,
             LogoUrl = urlService.GetTenantLogoUrl(tenant.LogoBlobId),
         };
+    }
+
+    private async Task EnsureTenantAdminAsync(
+        Guid userId,
+        Guid tenantId,
+        Guid adminRoleId,
+        CancellationToken cancellationToken)
+    {
+        var alreadyLinked = await tenantUserRepository.ExistsAsync(
+            tu => tu.UserId == userId && tu.TenantId == tenantId,
+            cancellationToken: cancellationToken);
+
+        if (!alreadyLinked)
+        {
+            await tenantUserRepository.AddAsync(
+                new TenantUser
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = userId,
+                    TenantId = tenantId,
+                    Status = TenantUserStatus.Active,
+                },
+                cancellationToken);
+        }
+
+        var hasAdmin = await userRoleRepository.ExistsAsync(
+            ur => ur.UserId == userId && ur.TenantId == tenantId && ur.RoleId == adminRoleId,
+            cancellationToken: cancellationToken);
+
+        if (!hasAdmin)
+        {
+            await userRoleRepository.AddAsync(
+                new UserRole
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = userId,
+                    RoleId = adminRoleId,
+                    TenantId = tenantId,
+                },
+                cancellationToken);
+        }
+    }
+
+    private static string ResolveFirstName(string email, string tenantName)
+    {
+        var localPart = email.Split('@', 2)[0].Trim();
+        if (!string.IsNullOrEmpty(localPart))
+        {
+            return char.ToUpperInvariant(localPart[0]) + localPart[1..];
+        }
+
+        return tenantName;
     }
 }

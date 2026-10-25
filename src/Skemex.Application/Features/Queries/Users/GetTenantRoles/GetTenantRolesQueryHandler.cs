@@ -1,22 +1,19 @@
 using ErrorOr;
-using Microsoft.AspNetCore.Identity;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Users;
-using Skemex.Domain.Consts;
-using Skemex.Domain.Entities.Users;
+using Skemex.Application.Services.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Domain.Entities.Users;
 
 namespace Skemex.Application.Features.Queries.Users.GetTenantRoles;
 
 public sealed class GetTenantRolesQueryHandler(
     ICurrentUser currentUser,
-    RoleManager<Role> roleManager,
-    IBaseRepository<Role> roleRepository)
+    IBaseRepository<Role> roleRepository,
+    TenantRbacSeeder tenantRbacSeeder)
     : IQueryHandler<GetTenantRolesQuery, IReadOnlyList<TenantRoleDto>>
 {
-    private static readonly string[] AssignableRoleNames = [RoleNames.Admin, RoleNames.User];
-
     public async Task<ErrorOr<IReadOnlyList<TenantRoleDto>>> Handle(
         GetTenantRolesQuery request,
         CancellationToken cancellationToken)
@@ -27,36 +24,21 @@ public sealed class GetTenantRolesQueryHandler(
             return Error.Forbidden("Tenant.Required", "Select a workspace before managing users.");
         }
 
-        await EnsureAssignableRolesAsync(tenantId.Value, cancellationToken);
+        await tenantRbacSeeder.EnsureDefaultsAsync(tenantId.Value, cancellationToken);
 
         var roles = await roleRepository.GetAllAsync(
-            filter: r => r.TenantId == tenantId && AssignableRoleNames.Contains(r.Name!),
+            filter: r => r.TenantId == tenantId,
             cancellationToken: cancellationToken);
 
         return roles
-            .OrderBy(r => r.Name)
-            .Select(r => new TenantRoleDto { Id = r.Id, Name = r.Name ?? string.Empty })
+            .OrderBy(r => r.IsSystem ? 0 : 1)
+            .ThenBy(r => r.Name)
+            .Select(r => new TenantRoleDto
+            {
+                Id = r.Id,
+                Name = r.Name ?? string.Empty,
+                IsSystem = r.IsSystem,
+            })
             .ToList();
-    }
-
-    private async Task EnsureAssignableRolesAsync(Guid tenantId, CancellationToken cancellationToken)
-    {
-        foreach (var roleName in AssignableRoleNames)
-        {
-            var exists = await roleRepository.ExistsAsync(
-                r => r.TenantId == tenantId && r.Name == roleName,
-                cancellationToken: cancellationToken);
-            if (exists)
-            {
-                continue;
-            }
-
-            await roleManager.CreateAsync(new Role
-            {
-                Name = roleName,
-                TenantId = tenantId,
-                IsSystem = true,
-            });
-        }
     }
 }

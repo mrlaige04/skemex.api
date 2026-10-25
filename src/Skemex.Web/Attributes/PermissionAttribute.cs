@@ -6,10 +6,16 @@ public class PermissionAttribute : TypeFilterAttribute
 {
     public string[] Permissions { get; set; }
     public PermissionCombining Combining { get; set; }
-    
-    public PermissionAttribute(
-        PermissionCombining combining = PermissionCombining.All, 
-        params string[] permissions) 
+
+    public PermissionAttribute(params string[] permissions)
+        : base(typeof(PermissionFilter))
+    {
+        Permissions = permissions;
+        Combining = PermissionCombining.All;
+        Arguments = [PermissionCombining.All, permissions];
+    }
+
+    public PermissionAttribute(PermissionCombining combining, params string[] permissions)
         : base(typeof(PermissionFilter))
     {
         Permissions = permissions;

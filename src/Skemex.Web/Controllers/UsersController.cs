@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
+using Skemex.Domain.Consts;
+using Skemex.Web.Attributes;
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Features.Commands.Users.CreateTenantUser;
@@ -16,6 +18,7 @@ namespace Skemex.Web.Controllers;
 [Authorize]
 public class UsersController(ISender sender) : BaseController
 {
+    [Permission(PermissionNames.UsersView)]
     [HttpGet]
     public async Task<IActionResult> List(
         [FromQuery] string? search,
@@ -29,6 +32,7 @@ public class UsersController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.UsersView)]
     [HttpGet("roles")]
     public async Task<IActionResult> Roles(CancellationToken cancellationToken)
     {
@@ -36,6 +40,7 @@ public class UsersController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.UsersCreate)]
     [HttpGet("lookup")]
     public async Task<IActionResult> LookupByEmail(
         [FromQuery] string email,
@@ -45,6 +50,7 @@ public class UsersController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.UsersView)]
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -52,6 +58,7 @@ public class UsersController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.UsersCreate)]
     [HttpPost]
     public async Task<IActionResult> Create(
         [FromBody] CreateTenantUserCommand command,
@@ -61,6 +68,7 @@ public class UsersController(ISender sender) : BaseController
         return result.Match(dto => CreatedAtAction(nameof(Get), new { id = dto.Id }, dto), Problem);
     }
 
+    [Permission(PermissionNames.UsersEdit)]
     [HttpPatch("{id:guid}")]
     public async Task<IActionResult> Patch(
         Guid id,
@@ -81,6 +89,7 @@ public class UsersController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.UsersDelete)]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
