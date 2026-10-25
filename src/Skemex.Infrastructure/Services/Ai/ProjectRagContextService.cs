@@ -4,11 +4,18 @@ using Microsoft.Extensions.Options;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
 using Skemex.Application.Configuration;
+using Skemex.Application.Configuration.Ai;
+using Skemex.Application.Configuration.App;
+using Skemex.Application.Configuration.Documents;
+using Skemex.Application.Configuration.Email;
+using Skemex.Application.Configuration.Rag;
+using Skemex.Application.Configuration.Storage;
 using Skemex.Application.Models.Rag;
-using Skemex.Application.Services;
-using Skemex.Application.Services.Ai;
 using Skemex.Application.Services.Ai.Usage;
 using Skemex.Infrastructure.Data;
+using Skemex.Application.Services.Ai.Rag;
+using Skemex.Application.Services.Ai.Embeddings;
+using Skemex.Domain.Consts;
 
 namespace Skemex.Infrastructure.Services.Ai;
 

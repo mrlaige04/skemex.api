@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Domain.Entities.Users;
+using Skemex.Domain.Events.Users;
 using Skemex.Domain.Repositories.Abstractions;
 
 namespace Skemex.Infrastructure.Authentication.Invitations;
@@ -64,6 +65,14 @@ public sealed class AcceptTenantInvitationHandler(
         tenantUser.Status = TenantUserStatus.Active;
         tenantUser.InvitationToken = null;
         tenantUser.InvitationTokenExpiresAt = null;
+        tenantUser.RaiseEvent(
+            new TenantUserInvitationAcceptedDomainEvent
+            {
+                TenantUserId = tenantUser.Id,
+                UserId = tenantUser.UserId,
+                TenantId = tenantUser.TenantId,
+                TenantName = tenantUser.Tenant.Name,
+            });
 
         await tenantUserRepository.UpdateAsync(tenantUser, cancellationToken);
 

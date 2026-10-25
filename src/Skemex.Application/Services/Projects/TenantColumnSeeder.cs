@@ -1,5 +1,6 @@
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
+using Skemex.Domain.Consts;
 
 namespace Skemex.Application.Services.Projects;
 

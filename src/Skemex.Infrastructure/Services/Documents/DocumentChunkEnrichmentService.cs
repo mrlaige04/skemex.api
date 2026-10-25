@@ -3,9 +3,21 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Skemex.Application.Configuration;
-using Skemex.Application.Models.Ai;
-using Skemex.Application.Services.Ai;
+using Skemex.Application.Configuration.Ai;
+using Skemex.Application.Configuration.App;
+using Skemex.Application.Configuration.Documents;
+using Skemex.Application.Configuration.Email;
+using Skemex.Application.Configuration.Rag;
+using Skemex.Application.Configuration.Storage;
+using Skemex.Application.Models.Ai.Agents;
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
+using Skemex.Application.Models.Ai.Providers;
+using Skemex.Application.Models.Ai.Tools;
+using Skemex.Application.Models.Ai.Usage;
+using Skemex.Application.Models.Documents;
 using Skemex.Application.Services.Documents;
+using Skemex.Application.Services.Ai.Completions;
 
 namespace Skemex.Infrastructure.Services.Documents;
 

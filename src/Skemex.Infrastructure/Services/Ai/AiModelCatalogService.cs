@@ -1,8 +1,13 @@
 using Microsoft.Extensions.Logging;
-using Skemex.Application.Models.Ai;
-using Skemex.Application.Services.Ai;
+using Skemex.Application.Models.Ai.Agents;
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
+using Skemex.Application.Models.Ai.Providers;
+using Skemex.Application.Models.Ai.Tools;
+using Skemex.Application.Models.Ai.Usage;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Repositories.Abstractions;
+using Skemex.Application.Services.Ai.Providers;
 
 namespace Skemex.Infrastructure.Services.Ai;
 

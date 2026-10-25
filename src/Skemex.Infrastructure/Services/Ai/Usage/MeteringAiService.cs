@@ -1,10 +1,21 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
-using Skemex.Application.Models.Ai;
-using Skemex.Application.Services.Ai;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
+using Skemex.Application.Services.Ai.Completions;
+using Skemex.Application.Services.Ai.Embeddings;
+using Skemex.Application.Services.Ai.Providers;
+using Skemex.Application.Services.Ai.Rag;
 using Skemex.Application.Services.Ai.Usage;
 using Skemex.Domain.Enums;
 using Skemex.Domain.Services;
+using Skemex.Domain.Consts;
+using Skemex.Application.Models.Ai.Agents;
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
+using Skemex.Application.Models.Ai.Providers;
+using Skemex.Application.Models.Ai.Tools;
+using Skemex.Application.Models.Ai.Usage;
 
 namespace Skemex.Infrastructure.Services.Ai.Usage;
 

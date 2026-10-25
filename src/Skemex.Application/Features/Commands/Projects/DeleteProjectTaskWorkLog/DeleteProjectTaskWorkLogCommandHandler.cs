@@ -4,6 +4,7 @@ using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Projects;
 
 namespace Skemex.Application.Features.Commands.Projects.DeleteProjectTaskWorkLog;
 
@@ -54,7 +55,7 @@ public sealed class DeleteProjectTaskWorkLogCommandHandler(
         await workLogRepository.DeleteAsync(entry, cancellationToken);
 
         task.SpentMinutes = Math.Max(0, task.SpentMinutes - spent);
-        ProjectTaskTimeTracking.RecalculateRemaining(task);
+        ProjectTaskTimeTrackingHelper.RecalculateRemaining(task);
         task.UpdatedAt = DateTime.UtcNow;
         await projectTaskRepository.UpdateAsync(task, cancellationToken);
 

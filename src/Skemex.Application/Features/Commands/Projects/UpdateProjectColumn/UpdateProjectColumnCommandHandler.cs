@@ -5,6 +5,7 @@ using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Projects;
 
 namespace Skemex.Application.Features.Commands.Projects.UpdateProjectColumn;
 
@@ -73,6 +74,6 @@ public sealed class UpdateProjectColumnCommandHandler(
         }
 
         var tenantColumns = await tenantColumnRepository.GetAllAsync(cancellationToken: cancellationToken);
-        return ProjectColumnDtoMapper.Map(column, TenantColumnConstraints.IndexByKey(tenantColumns));
+        return ProjectColumnDtoHelper.Map(column, TenantColumnConstraintsHelper.IndexByKey(tenantColumns));
     }
 }

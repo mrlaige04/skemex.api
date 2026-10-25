@@ -1,0 +1,11 @@
+namespace Skemex.Application.Services.Common;
+
+public interface IUrlService
+{
+    Task<string?> GetUserProfilePictureUrlAsync(string? photoBlobId, CancellationToken cancellationToken = default);
+    string? GetTenantLogoUrl(string? logoBlobId);
+    string? GetProjectLogoUrl(string? logoBlobId);
+    string? GetPublicFileBlobUrl(string? fileBlobId);
+    Task<string?> GetProjectDocumentUrlAsync(string? blobId, CancellationToken cancellationToken = default);
+    Task<string?> GetIssueAttachmentUrlAsync(string? blobId, CancellationToken cancellationToken = default);
+}

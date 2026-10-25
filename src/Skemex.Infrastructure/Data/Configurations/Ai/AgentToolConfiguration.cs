@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using Skemex.Application.Services.Ai;
+using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Ai;
 
 namespace Skemex.Infrastructure.Data.Configurations.Ai;

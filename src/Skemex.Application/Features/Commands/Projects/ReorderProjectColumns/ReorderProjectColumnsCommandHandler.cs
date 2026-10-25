@@ -5,6 +5,7 @@ using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Projects;
 
 namespace Skemex.Application.Features.Commands.Projects.ReorderProjectColumns;
 
@@ -57,14 +58,14 @@ public sealed class ReorderProjectColumnsCommandHandler(
         }
 
         var tenantColumns = await tenantColumnRepository.GetAllAsync(cancellationToken: cancellationToken);
-        var tenantColumnsByKey = TenantColumnConstraints.IndexByKey(tenantColumns);
+        var tenantColumnsByKey = TenantColumnConstraintsHelper.IndexByKey(tenantColumns);
 
         var columnsInVisualOrder = request.ColumnIds
             .Select(id => columnsById[id])
             .ToList();
 
-        var sortOrders = TenantColumnConstraints.ComputeSortOrders(columnsInVisualOrder, tenantColumnsByKey);
-        var validation = TenantColumnConstraints.ValidateSortOrders(columnsById, sortOrders, tenantColumnsByKey);
+        var sortOrders = TenantColumnConstraintsHelper.ComputeSortOrders(columnsInVisualOrder, tenantColumnsByKey);
+        var validation = TenantColumnConstraintsHelper.ValidateSortOrders(columnsById, sortOrders, tenantColumnsByKey);
         if (validation.IsError)
         {
             return validation.Errors;
@@ -92,7 +93,7 @@ public sealed class ReorderProjectColumnsCommandHandler(
         return updatedColumns
             .OrderBy(column => column.SortOrder)
             .ThenBy(column => column.Title)
-            .Select(column => ProjectColumnDtoMapper.Map(column, tenantColumnsByKey))
+            .Select(column => ProjectColumnDtoHelper.Map(column, tenantColumnsByKey))
             .ToList();
     }
 }

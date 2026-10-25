@@ -1,10 +1,31 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Skemex.Application.Configuration;
-using Skemex.Application.Services;
+using Skemex.Application.Configuration.Ai;
+using Skemex.Application.Configuration.App;
+using Skemex.Application.Configuration.Documents;
+using Skemex.Application.Configuration.Email;
+using Skemex.Application.Configuration.Rag;
+using Skemex.Application.Configuration.Storage;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
+using Skemex.Application.Services.Ai.Completions;
+using Skemex.Application.Services.Ai.Embeddings;
+using Skemex.Application.Services.Ai.Providers;
+using Skemex.Application.Services.Ai.Rag;
+using Skemex.Application.Services.Ai.Usage;
+using Skemex.Application.Services.Common;
+using Skemex.Application.Services.Documents;
+using Skemex.Application.Services.Email;
+using Skemex.Application.Services.Encryption;
+using Skemex.Application.Services.Notifications;
+using Skemex.Application.Services.Projects;
+using Skemex.Application.Services.Storage;
+using Skemex.Application.Services.Users;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Enums;
 using Skemex.Infrastructure.Authentication.Tokens;
+using Skemex.Domain.Consts;
 
 namespace Skemex.Infrastructure.Email;
 
@@ -14,7 +35,7 @@ public sealed class AuthEmailService(
     IOptions<NumericEmailTokenProviderOptions> tokenOptions,
     ILogger<AuthEmailService> logger) : IAuthEmailService
 {
-    private const int InvitationExpiryDays = InvitationTokenGenerator.ExpiryDays;
+    private const int InvitationExpiryDays = InvitationConsts.ExpiryDays;
 
     public Task SendRegistrationGreetingAsync(User user, CancellationToken cancellationToken = default)
     {

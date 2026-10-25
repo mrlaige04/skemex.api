@@ -3,15 +3,24 @@ using System.Text.Json;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Skemex.Application.Models.Ai;
+using Skemex.Application.Models.Ai.Agents;
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
+using Skemex.Application.Models.Ai.Providers;
+using Skemex.Application.Models.Ai.Tools;
+using Skemex.Application.Models.Ai.Usage;
 using Skemex.Application.Models.Rag;
-using Skemex.Application.Services.Ai;
 using Skemex.Application.Services.Ai.Usage;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Enums;
+using Skemex.Domain.Events.Ai;
 using Skemex.Domain.Repositories.Abstractions;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Completions;
+using Skemex.Application.Services.Ai.Rag;
+using Skemex.Domain.Consts;
 
 namespace Skemex.Infrastructure.Services.Ai;
 
@@ -23,11 +32,12 @@ public sealed class AgentOrchestrator(
     ITenantRepository<ProjectSettings> projectSettingsRepository,
     ITenantRepository<AiChat> chatRepository,
     ITenantRepository<AiExecution> executionRepository,
+    ITenantRepository<Project> projectRepository,
     IAiService aiService,
     IAiSemanticRetry semanticRetry,
     IProjectRagContextService ragContextService,
     IAiUsageMeteringService usageMetering,
-    IAiExecutionLifecycle executionLifecycle,
+    IAiExecutionService executionService,
     ILogger<AgentOrchestrator> logger) : IAgentOrchestrator
 {
     private const string IntentRoutingSystemPrompt = """
@@ -75,7 +85,7 @@ public sealed class AgentOrchestrator(
 
         if (execution is null)
         {
-            execution = await executionLifecycle.CreatePendingAsync(
+            execution = await executionService.CreatePendingAsync(
                 new AiExecutionCreateRequest
                 {
                     TenantId = tenantId,
@@ -95,7 +105,7 @@ public sealed class AgentOrchestrator(
                 cancellationToken);
         }
 
-        await executionLifecycle.MarkRunningAsync(execution.Id, cancellationToken);
+        await executionService.MarkRunningAsync(execution.Id, cancellationToken);
 
         using var usageScope = AmbientAiUsageContext.Use(
             correlationId: execution.Id,
@@ -150,12 +160,18 @@ public sealed class AgentOrchestrator(
                 job.Status = AiAgentJobStatus.Failed;
                 job.Error = Truncate(result.ErrorMessage ?? "Agent execution failed.", 2000);
                 job.AssistantMessage = result.AssistantMessage;
+                await RaiseExecutionFinishedAsync(
+                    job,
+                    execution.Id,
+                    AiExecutionStatus.Failed,
+                    artifactType: result.ArtifactType,
+                    cancellationToken);
                 await jobRepository.UpdateAsync(job, cancellationToken);
                 await AppendAssistantMessageAsync(
                     job,
                     result.AssistantMessage ?? $"Failed: {job.Error}",
                     cancellationToken);
-                await executionLifecycle.CompleteAsync(
+                await executionService.CompleteAsync(
                     execution.Id,
                     new AiExecutionCompleteRequest
                     {
@@ -175,12 +191,18 @@ public sealed class AgentOrchestrator(
             job.ArtifactPayloadJson = result.ArtifactPayload is null
                 ? null
                 : JsonSerializer.Serialize(result.ArtifactPayload);
+            await RaiseExecutionFinishedAsync(
+                job,
+                execution.Id,
+                AiExecutionStatus.Succeeded,
+                artifactType: result.ArtifactType,
+                cancellationToken);
             await jobRepository.UpdateAsync(job, cancellationToken);
             await AppendAssistantMessageAsync(
                 job,
                 result.AssistantMessage ?? "Done.",
                 cancellationToken);
-            await executionLifecycle.CompleteAsync(
+            await executionService.CompleteAsync(
                 execution.Id,
                 new AiExecutionCompleteRequest
                 {
@@ -195,9 +217,15 @@ public sealed class AgentOrchestrator(
             logger.LogError(ex, "AI agent job {JobId} failed.", agentJobId);
             job.Status = AiAgentJobStatus.Failed;
             job.Error = Truncate(ex.Message, 2000);
+            await RaiseExecutionFinishedAsync(
+                job,
+                execution.Id,
+                AiExecutionStatus.Failed,
+                artifactType: job.ArtifactType,
+                cancellationToken);
             await jobRepository.UpdateAsync(job, cancellationToken);
             await AppendAssistantMessageAsync(job, $"Failed: {job.Error}", cancellationToken);
-            await executionLifecycle.CompleteAsync(
+            await executionService.CompleteAsync(
                 execution.Id,
                 new AiExecutionCompleteRequest
                 {
@@ -473,6 +501,47 @@ public sealed class AgentOrchestrator(
         public void Dispose()
         {
         }
+    }
+
+    private async Task RaiseExecutionFinishedAsync(
+        AiAgentJob job,
+        Guid aiExecutionId,
+        AiExecutionStatus status,
+        string? artifactType,
+        CancellationToken cancellationToken)
+    {
+        var projectCode = await ResolveProjectCodeAsync(job.ProjectId, cancellationToken);
+        job.RaiseEvent(
+            new AiExecutionFinishedDomainEvent
+            {
+                AiExecutionId = aiExecutionId,
+                AiAgentJobId = job.Id,
+                UserId = job.RequestedByUserId,
+                TenantId = job.TenantId,
+                ProjectId = job.ProjectId,
+                ProjectCode = projectCode,
+                Status = status,
+                ToolName = job.ToolName,
+                ArtifactType = artifactType ?? job.ArtifactType,
+                AssistantMessage = job.AssistantMessage,
+                UserInput = job.UserInput,
+                Error = job.Error,
+            });
+    }
+
+    private async Task<string?> ResolveProjectCodeAsync(
+        Guid? projectId,
+        CancellationToken cancellationToken)
+    {
+        if (projectId is not Guid id)
+        {
+            return null;
+        }
+
+        var project = await projectRepository.GetAsync(
+            filter: entry => entry.Id == id,
+            cancellationToken: cancellationToken);
+        return string.IsNullOrWhiteSpace(project?.Code) ? null : project.Code;
     }
 
     private async Task AppendAssistantMessageAsync(

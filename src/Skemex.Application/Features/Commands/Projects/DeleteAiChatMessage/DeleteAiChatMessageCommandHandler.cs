@@ -1,10 +1,10 @@
 using ErrorOr;
 using Skemex.Application.Features.Abstractions;
-using Skemex.Application.Services.Ai;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Services.Ai.Chat;
 
 namespace Skemex.Application.Features.Commands.Projects.DeleteAiChatMessage;
 

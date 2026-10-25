@@ -2,11 +2,26 @@ using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Projects;
-using Skemex.Application.Services;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
+using Skemex.Application.Services.Ai.Completions;
+using Skemex.Application.Services.Ai.Embeddings;
+using Skemex.Application.Services.Ai.Providers;
+using Skemex.Application.Services.Ai.Rag;
+using Skemex.Application.Services.Ai.Usage;
+using Skemex.Application.Services.Common;
+using Skemex.Application.Services.Documents;
+using Skemex.Application.Services.Email;
+using Skemex.Application.Services.Encryption;
+using Skemex.Application.Services.Notifications;
+using Skemex.Application.Services.Projects;
+using Skemex.Application.Services.Storage;
+using Skemex.Application.Services.Users;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Projects;
 
 namespace Skemex.Application.Features.Queries.Projects.GetProjectTaskByCode;
 
@@ -61,11 +76,11 @@ public sealed class GetProjectTaskByCodeQueryHandler(
             .GroupBy(entry => entry.ParentId!.Value)
             .ToDictionary(group => group.Key, group => group.ToList());
 
-        var avatarUrls = await ProjectTaskDtoMapper
+        var avatarUrls = await ProjectTaskDtoHelper
             .LoadAvatarUrlsAsync(allTasks, urlService, cancellationToken)
             .ConfigureAwait(false);
 
-        var dto = ProjectTaskDtoMapper.MapWithSubtasksFromLookup(task, childrenByParentId, avatarUrls);
+        var dto = ProjectTaskDtoHelper.MapWithSubtasksFromLookup(task, childrenByParentId, avatarUrls);
 
         var workLogs = await workLogRepository.GetAllAsync(
             filter: log => log.TaskId == task.Id && log.ProjectId == request.ProjectId,
@@ -77,7 +92,7 @@ public sealed class GetProjectTaskByCodeQueryHandler(
             .ThenByDescending(log => log.CreatedAt)
             .ToList();
 
-        var workLogAvatars = await ProjectTaskWorkLogDtoMapper
+        var workLogAvatars = await ProjectTaskWorkLogDtoHelper
             .LoadAvatarUrlsAsync(orderedLogs, urlService, cancellationToken)
             .ConfigureAwait(false);
 
@@ -102,7 +117,7 @@ public sealed class GetProjectTaskByCodeQueryHandler(
             StoryPoints = dto.StoryPoints,
             SpentMinutes = dto.SpentMinutes,
             WorkLogs = orderedLogs
-                .Select(log => ProjectTaskWorkLogDtoMapper.Map(log, workLogAvatars))
+                .Select(log => ProjectTaskWorkLogDtoHelper.Map(log, workLogAvatars))
                 .ToList(),
             CreatedAt = dto.CreatedAt,
             UpdatedAt = dto.UpdatedAt,

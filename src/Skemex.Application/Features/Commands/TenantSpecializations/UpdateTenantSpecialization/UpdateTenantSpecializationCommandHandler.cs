@@ -6,6 +6,7 @@ using Skemex.Application.Services.Users;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Users;
 
 namespace Skemex.Application.Features.Commands.TenantSpecializations.UpdateTenantSpecialization;
 
@@ -76,7 +77,7 @@ public sealed class UpdateTenantSpecializationCommandHandler(
 
         if (request.DefaultSkills is not null)
         {
-            var skills = TenantUserSkillMerge.NormalizeSkills(request.DefaultSkills);
+            var skills = TenantUserSkillMergeHelper.NormalizeSkills(request.DefaultSkills);
             if (!SkillsEqual(specialization.DefaultSkills, skills))
             {
                 specialization.DefaultSkills = skills;

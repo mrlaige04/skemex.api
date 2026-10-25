@@ -2,12 +2,28 @@ using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Projects;
-using Skemex.Application.Services;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
+using Skemex.Application.Services.Ai.Completions;
+using Skemex.Application.Services.Ai.Embeddings;
+using Skemex.Application.Services.Ai.Providers;
+using Skemex.Application.Services.Ai.Rag;
+using Skemex.Application.Services.Ai.Usage;
+using Skemex.Application.Services.Common;
+using Skemex.Application.Services.Documents;
+using Skemex.Application.Services.Email;
+using Skemex.Application.Services.Encryption;
+using Skemex.Application.Services.Notifications;
+using Skemex.Application.Services.Projects;
+using Skemex.Application.Services.Storage;
+using Skemex.Application.Services.Users;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Projects;
+using Skemex.Domain.Consts;
 
 namespace Skemex.Application.Features.Commands.Projects.UpdateProjectTask;
 
@@ -284,23 +300,23 @@ public sealed class UpdateProjectTaskCommandHandler(
         {
             if (task.OriginalEstimateMinutes is not null || task.RemainingEstimateMinutes is not null)
             {
-                ProjectTaskTimeTracking.ApplyOriginalEstimate(task, null);
+                ProjectTaskTimeTrackingHelper.ApplyOriginalEstimate(task, null);
                 changed = true;
             }
         }
         else if (request.OriginalEstimateMinutes is not null)
         {
             if (request.OriginalEstimateMinutes < 0
-                || request.OriginalEstimateMinutes > ProjectTaskTimeTracking.MaxEstimateMinutes)
+                || request.OriginalEstimateMinutes > ProjectTaskTimeLimits.MaxEstimateMinutes)
             {
                 return Error.Validation(
                     "ProjectTask.InvalidOriginalEstimate",
-                    $"Original estimate must be between 0 and {ProjectTaskTimeTracking.MaxEstimateMinutes} minutes.");
+                    $"Original estimate must be between 0 and {ProjectTaskTimeLimits.MaxEstimateMinutes} minutes.");
             }
 
             if (task.OriginalEstimateMinutes != request.OriginalEstimateMinutes)
             {
-                ProjectTaskTimeTracking.ApplyOriginalEstimate(task, request.OriginalEstimateMinutes);
+                ProjectTaskTimeTrackingHelper.ApplyOriginalEstimate(task, request.OriginalEstimateMinutes);
                 changed = true;
             }
         }
@@ -316,11 +332,11 @@ public sealed class UpdateProjectTaskCommandHandler(
         }
         else if (request.StoryPoints is not null)
         {
-            if (request.StoryPoints < 0 || request.StoryPoints > ProjectTaskTimeTracking.MaxStoryPoints)
+            if (request.StoryPoints < 0 || request.StoryPoints > ProjectTaskTimeLimits.MaxStoryPoints)
             {
                 return Error.Validation(
                     "ProjectTask.InvalidStoryPoints",
-                    $"Story points must be between 0 and {ProjectTaskTimeTracking.MaxStoryPoints}.");
+                    $"Story points must be between 0 and {ProjectTaskTimeLimits.MaxStoryPoints}.");
             }
 
             if (task.StoryPoints != request.StoryPoints)
@@ -411,10 +427,10 @@ public sealed class UpdateProjectTaskCommandHandler(
             .GroupBy(entry => entry.ParentId!.Value)
             .ToDictionary(group => group.Key, group => group.ToList());
 
-        var avatarUrls = await ProjectTaskDtoMapper
+        var avatarUrls = await ProjectTaskDtoHelper
             .LoadAvatarUrlsAsync(allTasks.Concat([task]), urlService, cancellationToken)
             .ConfigureAwait(false);
 
-        return ProjectTaskDtoMapper.MapWithSubtasksFromLookup(task, childrenByParentId, avatarUrls);
+        return ProjectTaskDtoHelper.MapWithSubtasksFromLookup(task, childrenByParentId, avatarUrls);
     }
 }

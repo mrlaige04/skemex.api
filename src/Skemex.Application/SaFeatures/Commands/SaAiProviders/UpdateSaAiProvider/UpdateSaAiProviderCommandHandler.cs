@@ -1,11 +1,32 @@
 using ErrorOr;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.SaModels.SaAiProviders;
-using Skemex.Application.Services;
-using Skemex.Application.Services.Ai;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
+using Skemex.Application.Services.Ai.Completions;
+using Skemex.Application.Services.Ai.Embeddings;
+using Skemex.Application.Services.Ai.Providers;
+using Skemex.Application.Services.Ai.Rag;
+using Skemex.Application.Services.Ai.Usage;
+using Skemex.Application.Services.Common;
+using Skemex.Application.Services.Documents;
+using Skemex.Application.Services.Email;
+using Skemex.Application.Services.Encryption;
+using Skemex.Application.Services.Notifications;
+using Skemex.Application.Services.Projects;
+using Skemex.Application.Services.Storage;
+using Skemex.Application.Services.Users;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
+using Skemex.Application.Services.Ai.Completions;
+using Skemex.Application.Services.Ai.Embeddings;
+using Skemex.Application.Services.Ai.Providers;
+using Skemex.Application.Services.Ai.Rag;
+using Skemex.Application.Services.Ai.Usage;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Ai;
 
 namespace Skemex.Application.SaFeatures.Commands.SaAiProviders.UpdateSaAiProvider;
 
@@ -51,7 +72,7 @@ public sealed class UpdateSaAiProviderCommandHandler(
         }
 
         var authPlain = SaAiProviderMapper.ToAuthConfig(request.AuthEntries);
-        entity.AuthConfigJson = AiProviderAuthSecrets.MergeForUpdate(
+        entity.AuthConfigJson = AiProviderAuthSecretsHelper.MergeForUpdate(
             authPlain,
             previousAuth,
             encryptService);
