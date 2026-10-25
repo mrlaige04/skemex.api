@@ -1,12 +1,9 @@
 using FluentValidation;
-using Skemex.Domain.Consts;
 
 namespace Skemex.Application.Features.Commands.Users.UpdateTenantUser;
 
 public sealed class UpdateTenantUserCommandValidator : AbstractValidator<UpdateTenantUserCommand>
 {
-    private static readonly string[] AllowedRoles = [RoleNames.Admin, RoleNames.User];
-
     public UpdateTenantUserCommandValidator()
     {
         RuleFor(x => x.UserId).NotEmpty();
@@ -25,9 +22,8 @@ public sealed class UpdateTenantUserCommandValidator : AbstractValidator<UpdateT
             .When(x => x.LastName is not null);
 
         RuleFor(x => x.RoleName)
-            .Must(r => AllowedRoles.Contains(r!))
-            .When(x => x.RoleName is not null)
-            .WithMessage($"Role must be one of: {string.Join(", ", AllowedRoles)}.");
+            .MaximumLength(128)
+            .When(x => x.RoleName is not null);
 
         RuleFor(x => x.Skills)
             .Must(skills => skills is null || skills.Count <= 50)

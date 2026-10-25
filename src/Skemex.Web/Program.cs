@@ -5,6 +5,7 @@ using Skemex.Application;
 using Skemex.Infrastructure;
 using Skemex.Web;
 using Skemex.Web.Extensions;
+using Skemex.Web.Middleware;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -39,6 +40,7 @@ try
     app.UseRouting();
     app.UseCors();
     app.UseAuthentication();
+    app.UseMiddleware<LoadTenantPermissionsMiddleware>();
     app.UseAuthorization();
 
     if (app.Environment.IsDevelopment())

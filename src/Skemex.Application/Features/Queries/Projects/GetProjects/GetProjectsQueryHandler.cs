@@ -1,23 +1,9 @@
 using System.Linq.Expressions;
 using ErrorOr;
-using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Projects;
-using Skemex.Application.Services.Ai.Agents;
-using Skemex.Application.Services.Ai.Chat;
-using Skemex.Application.Services.Ai.Completions;
-using Skemex.Application.Services.Ai.Embeddings;
-using Skemex.Application.Services.Ai.Providers;
-using Skemex.Application.Services.Ai.Rag;
-using Skemex.Application.Services.Ai.Usage;
 using Skemex.Application.Services.Common;
-using Skemex.Application.Services.Documents;
-using Skemex.Application.Services.Email;
-using Skemex.Application.Services.Encryption;
-using Skemex.Application.Services.Notifications;
 using Skemex.Application.Services.Projects;
-using Skemex.Application.Services.Storage;
-using Skemex.Application.Services.Users;
 using Skemex.Domain.Abstractions;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
@@ -28,6 +14,7 @@ namespace Skemex.Application.Features.Queries.Projects.GetProjects;
 public sealed class GetProjectsQueryHandler(
     ICurrentUser currentUser,
     ITenantRepository<Project> projectRepository,
+    IProjectAccessService projectAccess,
     IUrlService urlService)
     : IQueryHandler<GetProjectsQuery, PaginatedList<ProjectDto>>
 {
@@ -38,6 +25,12 @@ public sealed class GetProjectsQueryHandler(
         if (currentUser.GetTenantId() is null)
         {
             return Error.Forbidden("Tenant.Required", "Select a workspace before managing projects.");
+        }
+
+        var userId = currentUser.GetUserId();
+        if (userId is null)
+        {
+            return Error.Unauthorized("User.Required", "Sign in before managing projects.");
         }
 
         var search = request.Search?.Trim();
@@ -52,6 +45,12 @@ public sealed class GetProjectsQueryHandler(
                 p.Name.ToLower().Contains(term) ||
                 p.Code.ToLower().Contains(term) ||
                 (p.Description != null && p.Description.ToLower().Contains(term));
+        }
+
+        if (!projectAccess.CanAccessAllProjects())
+        {
+            var visibility = projectAccess.VisibilityFilter(userId.Value);
+            filter = filter is null ? visibility : AndAlso(filter, visibility);
         }
 
         var paginated = await projectRepository.GetAllPaginatedAsync(
@@ -78,5 +77,22 @@ public sealed class GetProjectsQueryHandler(
             paginated.TotalItems,
             paginated.PageNumber,
             paginated.PageSize);
+    }
+
+    private static Expression<Func<Project, bool>> AndAlso(
+        Expression<Func<Project, bool>> left,
+        Expression<Func<Project, bool>> right)
+    {
+        var parameter = Expression.Parameter(typeof(Project), "p");
+        var leftBody = new ReplaceParameterVisitor(left.Parameters[0], parameter).Visit(left.Body)!;
+        var rightBody = new ReplaceParameterVisitor(right.Parameters[0], parameter).Visit(right.Body)!;
+        return Expression.Lambda<Func<Project, bool>>(Expression.AndAlso(leftBody, rightBody), parameter);
+    }
+
+    private sealed class ReplaceParameterVisitor(ParameterExpression source, ParameterExpression target)
+        : ExpressionVisitor
+    {
+        protected override Expression VisitParameter(ParameterExpression node) =>
+            node == source ? target : base.VisitParameter(node);
     }
 }

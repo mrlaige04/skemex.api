@@ -41,6 +41,8 @@ public class TokenService(
             q => q
                 .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
+                .ThenInclude(r => r.Permissions)
+                .ThenInclude(rp => rp.Permission)
                 .Include(u => u.Tenants));
 
         if (principal is null)
@@ -62,6 +64,12 @@ public class TokenService(
             })
             .ToList();
 
+        var permissionNames = CollectPermissionNamesForToken(principal, tenantId);
+        // Single claim — duplicate "permission" keys are not reliable in JWT JSON parsers.
+        var permissionsClaim = new Claim(
+            CustomClaims.Permissions,
+            string.Join(' ', permissionNames.OrderBy(n => n, StringComparer.Ordinal)));
+
         var tenantClaimValue = tenantId?.ToString() ?? string.Empty;
 
         var securityTokenDescriptor = new SecurityTokenDescriptor
@@ -72,6 +80,7 @@ public class TokenService(
                 new Claim(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
                 new Claim(CustomClaims.TenantId, tenantClaimValue),
                 ..roleClaims,
+                permissionsClaim,
                 new Claim(CustomClaims.IsSuperAdmin, isSuperAdmin ? "true" : "false"),
             ]),
             Expires = DateTime.UtcNow.AddMinutes(options.ExpiresInMinutes),
@@ -107,6 +116,33 @@ public class TokenService(
             if (effectiveTenantId is not null && ur.TenantId == effectiveTenantId.Value)
             {
                 names.Add(ur.Role.Name!);
+            }
+        }
+
+        return names;
+    }
+
+    private static HashSet<string> CollectPermissionNamesForToken(User principal, Guid? effectiveTenantId)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        if (effectiveTenantId is null)
+        {
+            return names;
+        }
+
+        foreach (var ur in principal.UserRoles)
+        {
+            if (ur.TenantId != effectiveTenantId.Value)
+            {
+                continue;
+            }
+
+            foreach (var rp in ur.Role.Permissions)
+            {
+                if (!string.IsNullOrWhiteSpace(rp.Permission?.Name))
+                {
+                    names.Add(rp.Permission.Name);
+                }
             }
         }
 

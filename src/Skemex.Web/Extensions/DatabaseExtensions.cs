@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Skemex.Application.Services.Users;
 using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
@@ -21,7 +22,15 @@ public static class DatabaseExtensions
             await context.Database.EnsureCreatedAsync();
             await app.EnsureSuperAdminCreated();
             await app.EnsureEmailTemplatesSeeded();
+            await app.EnsureTenantRbacSeeded();
         }
+    }
+
+    public static async Task EnsureTenantRbacSeeded(this WebApplication app)
+    {
+        await using var scope = app.Services.CreateAsyncScope();
+        var seeder = scope.ServiceProvider.GetRequiredService<TenantRbacSeeder>();
+        await seeder.EnsureForAllTenantsAsync();
     }
 
     public static async Task EnsureEmailTemplatesSeeded(this WebApplication app)

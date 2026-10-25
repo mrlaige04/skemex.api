@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
+using Skemex.Domain.Consts;
+using Skemex.Web.Attributes;
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Features.Commands.Ai.EnqueueAiAgentExecution;
@@ -25,6 +27,7 @@ public sealed class AiController(
     ITenantRepository<AiAgentJob> agentJobRepository) : BaseController
 {
     /// <summary>Lists active models from the local catalog (read-only; no sync).</summary>
+    [Permission(PermissionNames.AiExecute)]
     [HttpGet("models")]
     public async Task<IActionResult> ListModels(
         [FromQuery] bool refresh = false,
@@ -38,6 +41,7 @@ public sealed class AiController(
     /// Unified agent entry: schedules a background job.
     /// Provide <c>toolName</c> for direct tool execution; omit it for chat + function calling.
     /// </summary>
+    [Permission(PermissionNames.AiExecute)]
     [HttpPost("execute")]
     public async Task<IActionResult> Execute(
         [FromBody] ExecuteAiRequest? body,
@@ -82,6 +86,7 @@ public sealed class AiController(
             result.Value);
     }
 
+    [Permission(PermissionNames.AiExecute)]
     [HttpGet("execute/{jobId:guid}")]
     public async Task<IActionResult> GetExecution(
         Guid jobId,

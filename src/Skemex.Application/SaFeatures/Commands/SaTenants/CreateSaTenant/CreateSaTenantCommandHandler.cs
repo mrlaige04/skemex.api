@@ -25,7 +25,6 @@ using Skemex.Application.Services.Notifications;
 using Skemex.Application.Services.Projects;
 using Skemex.Application.Services.Storage;
 using Skemex.Application.Services.Users;
-using Skemex.Application.Services.Projects;
 using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
@@ -36,13 +35,14 @@ namespace Skemex.Application.SaFeatures.Commands.SaTenants.CreateSaTenant;
 public sealed class CreateSaTenantCommandHandler(
     ICurrentUser currentUser,
     UserManager<User> userManager,
-    RoleManager<Role> roleManager,
     IBaseRepository<Tenant> tenantRepository,
     IBaseRepository<TenantUser> tenantUserRepository,
     IBaseRepository<UserRole> userRoleRepository,
+    IBaseRepository<Role> roleRepository,
     IUrlService urlService,
     IOptions<SuperAdminOptions> superAdminOptions,
-    TenantColumnSeeder tenantColumnSeeder)
+    TenantColumnSeeder tenantColumnSeeder,
+    TenantRbacSeeder tenantRbacSeeder)
     : ICommandHandler<CreateSaTenantCommand, SaTenantDto>
 {
     public async Task<ErrorOr<SaTenantDto>> Handle(
@@ -110,35 +110,14 @@ public sealed class CreateSaTenantCommandHandler(
         };
 
         await tenantRepository.AddAsync(tenant, cancellationToken);
+        await tenantRbacSeeder.SeedForNewTenantAsync(tenant.Id, cancellationToken);
 
-        var adminRole = new Role
+        var adminRole = await roleRepository.GetAsync(
+            r => r.TenantId == tenant.Id && r.Name == RoleNames.Admin,
+            cancellationToken: cancellationToken);
+        if (adminRole is null)
         {
-            Name = RoleNames.Admin,
-            TenantId = tenant.Id,
-            IsSystem = true,
-        };
-
-        var adminRoleCreate = await roleManager.CreateAsync(adminRole);
-        if (!adminRoleCreate.Succeeded)
-        {
-            return Error.Validation(
-                "Tenant.RoleCreateFailed",
-                string.Join(' ', adminRoleCreate.Errors.Select(e => e.Description)));
-        }
-
-        var userRoleEntity = new Role
-        {
-            Name = RoleNames.User,
-            TenantId = tenant.Id,
-            IsSystem = true,
-        };
-
-        var userRoleCreate = await roleManager.CreateAsync(userRoleEntity);
-        if (!userRoleCreate.Succeeded)
-        {
-            return Error.Validation(
-                "Tenant.RoleCreateFailed",
-                string.Join(' ', userRoleCreate.Errors.Select(e => e.Description)));
+            return Error.Failure("Tenant.RoleCreateFailed", "Failed to seed Admin role for the workspace.");
         }
 
         var alreadyLinked = await tenantUserRepository.ExistsAsync(

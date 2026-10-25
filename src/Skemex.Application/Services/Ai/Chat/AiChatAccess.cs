@@ -1,4 +1,5 @@
 using ErrorOr;
+using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
@@ -12,8 +13,7 @@ public static class AiChatAccess
 
     public static async Task<ErrorOr<Context>> EnsureMemberAsync(
         ICurrentUser currentUser,
-        ITenantRepository<Project> projectRepository,
-        ITenantRepository<ProjectUser> projectUserRepository,
+        IProjectAccessService projectAccess,
         Guid projectId,
         CancellationToken cancellationToken)
     {
@@ -29,23 +29,10 @@ public static class AiChatAccess
             return Error.Unauthorized("User.Required", "Sign in before using AI chat.");
         }
 
-        var projectExists = await projectRepository.ExistsAsync(
-            filter: project => project.Id == projectId,
-            cancellationToken: cancellationToken);
-        if (!projectExists)
+        var access = await projectAccess.EnsureCanAccessProjectAsync(projectId, cancellationToken);
+        if (access.IsError)
         {
-            return Error.NotFound("Project.NotFound", "Project was not found.");
-        }
-
-        var isMember = await projectUserRepository.ExistsAsync(
-            filter: membership =>
-                membership.ProjectId == projectId && membership.UserId == userId.Value,
-            cancellationToken: cancellationToken);
-        if (!isMember)
-        {
-            return Error.Forbidden(
-                "Project.NotMember",
-                "You must be a member of this project to use AI chat.");
+            return access.Errors;
         }
 
         return new Context(tenantId.Value, userId.Value);
@@ -53,8 +40,7 @@ public static class AiChatAccess
 
     public static async Task<ErrorOr<(Context Access, AiChat Chat)>> GetOwnedChatAsync(
         ICurrentUser currentUser,
-        ITenantRepository<Project> projectRepository,
-        ITenantRepository<ProjectUser> projectUserRepository,
+        IProjectAccessService projectAccess,
         ITenantRepository<AiChat> chatRepository,
         Guid projectId,
         Guid chatId,
@@ -63,8 +49,7 @@ public static class AiChatAccess
     {
         var access = await EnsureMemberAsync(
             currentUser,
-            projectRepository,
-            projectUserRepository,
+            projectAccess,
             projectId,
             cancellationToken);
         if (access.IsError)
@@ -85,5 +70,41 @@ public static class AiChatAccess
         }
 
         return (access.Value, chat);
+    }
+
+    // Back-compat overload used by callers that still pass repositories.
+    public static Task<ErrorOr<Context>> EnsureMemberAsync(
+        ICurrentUser currentUser,
+        ITenantRepository<Project> projectRepository,
+        ITenantRepository<ProjectUser> projectUserRepository,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        _ = projectRepository;
+        _ = projectUserRepository;
+
+        var access = new ProjectAccessService(currentUser, projectRepository, projectUserRepository);
+        return EnsureMemberAsync(currentUser, access, projectId, cancellationToken);
+    }
+
+    public static Task<ErrorOr<(Context Access, AiChat Chat)>> GetOwnedChatAsync(
+        ICurrentUser currentUser,
+        ITenantRepository<Project> projectRepository,
+        ITenantRepository<ProjectUser> projectUserRepository,
+        ITenantRepository<AiChat> chatRepository,
+        Guid projectId,
+        Guid chatId,
+        CancellationToken cancellationToken,
+        Func<IQueryable<AiChat>, IQueryable<AiChat>>? include = null)
+    {
+        var access = new ProjectAccessService(currentUser, projectRepository, projectUserRepository);
+        return GetOwnedChatAsync(
+            currentUser,
+            access,
+            chatRepository,
+            projectId,
+            chatId,
+            cancellationToken,
+            include);
     }
 }

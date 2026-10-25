@@ -5,6 +5,7 @@ using Skemex.Application.Events.Abstractions;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Features.Behaviours;
 using Skemex.Application.Services.Projects;
+using Skemex.Application.Services.Users;
 
 namespace Skemex.Application;
 
@@ -32,6 +33,8 @@ public static class RegisterDependencies
         services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
         services.AddScoped<TenantColumnSeeder>();
         services.AddScoped<ProjectColumnSeeder>();
+        services.AddScoped<TenantRbacSeeder>();
+        services.AddScoped<IProjectAccessService, ProjectAccessService>();
         services.AddTransient(typeof(IBehaviour<,>), typeof(LoggingBehaviour<,>));
         services.AddTransient(typeof(IBehaviour<,>), typeof(ValidationBehaviour<,>));
 

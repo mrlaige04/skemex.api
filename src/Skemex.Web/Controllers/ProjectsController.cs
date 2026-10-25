@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
+using Skemex.Domain.Consts;
+using Skemex.Web.Attributes;
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Features.Commands.Projects.AddProjectUser;
@@ -56,6 +58,7 @@ namespace Skemex.Web.Controllers;
 [Authorize]
 public class ProjectsController(ISender sender) : BaseController
 {
+    [Permission(PermissionNames.ProjectsView)]
     [HttpGet]
     public async Task<IActionResult> List(
         [FromQuery] string? search,
@@ -69,6 +72,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.ProjectsView)]
     [HttpGet("{id:guid}/columns/available")]
     public async Task<IActionResult> ListAvailableColumns(Guid id, CancellationToken cancellationToken)
     {
@@ -78,6 +82,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.ProjectsEdit)]
     [HttpPost("{id:guid}/columns")]
     public async Task<IActionResult> CreateColumn(
         Guid id,
@@ -97,6 +102,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(dto => CreatedAtAction(nameof(ListColumns), new { id }, dto), Problem);
     }
 
+    [Permission(PermissionNames.ProjectsEdit)]
     [HttpPatch("{id:guid}/columns/{columnId:guid}")]
     public async Task<IActionResult> PatchColumn(
         Guid id,
@@ -116,6 +122,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.ProjectsEdit)]
     [HttpPut("{id:guid}/columns/reorder")]
     public async Task<IActionResult> ReorderColumns(
         Guid id,
@@ -132,6 +139,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.ProjectsEdit)]
     [HttpDelete("{id:guid}/columns/{columnId:guid}")]
     public async Task<IActionResult> DeleteColumn(
         Guid id,
@@ -148,6 +156,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(_ => NoContent(), Problem);
     }
 
+    [Permission(PermissionNames.TasksView)]
     [HttpGet("{id:guid}/tasks")]
     public async Task<IActionResult> ListTasks(
         Guid id,
@@ -176,6 +185,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.TasksView)]
     [HttpGet("{id:guid}/tasks/by-code/{code}")]
     public async Task<IActionResult> GetTaskByCode(
         Guid id,
@@ -192,6 +202,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.TasksView)]
     [HttpGet("{id:guid}/columns/{columnId:guid}/tasks")]
     public async Task<IActionResult> ListTasksByColumn(
         Guid id,
@@ -208,6 +219,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.TasksCreate)]
     [HttpPost("{id:guid}/tasks")]
     public async Task<IActionResult> CreateTask(
         Guid id,
@@ -233,6 +245,7 @@ public class ProjectsController(ISender sender) : BaseController
             Problem);
     }
 
+    [Permission(PermissionNames.AiViewUsage)]
     [HttpGet("{id:guid}/ai/usage/summary")]
     public async Task<IActionResult> GetAiUsageSummary(
         Guid id,
@@ -251,6 +264,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.AiViewUsage)]
     [HttpGet("{id:guid}/ai/usage")]
     public async Task<IActionResult> ListAiUsage(
         Guid id,
@@ -292,6 +306,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.AiViewUsage)]
     [HttpGet("{id:guid}/ai/usage/groups")]
     public async Task<IActionResult> ListAiUsageGroups(
         Guid id,
@@ -333,6 +348,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.AiChat)]
     [HttpGet("{id:guid}/ai/chats")]
     public async Task<IActionResult> ListAiChats(Guid id, CancellationToken cancellationToken)
     {
@@ -342,6 +358,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.AiChat)]
     [HttpPost("{id:guid}/ai/chats")]
     public async Task<IActionResult> CreateAiChat(
         Guid id,
@@ -364,6 +381,7 @@ public class ProjectsController(ISender sender) : BaseController
             Problem);
     }
 
+    [Permission(PermissionNames.AiChat)]
     [HttpGet("{id:guid}/ai/chats/{chatId:guid}")]
     public async Task<IActionResult> GetAiChat(
         Guid id,
@@ -376,6 +394,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.AiChat)]
     [HttpPut("{id:guid}/ai/chats/{chatId:guid}")]
     public async Task<IActionResult> UpdateAiChat(
         Guid id,
@@ -396,6 +415,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.AiChat)]
     [HttpDelete("{id:guid}/ai/chats/{chatId:guid}")]
     public async Task<IActionResult> DeleteAiChat(
         Guid id,
@@ -408,6 +428,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(_ => NoContent(), Problem);
     }
 
+    [Permission(PermissionNames.AiChat)]
     [HttpPost("{id:guid}/ai/chats/{chatId:guid}/messages")]
     public async Task<IActionResult> CreateAiChatMessage(
         Guid id,
@@ -434,6 +455,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.AiChat)]
     [HttpPut("{id:guid}/ai/chats/{chatId:guid}/messages/{messageId:guid}")]
     public async Task<IActionResult> UpdateAiChatMessage(
         Guid id,
@@ -454,6 +476,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.AiChat)]
     [HttpDelete("{id:guid}/ai/chats/{chatId:guid}/messages/{messageId:guid}")]
     public async Task<IActionResult> DeleteAiChatMessage(
         Guid id,
@@ -472,6 +495,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(_ => NoContent(), Problem);
     }
 
+    [Permission(PermissionNames.ProjectsEdit)]
     [HttpGet("{id:guid}/settings")]
     public async Task<IActionResult> GetSettings(Guid id, CancellationToken cancellationToken)
     {
@@ -481,6 +505,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.ProjectsEdit)]
     [HttpPatch("{id:guid}/settings")]
     public async Task<IActionResult> PatchSettings(
         Guid id,
@@ -501,6 +526,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.TasksEdit)]
     [HttpPatch("{id:guid}/tasks/{taskId:guid}")]
     public async Task<IActionResult> PatchTask(
         Guid id,
@@ -533,6 +559,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.TasksView)]
     [HttpGet("{id:guid}/tasks/{taskId:guid}/work-logs")]
     public async Task<IActionResult> ListTaskWorkLogs(
         Guid id,
@@ -545,6 +572,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.TasksView)]
     [HttpGet("{id:guid}/tasks/{taskId:guid}/attachments")]
     public async Task<IActionResult> ListTaskAttachments(
         Guid id,
@@ -557,6 +585,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.TasksEdit)]
     [HttpPost("{id:guid}/tasks/{taskId:guid}/attachments")]
     [RequestSizeLimit(26 * 1024 * 1024)]
     [RequestFormLimits(MultipartBodyLengthLimit = 26 * 1024 * 1024)]
@@ -589,6 +618,7 @@ public class ProjectsController(ISender sender) : BaseController
             Problem);
     }
 
+    [Permission(PermissionNames.TasksEdit)]
     [HttpDelete("{id:guid}/tasks/{taskId:guid}/attachments/{attachmentId:guid}")]
     public async Task<IActionResult> DeleteTaskAttachment(
         Guid id,
@@ -607,6 +637,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(_ => NoContent(), Problem);
     }
 
+    [Permission(PermissionNames.TasksEdit)]
     [HttpPost("{id:guid}/tasks/{taskId:guid}/work-logs")]
     public async Task<IActionResult> CreateTaskWorkLog(
         Guid id,
@@ -627,6 +658,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.TasksEdit)]
     [HttpPatch("{id:guid}/tasks/{taskId:guid}/work-logs/{workLogId:guid}")]
     public async Task<IActionResult> UpdateTaskWorkLog(
         Guid id,
@@ -650,6 +682,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.TasksEdit)]
     [HttpDelete("{id:guid}/tasks/{taskId:guid}/work-logs/{workLogId:guid}")]
     public async Task<IActionResult> DeleteTaskWorkLog(
         Guid id,
@@ -668,6 +701,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(_ => NoContent(), Problem);
     }
 
+    [Permission(PermissionNames.TasksDelete)]
     [HttpDelete("{id:guid}/columns/{columnId:guid}/tasks/{taskId:guid}")]
     public async Task<IActionResult> DeleteTask(
         Guid id,
@@ -686,6 +720,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(_ => NoContent(), Problem);
     }
 
+    [Permission(PermissionNames.TasksDelete)]
     [HttpPost("{id:guid}/tasks/bulk-delete")]
     public async Task<IActionResult> BulkDeleteTasks(
         Guid id,
@@ -702,6 +737,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(_ => NoContent(), Problem);
     }
 
+    [Permission(PermissionNames.ProjectsView)]
     [HttpGet("{id:guid}/columns")]
     public async Task<IActionResult> ListColumns(Guid id, CancellationToken cancellationToken)
     {
@@ -711,6 +747,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.ProjectsEdit)]
     [HttpGet("{id:guid}/users")]
     public async Task<IActionResult> ListUsers(
         Guid id,
@@ -731,6 +768,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.ProjectsEdit)]
     [HttpPost("{id:guid}/users")]
     public async Task<IActionResult> AddUser(
         Guid id,
@@ -749,6 +787,7 @@ public class ProjectsController(ISender sender) : BaseController
             Problem);
     }
 
+    [Permission(PermissionNames.ProjectsEdit)]
     [HttpDelete("{id:guid}/users/{userId:guid}")]
     public async Task<IActionResult> RemoveUser(
         Guid id,
@@ -765,6 +804,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(_ => NoContent(), Problem);
     }
 
+    [Permission(PermissionNames.DocumentsView)]
     [HttpGet("{id:guid}/documents")]
     public async Task<IActionResult> ListDocuments(
         Guid id,
@@ -785,6 +825,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.DocumentsView)]
     [HttpGet("{id:guid}/documents/{documentId:guid}")]
     public async Task<IActionResult> GetDocument(
         Guid id,
@@ -801,6 +842,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.DocumentsUpload)]
     [HttpPost("{id:guid}/documents")]
     [RequestSizeLimit(26 * 1024 * 1024)]
     [RequestFormLimits(MultipartBodyLengthLimit = 26 * 1024 * 1024)]
@@ -831,6 +873,7 @@ public class ProjectsController(ISender sender) : BaseController
             Problem);
     }
 
+    [Permission(PermissionNames.DocumentsDelete)]
     [HttpDelete("{id:guid}/documents/{documentId:guid}")]
     public async Task<IActionResult> DeleteDocument(
         Guid id,
@@ -847,6 +890,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(_ => NoContent(), Problem);
     }
 
+    [Permission(PermissionNames.ProjectsView)]
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -854,6 +898,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.ProjectsEdit)]
     [HttpPatch("{id:guid}")]
     public async Task<IActionResult> Update(
         Guid id,
@@ -871,6 +916,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(Ok, Problem);
     }
 
+    [Permission(PermissionNames.ProjectsCreate)]
     [HttpPost]
     [RequestSizeLimit(6 * 1024 * 1024)]
     [RequestFormLimits(MultipartBodyLengthLimit = 6 * 1024 * 1024)]
@@ -900,6 +946,7 @@ public class ProjectsController(ISender sender) : BaseController
         return result.Match(dto => CreatedAtAction(nameof(Get), new { id = dto.Id }, dto), Problem);
     }
 
+    [Permission(PermissionNames.ProjectsDelete)]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {

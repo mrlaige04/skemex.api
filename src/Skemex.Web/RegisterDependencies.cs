@@ -25,6 +25,7 @@ public static class RegisterDependencies
         
         services.AddExceptionHandler<SkemexExceptionHandler>();
         services.AddHttpContextAccessor();
+        services.AddScoped<RequestPermissionCache>();
         services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
         services.AddControllers();
 

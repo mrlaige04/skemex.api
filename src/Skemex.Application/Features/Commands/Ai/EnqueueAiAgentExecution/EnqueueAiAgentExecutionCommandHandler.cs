@@ -7,15 +7,18 @@ using Skemex.Application.Models.Ai.Providers;
 using Skemex.Application.Models.Ai.Tools;
 using Skemex.Application.Models.Ai.Usage;
 using Skemex.Application.Services.Ai.Usage;
+using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Enums;
 using Skemex.Domain.Repositories.Abstractions;
+using Skemex.Domain.Services;
 using Skemex.Application.Services.Ai.Agents;
 
 namespace Skemex.Application.Features.Commands.Ai.EnqueueAiAgentExecution;
 
 public sealed class EnqueueAiAgentExecutionCommandHandler(
+    ICurrentUser currentUser,
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectUser> projectUserRepository,
     ITenantRepository<AiChat> chatRepository,
@@ -56,15 +59,18 @@ public sealed class EnqueueAiAgentExecutionCommandHandler(
                 return Error.NotFound("Project.NotFound", "Project was not found.");
             }
 
-            var isMember = await projectUserRepository.ExistsAsync(
-                filter: membership =>
-                    membership.ProjectId == projectId && membership.UserId == request.UserId,
-                cancellationToken: cancellationToken);
-            if (!isMember)
+            if (!currentUser.HasPermission(PermissionNames.ProjectsViewAll))
             {
-                return Error.Forbidden(
-                    "Project.NotMember",
-                    "You must be a member of this project to run AI tools.");
+                var isMember = await projectUserRepository.ExistsAsync(
+                    filter: membership =>
+                        membership.ProjectId == projectId && membership.UserId == request.UserId,
+                    cancellationToken: cancellationToken);
+                if (!isMember)
+                {
+                    return Error.Forbidden(
+                        "Project.NotMember",
+                        "You must be a member of this project to run AI tools.");
+                }
             }
         }
 

@@ -104,11 +104,12 @@ public class SelectTenantHandler(
         var permissions = principal.UserRoles
             .Where(ur => ur.TenantId == request.TenantId)
             .SelectMany(ur => ur.Role.Permissions)
+            .Where(rp => rp.Permission is not null && !string.IsNullOrWhiteSpace(rp.Permission.Name))
             .Select(rp => new PermissionBaseResponse
             {
                 Id = rp.PermissionId,
                 Name = rp.Permission.Name,
-                GroupName = rp.Permission.Group.Name,
+                GroupName = rp.Permission.Group?.Name ?? string.Empty,
                 IsSystem = rp.Permission.IsSystem,
             })
             .DistinctBy(p => p.Name)

@@ -422,6 +422,7 @@ public static class RegisterDependencies
         ReplaceGlobalRoleValidatorWithTenantScoped(services);
 
         services.AddScoped<TokenService>();
+        services.AddScoped<ITenantUserPermissionService, TenantUserPermissionService>();
         services.AddScoped<AuthLoginSessionBuilder>();
         AddExternalAuth(services, configuration);
     }
