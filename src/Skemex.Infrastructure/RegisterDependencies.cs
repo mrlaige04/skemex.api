@@ -14,12 +14,28 @@ using Minio;
 using Polly;
 using Polly.Retry;
 using Skemex.Application.Configuration;
+using Skemex.Application.Configuration.Ai;
+using Skemex.Application.Configuration.App;
+using Skemex.Application.Configuration.Documents;
+using Skemex.Application.Configuration.Email;
+using Skemex.Application.Configuration.Rag;
+using Skemex.Application.Configuration.Storage;
 using Skemex.Application.Features.Abstractions;
-using Skemex.Application.Services;
-using Skemex.Application.Services.Ai;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
+using Skemex.Application.Services.Ai.Completions;
+using Skemex.Application.Services.Ai.Embeddings;
+using Skemex.Application.Services.Ai.Providers;
+using Skemex.Application.Services.Ai.Rag;
 using Skemex.Application.Services.Ai.Usage;
+using Skemex.Application.Services.Common;
 using Skemex.Application.Services.Documents;
+using Skemex.Application.Services.Email;
+using Skemex.Application.Services.Encryption;
+using Skemex.Application.Services.Notifications;
 using Skemex.Application.Services.Projects;
+using Skemex.Application.Services.Storage;
+using Skemex.Application.Services.Users;
 using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories;
@@ -38,7 +54,15 @@ using Skemex.Infrastructure.Services.Ai.Tools;
 using Skemex.Infrastructure.Services.Ai.Usage;
 using Skemex.Infrastructure.Services.Documents;
 using Skemex.Infrastructure.Services.Embeddings;
+using Skemex.Infrastructure.Services.Notifications;
 using Skemex.Infrastructure.Storage;
+using Skemex.Application.Models.Ai.Agents;
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
+using Skemex.Application.Models.Ai.Providers;
+using Skemex.Application.Models.Ai.Tools;
+using Skemex.Application.Models.Ai.Usage;
+using Skemex.Application.Models.Storage;
 
 namespace Skemex.Infrastructure;
 
@@ -56,6 +80,7 @@ public static class RegisterDependencies
         AddEmailing(services, configuration);
         services.Configure<AppOptions>(configuration.GetSection(AppOptions.SectionName));
         services.Configure<SuperAdminOptions>(configuration.GetSection(SuperAdminOptions.SectionName));
+        services.AddScoped<INotificationPublisher, NotificationPublisher>();
         services.AddScoped<IAuthEmailService, AuthEmailService>();
         services.AddScoped<IEmailTemplateService, EmailTemplateService>();
         services.AddSingleton<EmailTemplateFileLoader>();
@@ -87,7 +112,7 @@ public static class RegisterDependencies
         services.AddScoped<AiService>();
         services.AddScoped<IAiService, MeteringAiService>();
         services.AddScoped<IAiUsageMeteringService, AiUsageMeteringService>();
-        services.AddScoped<IAiExecutionLifecycle, AiExecutionLifecycle>();
+        services.AddScoped<IAiExecutionService, AiExecutionService>();
         services.AddSingleton<IAiUsageQuotaEvaluator, AllowAllAiUsageQuotaEvaluator>();
         services.AddScoped<IAgentOrchestrator, AgentOrchestrator>();
         services.AddScoped<IAiModelCatalogService, AiModelCatalogService>();
@@ -334,6 +359,7 @@ public static class RegisterDependencies
         var connectionString = configuration.GetConnectionString("Default");
 
         services.AddScoped<ISaveChangesInterceptor, AuditableEntityInterceptor>();
+        services.AddScoped<ISaveChangesInterceptor, PublishDomainEventsInterceptor>();
 
         services.AddDbContext<SkemexDbContext>((sp, options) =>
         {

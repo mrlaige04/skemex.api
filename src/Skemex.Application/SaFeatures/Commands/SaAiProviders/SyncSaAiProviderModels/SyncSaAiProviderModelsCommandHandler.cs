@@ -1,10 +1,10 @@
 using ErrorOr;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.SaModels.SaAiProviders;
-using Skemex.Application.Services.Ai;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Services.Ai.Providers;
 
 namespace Skemex.Application.SaFeatures.Commands.SaAiProviders.SyncSaAiProviderModels;
 

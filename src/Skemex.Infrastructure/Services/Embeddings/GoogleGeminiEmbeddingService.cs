@@ -4,7 +4,13 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Skemex.Application.Configuration;
-using Skemex.Application.Services;
+using Skemex.Application.Configuration.Ai;
+using Skemex.Application.Configuration.App;
+using Skemex.Application.Configuration.Documents;
+using Skemex.Application.Configuration.Email;
+using Skemex.Application.Configuration.Rag;
+using Skemex.Application.Configuration.Storage;
+using Skemex.Application.Services.Ai.Embeddings;
 
 namespace Skemex.Infrastructure.Services.Embeddings;
 

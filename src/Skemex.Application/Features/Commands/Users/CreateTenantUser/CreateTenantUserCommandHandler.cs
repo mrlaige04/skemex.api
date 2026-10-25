@@ -1,14 +1,35 @@
 using ErrorOr;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Skemex.Application.Configuration;
+using Skemex.Application.Configuration.Ai;
+using Skemex.Application.Configuration.App;
+using Skemex.Application.Configuration.Documents;
+using Skemex.Application.Configuration.Email;
+using Skemex.Application.Configuration.Rag;
+using Skemex.Application.Configuration.Storage;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Users;
-using Skemex.Application.Services;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
+using Skemex.Application.Services.Ai.Completions;
+using Skemex.Application.Services.Ai.Embeddings;
+using Skemex.Application.Services.Ai.Providers;
+using Skemex.Application.Services.Ai.Rag;
+using Skemex.Application.Services.Ai.Usage;
+using Skemex.Application.Services.Common;
+using Skemex.Application.Services.Documents;
+using Skemex.Application.Services.Email;
+using Skemex.Application.Services.Encryption;
+using Skemex.Application.Services.Notifications;
+using Skemex.Application.Services.Projects;
+using Skemex.Application.Services.Storage;
+using Skemex.Application.Services.Users;
 using Skemex.Domain.Entities.Users;
+using Skemex.Domain.Events.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Users;
 
 namespace Skemex.Application.Features.Commands.Users.CreateTenantUser;
 
@@ -19,10 +40,8 @@ public sealed class CreateTenantUserCommandHandler(
     IBaseRepository<UserRole> userRoleRepository,
     IBaseRepository<Role> roleRepository,
     IBaseRepository<Tenant> tenantRepository,
-    IAuthEmailService authEmailService,
     IProfileImageService profileImages,
-    IOptions<SuperAdminOptions> superAdminOptions,
-    ILogger<CreateTenantUserCommandHandler> logger)
+    IOptions<SuperAdminOptions> superAdminOptions)
     : ICommandHandler<CreateTenantUserCommand, TenantUserDto>
 {
     public async Task<ErrorOr<TenantUserDto>> Handle(
@@ -115,7 +134,7 @@ public sealed class CreateTenantUserCommandHandler(
 
         await RemoveUserRolesInTenantAsync(user.Id, tenantId.Value, cancellationToken);
 
-        var invitationToken = InvitationTokenGenerator.Create();
+        var invitationToken = InvitationTokenHelper.Create();
         var tenantUser = new TenantUser
         {
             Id = Guid.NewGuid(),
@@ -123,12 +142,12 @@ public sealed class CreateTenantUserCommandHandler(
             TenantId = tenantId.Value,
             Status = TenantUserStatus.Pending,
             InvitationToken = invitationToken,
-            InvitationTokenExpiresAt = InvitationTokenGenerator.ExpiresAt(),
+            InvitationTokenExpiresAt = InvitationTokenHelper.ExpiresAt(),
         };
+        RaiseInvited(tenantUser, tenant.Name, invitationToken);
         await tenantUserRepository.AddAsync(tenantUser, cancellationToken);
 
         await AssignRoleAsync(user.Id, role, tenantId.Value, cancellationToken);
-        await SendInvitationEmailAsync(user, tenant, invitationToken, cancellationToken);
 
         var avatarUrl = await profileImages.GetAvatarUrlAsync(user.PhotoBlobId, cancellationToken).ConfigureAwait(false);
 
@@ -152,15 +171,15 @@ public sealed class CreateTenantUserCommandHandler(
         Role role,
         CancellationToken cancellationToken)
     {
-        var invitationToken = InvitationTokenGenerator.Create();
+        var invitationToken = InvitationTokenHelper.Create();
         tenantUser.Status = TenantUserStatus.Pending;
         tenantUser.InvitationToken = invitationToken;
-        tenantUser.InvitationTokenExpiresAt = InvitationTokenGenerator.ExpiresAt();
+        tenantUser.InvitationTokenExpiresAt = InvitationTokenHelper.ExpiresAt();
+        RaiseInvited(tenantUser, tenant.Name, invitationToken);
         await tenantUserRepository.UpdateAsync(tenantUser, cancellationToken);
 
         await RemoveUserRolesInTenantAsync(user.Id, tenant.Id, cancellationToken);
         await AssignRoleAsync(user.Id, role, tenant.Id, cancellationToken);
-        await SendInvitationEmailAsync(user, tenant, invitationToken, cancellationToken);
 
         var avatarUrl = await profileImages.GetAvatarUrlAsync(user.PhotoBlobId, cancellationToken).ConfigureAwait(false);
 
@@ -175,6 +194,19 @@ public sealed class CreateTenantUserCommandHandler(
             Status = TenantUserStatus.Pending,
             AvatarUrl = avatarUrl,
         };
+    }
+
+    private static void RaiseInvited(TenantUser tenantUser, string tenantName, string invitationToken)
+    {
+        tenantUser.RaiseEvent(
+            new TenantUserInvitedDomainEvent
+            {
+                TenantUserId = tenantUser.Id,
+                UserId = tenantUser.UserId,
+                TenantId = tenantUser.TenantId,
+                TenantName = tenantName,
+                InvitationToken = invitationToken,
+            });
     }
 
     private async Task RemoveUserRolesInTenantAsync(
@@ -206,27 +238,5 @@ public sealed class CreateTenantUserCommandHandler(
             TenantId = tenantId,
         };
         await userRoleRepository.AddAsync(userRole, cancellationToken);
-    }
-
-    private async Task SendInvitationEmailAsync(
-        User user,
-        Tenant tenant,
-        string invitationToken,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await authEmailService
-                .SendTenantInvitationAsync(user, tenant, invitationToken, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(
-                ex,
-                "User {UserId} was invited to tenant {TenantId}, but the invitation email was not sent.",
-                user.Id,
-                tenant.Id);
-        }
     }
 }

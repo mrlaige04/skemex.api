@@ -4,8 +4,12 @@ using System.Text.RegularExpressions;
 using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Skemex.Application.Models.Ai;
-using Skemex.Application.Services.Ai;
+using Skemex.Application.Models.Ai.Agents;
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
+using Skemex.Application.Models.Ai.Providers;
+using Skemex.Application.Models.Ai.Tools;
+using Skemex.Application.Models.Ai.Usage;
 using Skemex.Application.Services.Projects;
 using Skemex.Application.Services.Users;
 using Skemex.Domain.Entities.Ai;
@@ -14,6 +18,12 @@ using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Infrastructure.Data;
 using Skemex.Infrastructure.Services;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Helpers.Projects;
+using Skemex.Application.Helpers.Users;
+using Skemex.Application.Services.Ai.Completions;
+using Skemex.Domain.Consts;
+using Skemex.Application.Services.Ai.Rag;
 
 namespace Skemex.Infrastructure.Services.Ai.Tools;
 
@@ -409,7 +419,7 @@ public sealed partial class TaskDecompositionTool(
     private static string ApplyPromptLimits(string template, int maxDepth, int maxNodes)
     {
         var maxChildrenHint = Math.Max(1, maxNodes - 1);
-        var maxEstimateHours = ProjectTaskTimeTracking.MaxEstimateHours;
+        var maxEstimateHours = ProjectTaskTimeLimits.MaxEstimateHours;
 
         return template
             .Replace("__MAX_DEPTH__", maxDepth.ToString())
@@ -535,7 +545,7 @@ public sealed partial class TaskDecompositionTool(
 
             var skills = string.Join(
                 ',',
-                TenantUserSkillMerge.NormalizeSkills(member.Skills)
+                TenantUserSkillMergeHelper.NormalizeSkills(member.Skills)
                     .Select(CompactCell)
                     .Where(skill => skill.Length > 0));
 
@@ -895,30 +905,30 @@ public sealed partial class TaskDecompositionTool(
                 "Every task must include a positive estimatedHours value.");
         }
 
-        if (node.EstimatedHours > ProjectTaskTimeTracking.MaxEstimateHours)
+        if (node.EstimatedHours > ProjectTaskTimeLimits.MaxEstimateHours)
         {
             return Error.Validation(
                 "Ai.EstimateTooLarge",
-                $"estimatedHours cannot exceed {ProjectTaskTimeTracking.MaxEstimateHours}.");
+                $"estimatedHours cannot exceed {ProjectTaskTimeLimits.MaxEstimateHours}.");
         }
 
         if (node.RemainingHours is null)
         {
             node.RemainingHours = node.EstimatedHours;
         }
-        else if (node.RemainingHours < 0 || node.RemainingHours > ProjectTaskTimeTracking.MaxEstimateHours)
+        else if (node.RemainingHours < 0 || node.RemainingHours > ProjectTaskTimeLimits.MaxEstimateHours)
         {
             return Error.Validation(
                 "Ai.InvalidRemainingHours",
-                $"remainingHours must be between 0 and {ProjectTaskTimeTracking.MaxEstimateHours}.");
+                $"remainingHours must be between 0 and {ProjectTaskTimeLimits.MaxEstimateHours}.");
         }
 
         if (node.StoryPoints is not null
-            && (node.StoryPoints < 0 || node.StoryPoints > ProjectTaskTimeTracking.MaxStoryPoints))
+            && (node.StoryPoints < 0 || node.StoryPoints > ProjectTaskTimeLimits.MaxStoryPoints))
         {
             return Error.Validation(
                 "Ai.InvalidStoryPoints",
-                $"storyPoints must be between 0 and {ProjectTaskTimeTracking.MaxStoryPoints}.");
+                $"storyPoints must be between 0 and {ProjectTaskTimeLimits.MaxStoryPoints}.");
         }
 
         return Result.Success;
@@ -1148,7 +1158,7 @@ public sealed partial class TaskDecompositionTool(
             ProjectId = projectId,
             ProjectColumnId = columnId,
             ParentId = parentId,
-            Code = ProjectTaskCodeFormatter.Format(projectCode, taskNumber),
+            Code = ProjectTaskCodeHelper.Format(projectCode, taskNumber),
             Title = node.Title.Trim(),
             Type = taskType,
             Description = string.IsNullOrWhiteSpace(node.Description) ? null : node.Description.Trim(),
@@ -1167,8 +1177,8 @@ public sealed partial class TaskDecompositionTool(
             AssigneeId = assigneeId,
         };
 
-        var estimateMinutes = ProjectTaskTimeTracking.HoursToMinutes(node.EstimatedHours);
-        ProjectTaskTimeTracking.ApplyOriginalEstimate(task, estimateMinutes);
+        var estimateMinutes = ProjectTaskTimeTrackingHelper.HoursToMinutes(node.EstimatedHours);
+        ProjectTaskTimeTrackingHelper.ApplyOriginalEstimate(task, estimateMinutes);
 
         await projectTaskRepository.AddAsync(task, cancellationToken);
 

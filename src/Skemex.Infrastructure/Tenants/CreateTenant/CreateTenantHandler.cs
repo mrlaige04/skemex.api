@@ -1,7 +1,7 @@
 using ErrorOr;
 using Microsoft.AspNetCore.Identity;
 using Skemex.Application.Features.Abstractions;
-using Skemex.Application.Services;
+using Skemex.Application.Services.Common;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Users;

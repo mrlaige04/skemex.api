@@ -6,6 +6,7 @@ using Skemex.Application.Services.Users;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Users;
 
 namespace Skemex.Application.Features.Commands.TenantSpecializations.CreateTenantSpecialization;
 
@@ -41,7 +42,7 @@ public sealed class CreateTenantSpecializationCommandHandler(
             TenantId = tenantId.Value,
             Title = title,
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
-            DefaultSkills = TenantUserSkillMerge.NormalizeSkills(request.DefaultSkills),
+            DefaultSkills = TenantUserSkillMergeHelper.NormalizeSkills(request.DefaultSkills),
         };
 
         await specializationRepository.AddAsync(specialization, cancellationToken);

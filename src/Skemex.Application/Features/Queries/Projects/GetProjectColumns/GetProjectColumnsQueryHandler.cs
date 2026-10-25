@@ -5,6 +5,7 @@ using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Projects;
 
 namespace Skemex.Application.Features.Queries.Projects.GetProjectColumns;
 
@@ -38,10 +39,10 @@ public sealed class GetProjectColumnsQueryHandler(
             cancellationToken: cancellationToken);
 
         var tenantColumns = await tenantColumnRepository.GetAllAsync(cancellationToken: cancellationToken);
-        var tenantColumnsByKey = TenantColumnConstraints.IndexByKey(tenantColumns);
+        var tenantColumnsByKey = TenantColumnConstraintsHelper.IndexByKey(tenantColumns);
 
         return columns
-            .Select(column => ProjectColumnDtoMapper.Map(column, tenantColumnsByKey))
+            .Select(column => ProjectColumnDtoHelper.Map(column, tenantColumnsByKey))
             .ToList();
     }
 }

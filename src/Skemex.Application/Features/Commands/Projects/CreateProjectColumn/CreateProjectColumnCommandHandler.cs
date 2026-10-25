@@ -5,6 +5,7 @@ using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Projects;
 
 namespace Skemex.Application.Features.Commands.Projects.CreateProjectColumn;
 
@@ -93,7 +94,7 @@ public sealed class CreateProjectColumnCommandHandler(
         await projectColumnRepository.AddAsync(column, cancellationToken);
 
         var tenantColumns = await tenantColumnRepository.GetAllAsync(cancellationToken: cancellationToken);
-        return ProjectColumnDtoMapper.Map(column, TenantColumnConstraints.IndexByKey(tenantColumns));
+        return ProjectColumnDtoHelper.Map(column, TenantColumnConstraintsHelper.IndexByKey(tenantColumns));
     }
 
     private async Task<ErrorOr<(string Key, string Title, string? Description, int SortOrder)>>

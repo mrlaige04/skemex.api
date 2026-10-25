@@ -3,6 +3,12 @@ using Skemex.Application.Services.Ai.Usage;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Models.Ai.Agents;
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
+using Skemex.Application.Models.Ai.Providers;
+using Skemex.Application.Models.Ai.Tools;
+using Skemex.Application.Models.Ai.Usage;
 
 namespace Skemex.Infrastructure.Services.Ai.Usage;
 

@@ -15,9 +15,3 @@ public sealed class TenantUserDto
     public IReadOnlyList<string> Skills { get; init; } = [];
     public IReadOnlyList<TenantSpecializationSummaryDto> Specializations { get; init; } = [];
 }
-
-public sealed class TenantRoleDto
-{
-    public Guid Id { get; init; }
-    public string Name { get; init; } = string.Empty;
-}

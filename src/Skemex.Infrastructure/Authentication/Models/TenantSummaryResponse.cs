@@ -1,6 +1,6 @@
+using Skemex.Domain.Entities.Users;
 namespace Skemex.Infrastructure.Authentication.Models;
 
-using Skemex.Domain.Entities.Users;
 
 public class TenantSummaryResponse
 {

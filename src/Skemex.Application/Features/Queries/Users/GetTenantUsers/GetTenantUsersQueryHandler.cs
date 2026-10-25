@@ -3,12 +3,27 @@ using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Users;
-using Skemex.Application.Services;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
+using Skemex.Application.Services.Ai.Completions;
+using Skemex.Application.Services.Ai.Embeddings;
+using Skemex.Application.Services.Ai.Providers;
+using Skemex.Application.Services.Ai.Rag;
+using Skemex.Application.Services.Ai.Usage;
+using Skemex.Application.Services.Common;
+using Skemex.Application.Services.Documents;
+using Skemex.Application.Services.Email;
+using Skemex.Application.Services.Encryption;
+using Skemex.Application.Services.Notifications;
+using Skemex.Application.Services.Projects;
+using Skemex.Application.Services.Storage;
+using Skemex.Application.Services.Users;
 using Skemex.Application.Services.Users;
 using Skemex.Domain.Abstractions;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Users;
 
 namespace Skemex.Application.Features.Queries.Users.GetTenantUsers;
 
@@ -88,7 +103,7 @@ public sealed class GetTenantUsersQueryHandler(
                     Roles = roles ?? [],
                     Status = tu.Status,
                     AvatarUrl = avatarUrl,
-                    Skills = TenantUserSkillMerge.NormalizeSkills(tu.Skills),
+                    Skills = TenantUserSkillMergeHelper.NormalizeSkills(tu.Skills),
                     Specializations = tu.Specializations
                         .Where(link => link.Specialization is not null)
                         .Select(link => new TenantSpecializationSummaryDto

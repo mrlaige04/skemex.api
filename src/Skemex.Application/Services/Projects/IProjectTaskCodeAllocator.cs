@@ -8,10 +8,3 @@ public interface IProjectTaskCodeAllocator
         CancellationToken cancellationToken = default);
 }
 
-public static class ProjectTaskCodeFormatter
-{
-    public static string Format(string projectCode, int number)
-    {
-        return $"{projectCode.Trim().ToUpperInvariant()}-{number}";
-    }
-}

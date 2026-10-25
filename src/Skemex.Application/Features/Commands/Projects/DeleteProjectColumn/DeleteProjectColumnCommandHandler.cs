@@ -4,6 +4,7 @@ using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Projects;
 
 namespace Skemex.Application.Features.Commands.Projects.DeleteProjectColumn;
 
@@ -44,7 +45,7 @@ public sealed class DeleteProjectColumnCommandHandler(
             filter: entry => entry.Key == column.Key,
             cancellationToken: cancellationToken);
 
-        var validation = TenantColumnConstraints.ValidateDeletion(column, tenantColumn);
+        var validation = TenantColumnConstraintsHelper.ValidateDeletion(column, tenantColumn);
         if (validation.IsError)
         {
             return validation.Errors;

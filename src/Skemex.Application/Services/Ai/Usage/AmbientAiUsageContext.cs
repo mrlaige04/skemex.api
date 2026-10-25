@@ -1,3 +1,10 @@
+using Skemex.Application.Models.Ai.Agents;
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
+using Skemex.Application.Models.Ai.Providers;
+using Skemex.Application.Models.Ai.Tools;
+using Skemex.Application.Models.Ai.Usage;
+
 namespace Skemex.Application.Services.Ai.Usage;
 
 /// <summary>
@@ -77,18 +84,4 @@ public static class AmbientAiUsageContext
             _disposed = true;
         }
     }
-}
-
-public sealed record AiUsageCorrelation
-{
-    public Guid CorrelationId { get; init; } = Guid.NewGuid();
-    public Guid? ProjectId { get; init; }
-    public Guid? AiChatId { get; init; }
-    public Guid? AiChatMessageId { get; init; }
-    public Guid? AiAgentJobId { get; init; }
-    public Guid? ProjectDocumentId { get; init; }
-    public Guid? AiExecutionId { get; init; }
-    public string? OperationName { get; init; }
-    public string? ToolName { get; init; }
-    public Guid? ParentActivityId { get; init; }
 }

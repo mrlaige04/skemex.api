@@ -5,6 +5,7 @@ using Skemex.Application.Services.Users;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Helpers.Users;
 
 namespace Skemex.Application.Features.Queries.TenantSpecializations.GetTenantSpecializations;
 
@@ -34,7 +35,7 @@ public sealed class GetTenantSpecializationsQueryHandler(
         Id = specialization.Id,
         Title = specialization.Title,
         Description = specialization.Description,
-        DefaultSkills = TenantUserSkillMerge.NormalizeSkills(specialization.DefaultSkills),
+        DefaultSkills = TenantUserSkillMergeHelper.NormalizeSkills(specialization.DefaultSkills),
         CreatedAt = specialization.CreatedAt,
         UpdatedAt = specialization.UpdatedAt,
     };

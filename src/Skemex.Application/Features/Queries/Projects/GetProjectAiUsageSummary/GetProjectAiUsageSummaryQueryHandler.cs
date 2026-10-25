@@ -1,12 +1,17 @@
 using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
-using Skemex.Application.Models.Ai;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Enums;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Application.Models.Ai.Agents;
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
+using Skemex.Application.Models.Ai.Providers;
+using Skemex.Application.Models.Ai.Tools;
+using Skemex.Application.Models.Ai.Usage;
 
 namespace Skemex.Application.Features.Queries.Projects.GetProjectAiUsageSummary;
 

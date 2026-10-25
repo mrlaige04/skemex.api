@@ -4,13 +4,33 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Pgvector;
 using Skemex.Application.Configuration;
-using Skemex.Application.Services;
+using Skemex.Application.Configuration.Ai;
+using Skemex.Application.Configuration.App;
+using Skemex.Application.Configuration.Documents;
+using Skemex.Application.Configuration.Email;
+using Skemex.Application.Configuration.Rag;
+using Skemex.Application.Configuration.Storage;
+using Skemex.Application.Models.Documents;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
+using Skemex.Application.Services.Ai.Completions;
+using Skemex.Application.Services.Ai.Embeddings;
+using Skemex.Application.Services.Ai.Providers;
+using Skemex.Application.Services.Ai.Rag;
 using Skemex.Application.Services.Ai.Usage;
 using Skemex.Application.Services.Documents;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Enums;
+using Skemex.Domain.Events.Documents;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Infrastructure.Services;
+using Skemex.Domain.Consts;
+using Skemex.Application.Models.Ai.Agents;
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
+using Skemex.Application.Models.Ai.Providers;
+using Skemex.Application.Models.Ai.Tools;
+using Skemex.Application.Models.Ai.Usage;
 
 namespace Skemex.Infrastructure.Services.Documents;
 
@@ -18,12 +38,13 @@ public sealed class DocumentVectorizationService(
     ITenantRepository<ProjectDocument> documentRepository,
     ITenantRepository<ProjectDocumentChunk> chunkRepository,
     ITenantRepository<ProjectSettings> projectSettingsRepository,
+    ITenantRepository<Project> projectRepository,
     IProjectDocumentStorageService documentStorage,
     IDocumentTextExtractor textExtractor,
     ITextChunker textChunker,
     IDocumentChunkEnrichmentService chunkEnrichmentService,
     IEmbeddingService embeddingService,
-    IAiExecutionLifecycle executionLifecycle,
+    IAiExecutionService executionService,
     IOptions<DocumentIngestionOptions> ingestionOptions,
     ILogger<DocumentVectorizationService> logger) : IDocumentVectorizationService
 {
@@ -68,7 +89,7 @@ public sealed class DocumentVectorizationService(
             return;
         }
 
-        var execution = await executionLifecycle.CreatePendingAsync(
+        var execution = await executionService.CreatePendingAsync(
             new AiExecutionCreateRequest
             {
                 TenantId = tenantId,
@@ -80,7 +101,7 @@ public sealed class DocumentVectorizationService(
                 UserInput = document.FileName,
             },
             cancellationToken);
-        await executionLifecycle.MarkRunningAsync(execution.Id, cancellationToken);
+        await executionService.MarkRunningAsync(execution.Id, cancellationToken);
 
         using var usageScope = AmbientAiUsageContext.Use(
             correlationId: execution.Id,
@@ -101,8 +122,9 @@ public sealed class DocumentVectorizationService(
                 await MarkSkippedAsync(
                     document,
                     "Vectorization applies to PDF and DOCX files only.",
+                    requestedByUserId,
                     cancellationToken);
-                await executionLifecycle.CompleteAsync(
+                await executionService.CompleteAsync(
                     execution.Id,
                     new AiExecutionCompleteRequest
                     {
@@ -126,8 +148,9 @@ public sealed class DocumentVectorizationService(
                 await MarkFailedAsync(
                     document,
                     "No extractable text was found in the document.",
+                    requestedByUserId,
                     cancellationToken);
-                await executionLifecycle.CompleteAsync(
+                await executionService.CompleteAsync(
                     execution.Id,
                     new AiExecutionCompleteRequest
                     {
@@ -144,8 +167,9 @@ public sealed class DocumentVectorizationService(
                 await MarkFailedAsync(
                     document,
                     "Document text could not be split into chunks.",
+                    requestedByUserId,
                     cancellationToken);
-                await executionLifecycle.CompleteAsync(
+                await executionService.CompleteAsync(
                     execution.Id,
                     new AiExecutionCompleteRequest
                     {
@@ -186,9 +210,10 @@ public sealed class DocumentVectorizationService(
             document.VectorizationError = null;
             document.VectorizedChunkCount = enriched.Count;
             document.UpdatedAt = DateTime.UtcNow;
+            await RaiseFinishedAsync(document, requestedByUserId, cancellationToken);
             await documentRepository.UpdateAsync(document, cancellationToken);
 
-            await executionLifecycle.CompleteAsync(
+            await executionService.CompleteAsync(
                 execution.Id,
                 new AiExecutionCompleteRequest
                 {
@@ -209,8 +234,9 @@ public sealed class DocumentVectorizationService(
             await MarkFailedAsync(
                 document,
                 ex.Message,
+                requestedByUserId,
                 cancellationToken);
-            await executionLifecycle.CompleteAsync(
+            await executionService.CompleteAsync(
                 execution.Id,
                 new AiExecutionCompleteRequest
                 {
@@ -298,24 +324,59 @@ public sealed class DocumentVectorizationService(
     private async Task MarkSkippedAsync(
         ProjectDocument document,
         string? reason,
+        Guid requestedByUserId,
         CancellationToken cancellationToken)
     {
         document.VectorizationStatus = ProjectDocumentVectorizationStatus.Skipped;
         document.VectorizationError = reason is null ? null : Truncate(reason, 2000);
         document.VectorizedChunkCount = null;
         document.UpdatedAt = DateTime.UtcNow;
+        await RaiseFinishedAsync(document, requestedByUserId, cancellationToken);
         await documentRepository.UpdateAsync(document, cancellationToken);
     }
 
     private async Task MarkFailedAsync(
         ProjectDocument document,
         string error,
+        Guid requestedByUserId,
         CancellationToken cancellationToken)
     {
         document.VectorizationStatus = ProjectDocumentVectorizationStatus.Failed;
         document.VectorizationError = Truncate(error, 2000);
         document.VectorizedChunkCount = null;
         document.UpdatedAt = DateTime.UtcNow;
+        await RaiseFinishedAsync(document, requestedByUserId, cancellationToken);
         await documentRepository.UpdateAsync(document, cancellationToken);
+    }
+
+    private async Task RaiseFinishedAsync(
+        ProjectDocument document,
+        Guid requestedByUserId,
+        CancellationToken cancellationToken)
+    {
+        var projectCode = await ResolveProjectCodeAsync(document.ProjectId, cancellationToken);
+        document.RaiseEvent(
+            new DocumentVectorizationFinishedDomainEvent
+            {
+                DocumentId = document.Id,
+                ProjectId = document.ProjectId,
+                TenantId = document.TenantId,
+                UserId = requestedByUserId,
+                ProjectCode = projectCode,
+                FileName = document.FileName,
+                Status = document.VectorizationStatus,
+                Error = document.VectorizationError,
+                ChunkCount = document.VectorizedChunkCount,
+            });
+    }
+
+    private async Task<string?> ResolveProjectCodeAsync(
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var project = await projectRepository.GetAsync(
+            filter: entry => entry.Id == projectId,
+            cancellationToken: cancellationToken);
+        return string.IsNullOrWhiteSpace(project?.Code) ? null : project.Code;
     }
 }

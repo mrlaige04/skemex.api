@@ -1,12 +1,17 @@
 using ErrorOr;
 using Skemex.Application.Features.Abstractions;
-using Skemex.Application.Models.Ai;
-using Skemex.Application.Services.Ai;
+using Skemex.Application.Models.Ai.Agents;
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
+using Skemex.Application.Models.Ai.Providers;
+using Skemex.Application.Models.Ai.Tools;
+using Skemex.Application.Models.Ai.Usage;
 using Skemex.Application.Services.Ai.Usage;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Enums;
 using Skemex.Domain.Repositories.Abstractions;
+using Skemex.Application.Services.Ai.Agents;
 
 namespace Skemex.Application.Features.Commands.Ai.EnqueueAiAgentExecution;
 
@@ -18,7 +23,7 @@ public sealed class EnqueueAiAgentExecutionCommandHandler(
     ITenantRepository<AiAgentJob> jobRepository,
     IEnumerable<IAgentTool> tools,
     IAgentOrchestrator orchestrator,
-    IAiExecutionLifecycle executionLifecycle)
+    IAiExecutionService executionService)
     : ICommandHandler<EnqueueAiAgentExecutionCommand, AiAgentJobDto>
 {
     public async Task<ErrorOr<AiAgentJobDto>> Handle(
@@ -123,7 +128,7 @@ public sealed class EnqueueAiAgentExecutionCommandHandler(
                     ? AiExecutionSource.Ui
                     : AiExecutionSource.Api);
 
-        await executionLifecycle.CreatePendingAsync(
+        await executionService.CreatePendingAsync(
             new AiExecutionCreateRequest
             {
                 TenantId = request.TenantId,

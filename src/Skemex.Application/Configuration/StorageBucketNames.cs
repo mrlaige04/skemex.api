@@ -1,4 +1,5 @@
-using Skemex.Application.Services;
+using Skemex.Application.Configuration.Storage;
+using Skemex.Application.Models.Storage;
 
 namespace Skemex.Application.Configuration;
 

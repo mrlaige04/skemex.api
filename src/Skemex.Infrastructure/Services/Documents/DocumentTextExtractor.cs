@@ -1,14 +1,29 @@
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
-using Skemex.Application.Services;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
+using Skemex.Application.Services.Ai.Completions;
+using Skemex.Application.Services.Ai.Embeddings;
+using Skemex.Application.Services.Ai.Providers;
+using Skemex.Application.Services.Ai.Rag;
+using Skemex.Application.Services.Ai.Usage;
+using Skemex.Application.Services.Common;
+using Skemex.Application.Services.Documents;
+using Skemex.Application.Services.Email;
+using Skemex.Application.Services.Encryption;
+using Skemex.Application.Services.Notifications;
+using Skemex.Application.Services.Projects;
+using Skemex.Application.Services.Storage;
+using Skemex.Application.Services.Users;
 using UglyToad.PdfPig;
+using Skemex.Application.Helpers.Documents;
 
 namespace Skemex.Infrastructure.Services.Documents;
 
 public sealed class DocumentTextExtractor : IDocumentTextExtractor
 {
     public bool CanExtract(string fileName, string contentType) =>
-        DocumentVectorizationFormats.IsSupported(fileName, contentType);
+        DocumentVectorizationFormatsHelper.IsSupported(fileName, contentType);
 
     public Task<string> ExtractAsync(
         Stream content,

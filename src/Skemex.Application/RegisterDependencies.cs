@@ -1,6 +1,7 @@
 ﻿using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Skemex.Application.Events.Abstractions;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Features.Behaviours;
 using Skemex.Application.Services.Projects;
@@ -22,9 +23,13 @@ public static class RegisterDependencies
                 .WithScopedLifetime()
             .AddClasses(classes => classes.AssignableTo(typeof(ICommandHandler<>)), publicOnly: false)
                 .AsImplementedInterfaces()
+                .WithScopedLifetime()
+            .AddClasses(classes => classes.AssignableTo(typeof(IDomainEventHandler<>)), publicOnly: false)
+                .AsImplementedInterfaces()
                 .WithScopedLifetime());
 
         services.AddScoped<ISender, Sender>();
+        services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
         services.AddScoped<TenantColumnSeeder>();
         services.AddScoped<ProjectColumnSeeder>();
         services.AddTransient(typeof(IBehaviour<,>), typeof(LoggingBehaviour<,>));

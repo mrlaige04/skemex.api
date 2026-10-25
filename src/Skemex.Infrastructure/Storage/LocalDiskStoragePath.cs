@@ -1,5 +1,11 @@
 using Microsoft.Extensions.Hosting;
 using Skemex.Application.Configuration;
+using Skemex.Application.Configuration.Ai;
+using Skemex.Application.Configuration.App;
+using Skemex.Application.Configuration.Documents;
+using Skemex.Application.Configuration.Email;
+using Skemex.Application.Configuration.Rag;
+using Skemex.Application.Configuration.Storage;
 
 namespace Skemex.Infrastructure.Storage;
 
