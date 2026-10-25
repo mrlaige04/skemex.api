@@ -25,6 +25,7 @@ using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Infrastructure.Authentication;
+using Skemex.Infrastructure.Authentication.External;
 using Skemex.Infrastructure.Authentication.Services;
 using Skemex.Infrastructure.Authentication.Tokens;
 using Skemex.Infrastructure.Data;
@@ -395,6 +396,19 @@ public static class RegisterDependencies
         ReplaceGlobalRoleValidatorWithTenantScoped(services);
 
         services.AddScoped<TokenService>();
+        services.AddScoped<AuthLoginSessionBuilder>();
+        AddExternalAuth(services, configuration);
+    }
+
+    private static void AddExternalAuth(IServiceCollection services, IConfiguration configuration)
+    {
+        services.Configure<ExternalAuthOptions>(configuration.GetSection(ExternalAuthOptions.SectionName));
+        services.AddMemoryCache();
+        services.AddHttpClient(nameof(GoogleExternalAuthProvider));
+        services.AddHttpClient(nameof(GitHubExternalAuthProvider));
+        services.AddSingleton<IExternalAuthProvider, GoogleExternalAuthProvider>();
+        services.AddSingleton<IExternalAuthProvider, GitHubExternalAuthProvider>();
+        services.AddScoped<IExternalAuthService, ExternalAuthService>();
     }
 
     private static void ReplaceGlobalRoleValidatorWithTenantScoped(IServiceCollection services)

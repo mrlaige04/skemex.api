@@ -5,6 +5,7 @@ using Skemex.Application.Features.Commands.Users.DeleteUserProfileImage;
 using Skemex.Application.Features.Commands.Users.UpdateUserProfile;
 using Skemex.Application.Features.Queries.Users.GetCurrentUserProfile;
 using Skemex.Application.Features.Queries.Users.GetProfileAvatarUrl;
+using Skemex.Infrastructure.Authentication.External;
 using Skemex.Infrastructure.Authentication.ForgotPassword;
 using Skemex.Infrastructure.Authentication.Invitations;
 using Skemex.Infrastructure.Authentication.Login;
@@ -12,13 +13,66 @@ using Skemex.Infrastructure.Authentication.RefreshToken;
 using Skemex.Infrastructure.Authentication.Register;
 using Skemex.Infrastructure.Authentication.SelectTenant;
 using Skemex.Infrastructure.Authentication.Session;
+using Skemex.Web.Models.Auth;
 using Skemex.Web.Models.Users;
 
 namespace Skemex.Web.Controllers;
 
 [Route("api/auth")]
-public class AuthController(ISender sender) : BaseController
+public class AuthController(
+    ISender sender,
+    IExternalAuthService externalAuthService) : BaseController
 {
+    [HttpGet("external/providers")]
+    [AllowAnonymous]
+    public IActionResult ListExternalProviders() =>
+        Ok(externalAuthService.ListConfiguredProviders());
+
+    [HttpGet("external/{provider}/start")]
+    [AllowAnonymous]
+    public IActionResult StartExternalLogin(string provider)
+    {
+        var result = externalAuthService.BuildStartRedirect(provider);
+        if (result.IsError)
+        {
+            return Problem(result.Errors);
+        }
+
+        return Redirect(result.Value.ToString());
+    }
+
+    [HttpGet("external/{provider}/callback")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ExternalLoginCallback(
+        string provider,
+        [FromQuery] string? code,
+        [FromQuery] string? state,
+        [FromQuery] string? error,
+        [FromQuery(Name = "error_description")] string? errorDescription,
+        CancellationToken cancellationToken)
+    {
+        var redirect = await externalAuthService.HandleCallbackAsync(
+            provider,
+            code,
+            state,
+            error,
+            errorDescription,
+            cancellationToken);
+        return Redirect(redirect.ToString());
+    }
+
+    [HttpPost("external/exchange")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ExchangeExternalLogin(
+        [FromBody] ExchangeExternalLoginRequest? body,
+        CancellationToken cancellationToken)
+    {
+        var result = await externalAuthService.ExchangeAsync(
+            body?.Code ?? string.Empty,
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
     [HttpGet("me")]
     [Authorize]
     public async Task<IActionResult> GetCurrentUser(CancellationToken cancellationToken)
