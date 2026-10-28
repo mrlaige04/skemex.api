@@ -49,6 +49,7 @@ using Skemex.Infrastructure.Data.Interceptors;
 using Skemex.Infrastructure.Email;
 using Skemex.Infrastructure.Services;
 using Skemex.Infrastructure.Services.Ai;
+using Skemex.Infrastructure.Services.Ai.Chat;
 using Skemex.Infrastructure.Services.Ai.Providers;
 using Skemex.Infrastructure.Services.Ai.Tools;
 using Skemex.Infrastructure.Services.Ai.Usage;
@@ -115,6 +116,9 @@ public static class RegisterDependencies
         services.AddScoped<IAiExecutionService, AiExecutionService>();
         services.AddSingleton<IAiUsageQuotaEvaluator, AllowAllAiUsageQuotaEvaluator>();
         services.AddScoped<IAgentOrchestrator, AgentOrchestrator>();
+        services.AddScoped<IAiChatProgressWriter, AiChatProgressWriter>();
+        services.AddScoped<IAiChatAttachmentStore, AiChatAttachmentStore>();
+        services.AddScoped<IAiChatArtefactResolver, AiChatArtefactResolver>();
         services.AddScoped<IAiModelCatalogService, AiModelCatalogService>();
         services.AddScoped<IAiProviderResolver, AiProviderResolver>();
 
@@ -333,6 +337,12 @@ public static class RegisterDependencies
                 {
                     throw new InvalidOperationException(
                         "Storage:Minio:IssueAttachmentsBucket is required when Storage:Provider is Production.");
+                }
+
+                if (string.IsNullOrWhiteSpace(opts.AiChatAttachmentsBucket))
+                {
+                    throw new InvalidOperationException(
+                        "Storage:Minio:AiChatAttachmentsBucket is required when Storage:Provider is Production.");
                 }
 
                 return SkemexMinioClientFactory.Create(

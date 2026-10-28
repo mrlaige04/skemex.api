@@ -1,11 +1,15 @@
+using System.Text.Json;
 using ErrorOr;
 using Skemex.Application.Features.Abstractions;
+using Skemex.Application.Helpers.Ai;
 using Skemex.Application.Models.Ai.Agents;
 using Skemex.Application.Models.Ai.Chat;
 using Skemex.Application.Models.Ai.Completions;
 using Skemex.Application.Models.Ai.Providers;
 using Skemex.Application.Models.Ai.Tools;
 using Skemex.Application.Models.Ai.Usage;
+using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
 using Skemex.Application.Services.Ai.Usage;
 using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Ai;
@@ -13,7 +17,6 @@ using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Enums;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
-using Skemex.Application.Services.Ai.Agents;
 
 namespace Skemex.Application.Features.Commands.Ai.EnqueueAiAgentExecution;
 
@@ -26,17 +29,40 @@ public sealed class EnqueueAiAgentExecutionCommandHandler(
     ITenantRepository<AiAgentJob> jobRepository,
     IEnumerable<IAgentTool> tools,
     IAgentOrchestrator orchestrator,
-    IAiExecutionService executionService)
+    IAiExecutionService executionService,
+    IAiChatAttachmentStore attachmentStore)
     : ICommandHandler<EnqueueAiAgentExecutionCommand, AiAgentJobDto>
 {
+    private static readonly JsonSerializerOptions AttachmentJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
     public async Task<ErrorOr<AiAgentJobDto>> Handle(
         EnqueueAiAgentExecutionCommand request,
         CancellationToken cancellationToken)
     {
         var userInput = request.UserInput?.Trim() ?? string.Empty;
-        if (userInput.Length == 0)
+        var uploads = request.Attachments ?? [];
+        if (userInput.Length == 0 && uploads.Count == 0)
         {
-            return Error.Validation("Ai.UserInputRequired", "User input is required.");
+            return Error.Validation(
+                "Ai.UserInputRequired",
+                "Add a message or attach at least one file.");
+        }
+
+        if (uploads.Count > AiChatAttachmentRules.MaxFilesPerMessage)
+        {
+            return Error.Validation(
+                "Ai.TooManyAttachments",
+                $"You can attach at most {AiChatAttachmentRules.MaxFilesPerMessage} files per message.");
+        }
+
+        if (uploads.Count > 0 && request.ChatId is null)
+        {
+            return Error.Validation(
+                "Ai.ChatRequiredForAttachments",
+                "Attachments can only be saved on a chat message.");
         }
 
         if (!string.IsNullOrWhiteSpace(request.ToolName))
@@ -74,6 +100,7 @@ public sealed class EnqueueAiAgentExecutionCommandHandler(
             }
         }
 
+        Guid? userMessageId = null;
         if (request.ChatId is { } chatId)
         {
             if (request.ProjectId is null)
@@ -89,22 +116,25 @@ public sealed class EnqueueAiAgentExecutionCommandHandler(
                 return Error.NotFound("AiChat.NotFound", "Chat was not found.");
             }
 
-            await messageRepository.AddAsync(
-                new AiChatMessage
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = request.TenantId,
-                    ChatId = chat.Id,
-                    Role = AiChatMessageRole.User,
-                    Content = userInput,
-                },
-                cancellationToken);
+            var message = new AiChatMessage
+            {
+                Id = Guid.NewGuid(),
+                TenantId = request.TenantId,
+                ChatId = chat.Id,
+                Role = AiChatMessageRole.User,
+                Content = BuildUserMessageContent(userInput, uploads.Select(file => file.FileName)),
+            };
+            await messageRepository.AddAsync(message, cancellationToken);
+            userMessageId = message.Id;
 
             if (string.Equals(chat.Title, "New chat", StringComparison.Ordinal))
             {
-                chat.Title = userInput.Length > 48
-                    ? $"{userInput[..45].TrimEnd()}…"
-                    : userInput;
+                var titleSource = userInput.Length > 0
+                    ? userInput
+                    : uploads[0].FileName;
+                chat.Title = titleSource.Length > 48
+                    ? $"{titleSource[..45].TrimEnd()}…"
+                    : titleSource;
                 await chatRepository.UpdateAsync(chat, cancellationToken);
             }
         }
@@ -117,13 +147,54 @@ public sealed class EnqueueAiAgentExecutionCommandHandler(
             RequestedByUserId = request.UserId,
             AiChatId = request.ChatId,
             ToolName = string.IsNullOrWhiteSpace(request.ToolName) ? null : request.ToolName.Trim(),
-            UserInput = userInput,
+            UserInput = userInput.Length > 0
+                ? userInput
+                : "Please review the attached file(s).",
             ArgumentsJson = string.IsNullOrWhiteSpace(request.ArgumentsJson)
                 ? null
                 : request.ArgumentsJson,
             Model = string.IsNullOrWhiteSpace(request.Model) ? null : request.Model.Trim(),
             Status = AiAgentJobStatus.Pending,
         };
+
+        if (uploads.Count > 0)
+        {
+            try
+            {
+                var saved = await attachmentStore
+                    .SaveFilesAsync(
+                        request.TenantId,
+                        request.ChatId!.Value,
+                        userMessageId!.Value,
+                        uploads,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (saved.IsError)
+                {
+                    return saved.Errors;
+                }
+
+                job.AttachmentsJson = JsonSerializer.Serialize(saved.Value, AttachmentJsonOptions);
+            }
+            finally
+            {
+                foreach (var upload in uploads)
+                {
+                    await upload.Content.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+        }
+
+        var artefacts = (request.Artefacts ?? [])
+            .Where(item => item.Number > 0 && item.EntityId != Guid.Empty)
+            .GroupBy(item => item.Number)
+            .Select(group => group.First())
+            .OrderBy(item => item.Number)
+            .ToList();
+        if (artefacts.Count > 0)
+        {
+            job.ArtefactsJson = JsonSerializer.Serialize(artefacts, AttachmentJsonOptions);
+        }
 
         await jobRepository.AddAsync(job, cancellationToken);
 
@@ -154,5 +225,25 @@ public sealed class EnqueueAiAgentExecutionCommandHandler(
         await jobRepository.UpdateAsync(job, cancellationToken);
 
         return AiAgentJobDto.FromEntity(job);
+    }
+
+    private static string BuildUserMessageContent(string userInput, IEnumerable<string> fileNames)
+    {
+        var names = fileNames
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Cast<string>()
+            .ToList();
+
+        if (names.Count == 0)
+        {
+            return userInput;
+        }
+
+        var attachmentLine = $"Attached: {string.Join(", ", names)}";
+        return string.IsNullOrWhiteSpace(userInput)
+            ? attachmentLine
+            : $"{userInput}{Environment.NewLine}{Environment.NewLine}{attachmentLine}";
     }
 }

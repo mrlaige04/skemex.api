@@ -44,6 +44,7 @@ public sealed class AiService(
                     UserPrompt = request.UserPrompt,
                     Model = modelExternalId,
                     PreferJsonObject = request.PreferJsonObject,
+                    Attachments = request.Attachments,
                 },
                 cancellationToken)
             .ConfigureAwait(false);

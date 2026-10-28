@@ -19,7 +19,9 @@ using Skemex.Application.Models.Ai.Usage;
 using Skemex.Application.Models.Rag;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
+using Skemex.Application.Helpers.Ai;
 using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
 using Skemex.Application.Services.Ai.Completions;
 using Skemex.Application.Services.Ai.Rag;
 using Skemex.Domain.Consts;
@@ -36,6 +38,7 @@ public sealed class ProjectQaTool(
     IAiService aiService,
     IAiSemanticRetry semanticRetry,
     IOptions<RagSettings> ragSettings,
+    IAiChatProgressWriter progressWriter,
     ILogger<ProjectQaTool> logger)
     : BaseAgentTool(projectSettingsRepository, ragContextService, aiService, logger)
 {
@@ -114,23 +117,13 @@ public sealed class ProjectQaTool(
     {
         if (!TryParseArgs(directArgs, out var args, out var error))
         {
-            return new AiToolExecutionResult(
-                false,
-                null,
-                ArtifactTypeName,
-                null,
-                error ?? "Invalid project_qa arguments.");
+            return Fail(error ?? "I couldn't read that question. Please try again.");
         }
 
         var validationError = ValidateArgs(args);
         if (validationError is not null)
         {
-            return new AiToolExecutionResult(
-                false,
-                null,
-                ArtifactTypeName,
-                null,
-                validationError);
+            return Fail(validationError);
         }
 
         var payload = JsonSerializer.Serialize(args, JsonOptions);
@@ -144,7 +137,7 @@ public sealed class ProjectQaTool(
     {
         if (!TryParseArgs(preparedContext.ArgumentsJson, out var args, out var parseError))
         {
-            return Fail(parseError ?? "Invalid project_qa arguments.");
+            return Fail(parseError ?? "I couldn't read that question. Please try again.");
         }
 
         var validationError = ValidateArgs(args);
@@ -159,10 +152,17 @@ public sealed class ProjectQaTool(
 
         if (args.SearchDocumentation)
         {
+            await progressWriter.WriteAsync(
+                executionContext.TenantId,
+                executionContext.ChatId,
+                "Searching project documentation…",
+                cancellationToken).ConfigureAwait(false);
+
             var docResult = await RetrieveDocumentationAsync(
                     projectId,
                     args.RefinedQueryEn!,
                     args.Keywords!,
+                    executionContext.ArtefactRefs.GetDocumentIds(),
                     cancellationToken)
                 .ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(docResult.ContextBlock))
@@ -175,6 +175,12 @@ public sealed class ProjectQaTool(
 
         if (args.SearchProjectTasks)
         {
+            await progressWriter.WriteAsync(
+                executionContext.TenantId,
+                executionContext.ChatId,
+                "Checking related tasks…",
+                cancellationToken).ConfigureAwait(false);
+
             var taskQuery = !string.IsNullOrWhiteSpace(args.TaskSearchQuery)
                 ? args.TaskSearchQuery!
                 : args.UserQuery;
@@ -198,7 +204,16 @@ public sealed class ProjectQaTool(
         var promptUserRequest = !string.IsNullOrWhiteSpace(executionContext.UserInput)
             ? executionContext.UserInput
             : args.UserQuery;
-        var userPrompt = BuildUserPrompt(promptUserRequest, contextSections);
+        var userPrompt = BuildUserPrompt(
+            promptUserRequest,
+            contextSections,
+            executionContext.ArtefactContext);
+
+        await progressWriter.WriteAsync(
+            executionContext.TenantId,
+            executionContext.ChatId,
+            "Writing the answer…",
+            cancellationToken).ConfigureAwait(false);
 
         string answerMarkdown;
         try
@@ -214,6 +229,7 @@ public sealed class ProjectQaTool(
                                 UserPrompt = userPrompt,
                                 Model = preparedContext.ModelExternalId,
                                 PreferJsonObject = false,
+                                Attachments = executionContext.CompletionAttachments,
                             },
                             ct);
 
@@ -236,12 +252,17 @@ public sealed class ProjectQaTool(
                 "project_qa semantic retries exhausted for project {ProjectId}: {Reason}",
                 projectId,
                 ex.Reason);
-            return new AiToolExecutionResult(
-                false,
-                null,
-                ArtifactTypeName,
-                null,
-                ex.Reason);
+            var friendly = AiUserFacingError.AnswerFailed;
+            return new AiToolExecutionResult(false, friendly, ArtifactTypeName, null, friendly);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogWarning(
+                ex,
+                "project_qa completion failed for project {ProjectId}",
+                projectId);
+            var friendly = AiUserFacingError.FromException(ex);
+            return new AiToolExecutionResult(false, friendly, ArtifactTypeName, null, friendly);
         }
 
         var artifact = new ProjectQaAnswerArtifact
@@ -261,6 +282,7 @@ public sealed class ProjectQaTool(
         Guid projectId,
         string refinedQueryEn,
         IReadOnlyList<string> keywords,
+        IReadOnlyList<Guid> excludeDocumentIds,
         CancellationToken cancellationToken)
     {
         var matches = await RagContextService
@@ -270,6 +292,8 @@ public sealed class ProjectQaTool(
                 {
                     RefinedQueryEn = refinedQueryEn,
                     Keywords = keywords,
+                    // Mentioned documents are attached in full — skip duplicate RAG chunks.
+                    ExcludeDocumentIds = excludeDocumentIds,
                 },
                 cancellationToken)
             .ConfigureAwait(false);
@@ -414,7 +438,10 @@ public sealed class ProjectQaTool(
         return builder.ToString().TrimEnd();
     }
 
-    private static string BuildUserPrompt(string userQuery, IReadOnlyList<string> contextSections)
+    private static string BuildUserPrompt(
+        string userQuery,
+        IReadOnlyList<string> contextSections,
+        string? artefactContext = null)
     {
         var parts = new List<string>();
         var nonEmpty = contextSections
@@ -422,16 +449,28 @@ public sealed class ProjectQaTool(
             .Select(section => section.Trim())
             .ToList();
 
+        parts.Add("### CONTEXT");
+        if (!string.IsNullOrWhiteSpace(artefactContext))
+        {
+            parts.Add(artefactContext.Trim());
+            if (nonEmpty.Count > 0)
+            {
+                parts.Add(string.Empty);
+            }
+        }
+
         if (nonEmpty.Count > 0)
         {
-            parts.Add("### CONTEXT");
             parts.Add(string.Join(Environment.NewLine + Environment.NewLine, nonEmpty));
+            parts.Add(string.Empty);
+        }
+        else if (string.IsNullOrWhiteSpace(artefactContext))
+        {
+            parts.Add("(No matching documentation excerpts or project tasks were retrieved.)");
             parts.Add(string.Empty);
         }
         else
         {
-            parts.Add("### CONTEXT");
-            parts.Add("(No matching documentation excerpts or project tasks were retrieved.)");
             parts.Add(string.Empty);
         }
 
@@ -444,19 +483,19 @@ public sealed class ProjectQaTool(
     {
         if (string.IsNullOrWhiteSpace(args.UserQuery))
         {
-            return "userQuery is required.";
+            return "Please ask a question about this project.";
         }
 
         if (!args.SearchDocumentation && !args.SearchProjectTasks)
         {
-            return "At least one of searchDocumentation or searchProjectTasks must be true.";
+            return "I need a clearer question about documentation or project tasks.";
         }
 
         if (args.SearchDocumentation)
         {
             if (string.IsNullOrWhiteSpace(args.RefinedQueryEn))
             {
-                return "refinedQueryEn is required when searchDocumentation is true.";
+                return "I couldn't prepare a documentation search for that. Try rephrasing.";
             }
 
             var keywords = args.Keywords?
@@ -467,7 +506,7 @@ public sealed class ProjectQaTool(
 
             if (keywords.Count is < 4 or > 8)
             {
-                return "keywords must contain 4 to 8 non-empty strings when searchDocumentation is true.";
+                return "I couldn't prepare a documentation search for that. Try rephrasing.";
             }
 
             args.Keywords = keywords;
@@ -487,7 +526,7 @@ public sealed class ProjectQaTool(
 
         if (string.IsNullOrWhiteSpace(argumentsJson))
         {
-            error = "Arguments JSON is required.";
+            error = "I couldn't read that question. Please try again.";
             return false;
         }
 
@@ -498,7 +537,7 @@ public sealed class ProjectQaTool(
         }
         catch (JsonException)
         {
-            error = "Arguments JSON is invalid.";
+            error = "I couldn't read that question. Please try again.";
             return false;
         }
     }
@@ -513,7 +552,7 @@ public sealed class ProjectQaTool(
 
         if (root.ValueKind != JsonValueKind.Object)
         {
-            error = "Arguments must be a JSON object.";
+            error = "I couldn't read that question. Please try again.";
             return false;
         }
 

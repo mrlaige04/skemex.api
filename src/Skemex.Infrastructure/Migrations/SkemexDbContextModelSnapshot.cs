@@ -178,6 +178,9 @@ namespace Skemex.Infrastructure.Migrations
                     b.Property<string>("ArgumentsJson")
                         .HasColumnType("text");
 
+                    b.Property<string>("ArtefactsJson")
+                        .HasColumnType("text");
+
                     b.Property<string>("ArtifactPayloadJson")
                         .HasColumnType("text");
 
@@ -186,6 +189,9 @@ namespace Skemex.Infrastructure.Migrations
                         .HasColumnType("character varying(64)");
 
                     b.Property<string>("AssistantMessage")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AttachmentsJson")
                         .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
@@ -324,6 +330,56 @@ namespace Skemex.Infrastructure.Migrations
                     b.HasIndex("TenantId", "ChatId");
 
                     b.ToTable("ai_chat_messages", (string)null);
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiChatMessageAttachment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BlobId")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<Guid>("ChatId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<long>("FileSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChatId", "CreatedAt");
+
+                    b.HasIndex("MessageId", "CreatedAt");
+
+                    b.HasIndex("TenantId", "ChatId");
+
+                    b.ToTable("ai_chat_message_attachments", (string)null);
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiExecution", b =>
@@ -1830,6 +1886,25 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("RootTask");
                 });
 
+            modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiChatMessageAttachment", b =>
+                {
+                    b.HasOne("Skemex.Domain.Entities.Ai.AiChat", "Chat")
+                        .WithMany()
+                        .HasForeignKey("ChatId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Skemex.Domain.Entities.Ai.AiChatMessage", "Message")
+                        .WithMany("Attachments")
+                        .HasForeignKey("MessageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Chat");
+
+                    b.Navigation("Message");
+                });
+
             modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiExecution", b =>
                 {
                     b.HasOne("Skemex.Domain.Entities.Ai.AiAgentJob", "AiAgentJob")
@@ -2282,6 +2357,11 @@ namespace Skemex.Infrastructure.Migrations
             modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiChat", b =>
                 {
                     b.Navigation("Messages");
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiChatMessage", b =>
+                {
+                    b.Navigation("Attachments");
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Ai.AiExecution", b =>

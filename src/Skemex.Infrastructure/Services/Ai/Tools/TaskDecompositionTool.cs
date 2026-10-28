@@ -19,8 +19,10 @@ using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Infrastructure.Data;
 using Skemex.Infrastructure.Services;
 using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Helpers.Ai;
 using Skemex.Application.Helpers.Projects;
 using Skemex.Application.Helpers.Users;
+using Skemex.Application.Services.Ai.Chat;
 using Skemex.Application.Services.Ai.Completions;
 using Skemex.Domain.Consts;
 using Skemex.Application.Services.Ai.Rag;
@@ -37,6 +39,7 @@ public sealed partial class TaskDecompositionTool(
     IAiService aiService,
     IAiSemanticRetry semanticRetry,
     IProjectRagContextService ragContextService,
+    IAiChatProgressWriter progressWriter,
     SkemexDbContext dbContext,
     ILogger<TaskDecompositionTool> logger)
     : BaseAgentTool(projectSettingsRepository, ragContextService, aiService, logger)
@@ -230,12 +233,7 @@ public sealed partial class TaskDecompositionTool(
 
         if (string.IsNullOrWhiteSpace(userInput))
         {
-            return new AiToolExecutionResult(
-                false,
-                null,
-                "task_tree",
-                null,
-                "userInput is required for task decomposition.");
+            return Fail("Please describe the goal you want broken into tasks.");
         }
 
         var payload = JsonSerializer.Serialize(
@@ -266,7 +264,7 @@ public sealed partial class TaskDecompositionTool(
                 out var keywords,
                 out var parseError))
         {
-            return new AiToolExecutionResult(false, null, "task_tree", null, parseError);
+            return Fail(parseError ?? "Please describe the goal you want broken into tasks.");
         }
 
         var assignmentContext = await BuildAssignmentContextAsync(
@@ -288,11 +286,18 @@ public sealed partial class TaskDecompositionTool(
         var ragContext = executionContext.RagContext;
         if (string.IsNullOrWhiteSpace(ragContext))
         {
+            await progressWriter.WriteAsync(
+                executionContext.TenantId,
+                executionContext.ChatId,
+                "Gathering related project context…",
+                cancellationToken).ConfigureAwait(false);
+
             ragContext = await ResolveRagContextAsync(
                     projectId,
                     refinedQueryEn,
                     keywords,
                     userInput,
+                    executionContext.ArtefactRefs.GetDocumentIds(),
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -308,7 +313,17 @@ public sealed partial class TaskDecompositionTool(
         var promptUserRequest = !string.IsNullOrWhiteSpace(executionContext.UserInput)
             ? executionContext.UserInput
             : userInput;
-        var userPrompt = BuildUserPrompt(promptUserRequest, ragContext, dynamicContext);
+        var userPrompt = BuildUserPrompt(
+            promptUserRequest,
+            ragContext,
+            dynamicContext,
+            executionContext.ArtefactContext);
+
+        await progressWriter.WriteAsync(
+            executionContext.TenantId,
+            executionContext.ChatId,
+            "Drafting the task tree…",
+            cancellationToken).ConfigureAwait(false);
 
         AiTaskTreeResponse tree;
         try
@@ -324,6 +339,7 @@ public sealed partial class TaskDecompositionTool(
                                 UserPrompt = userPrompt,
                                 Model = preparedContext.ModelExternalId,
                                 PreferJsonObject = true,
+                                Attachments = executionContext.CompletionAttachments,
                             },
                             ct);
 
@@ -346,22 +362,47 @@ public sealed partial class TaskDecompositionTool(
                 "Task decomposition semantic retries exhausted for project {ProjectId}: {Reason}",
                 projectId,
                 ex.Reason);
-            return new AiToolExecutionResult(
-                false,
-                $"Decomposition failed: {ex.Reason}",
-                "task_tree",
-                null,
-                ex.Reason);
+            var friendly = AiUserFacingError.DecompositionFailed;
+            return new AiToolExecutionResult(false, friendly, "task_tree", null, friendly);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogWarning(
+                ex,
+                "Task decomposition completion failed for project {ProjectId}",
+                projectId);
+            var friendly = AiUserFacingError.FromException(ex);
+            return new AiToolExecutionResult(false, friendly, "task_tree", null, friendly);
         }
 
-        var rootTaskId = await CreateTaskTreeAsync(
-                executionContext.TenantId,
-                projectId,
-                executionContext.UserId,
-                tree,
-                assignmentContext.ValidAssigneeIds,
-                cancellationToken)
-            .ConfigureAwait(false);
+        await progressWriter.WriteAsync(
+            executionContext.TenantId,
+            executionContext.ChatId,
+            "Creating tasks on the board…",
+            cancellationToken).ConfigureAwait(false);
+
+        Guid rootTaskId;
+        try
+        {
+            rootTaskId = await CreateTaskTreeAsync(
+                    executionContext.TenantId,
+                    projectId,
+                    executionContext.UserId,
+                    tree,
+                    assignmentContext.ValidAssigneeIds,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogError(
+                ex,
+                "Failed to persist task tree for project {ProjectId}",
+                projectId);
+            var friendly =
+                "I prepared a task breakdown, but couldn't save it to the board. Please try again.";
+            return new AiToolExecutionResult(false, friendly, "task_tree", null, friendly);
+        }
 
         var rootTask = await projectTaskRepository.GetAsync(
             filter: task => task.Id == rootTaskId,
@@ -439,6 +480,7 @@ public sealed partial class TaskDecompositionTool(
         string? refinedQueryEn,
         IReadOnlyList<string>? keywords,
         string userInputFallback,
+        IReadOnlyList<Guid> excludeDocumentIds,
         CancellationToken cancellationToken)
     {
         var query = !string.IsNullOrWhiteSpace(refinedQueryEn)
@@ -452,6 +494,8 @@ public sealed partial class TaskDecompositionTool(
                 {
                     RefinedQueryEn = query,
                     Keywords = keywords ?? [],
+                    // Mentioned documents are attached in full — skip duplicate RAG chunks.
+                    ExcludeDocumentIds = excludeDocumentIds,
                 },
                 cancellationToken)
             .ConfigureAwait(false);
@@ -482,7 +526,7 @@ public sealed partial class TaskDecompositionTool(
 
             if (string.IsNullOrWhiteSpace(userInput))
             {
-                error = "userInput is required for task decomposition.";
+                error = "Please describe the goal you want broken into tasks.";
                 return false;
             }
 
@@ -490,7 +534,7 @@ public sealed partial class TaskDecompositionTool(
         }
         catch (JsonException)
         {
-            error = "Arguments JSON is invalid.";
+            error = "I couldn't read that request. Please try again.";
             return false;
         }
     }
@@ -562,23 +606,36 @@ public sealed partial class TaskDecompositionTool(
     private static string BuildUserPrompt(
         string userInput,
         string? ragContext,
-        string? dynamicToolContext)
+        string? dynamicToolContext,
+        string? artefactContext = null)
     {
         var parts = new List<string>();
         var hasContext = !string.IsNullOrWhiteSpace(ragContext)
-            || !string.IsNullOrWhiteSpace(dynamicToolContext);
+            || !string.IsNullOrWhiteSpace(dynamicToolContext)
+            || !string.IsNullOrWhiteSpace(artefactContext);
 
         if (hasContext)
         {
             parts.Add("### CONTEXT");
+            if (!string.IsNullOrWhiteSpace(artefactContext))
+            {
+                parts.Add(artefactContext.Trim());
+            }
+
             if (!string.IsNullOrWhiteSpace(dynamicToolContext))
             {
+                if (!string.IsNullOrWhiteSpace(artefactContext))
+                {
+                    parts.Add(string.Empty);
+                }
+
                 parts.Add(dynamicToolContext.Trim());
             }
 
             if (!string.IsNullOrWhiteSpace(ragContext))
             {
-                if (!string.IsNullOrWhiteSpace(dynamicToolContext))
+                if (!string.IsNullOrWhiteSpace(dynamicToolContext)
+                    || !string.IsNullOrWhiteSpace(artefactContext))
                 {
                     parts.Add(string.Empty);
                 }

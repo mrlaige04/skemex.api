@@ -8,4 +8,9 @@ public sealed class RagSearchRequest
 
     /// <summary>Technical English keywords for GIN array-overlap matching.</summary>
     public IReadOnlyList<string> Keywords { get; init; } = [];
+
+    /// <summary>
+    /// Project document IDs to skip (e.g. documents already attached via chat artefacts).
+    /// </summary>
+    public IReadOnlyList<Guid> ExcludeDocumentIds { get; init; } = [];
 }

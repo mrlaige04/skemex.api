@@ -12,6 +12,7 @@ public sealed class AiChatMessageDto
     public string? RootTaskCode { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public IReadOnlyList<AiChatMessageAttachmentDto> Attachments { get; set; } = [];
 
     public static AiChatMessageDto FromEntity(AiChatMessage message) =>
         new()
@@ -24,5 +25,9 @@ public sealed class AiChatMessageDto
             RootTaskCode = message.RootTask?.Code,
             CreatedAt = message.CreatedAt,
             UpdatedAt = message.UpdatedAt,
+            Attachments = message.Attachments
+                .OrderBy(entry => entry.CreatedAt)
+                .Select(AiChatMessageAttachmentDto.FromEntity)
+                .ToList(),
         };
 }

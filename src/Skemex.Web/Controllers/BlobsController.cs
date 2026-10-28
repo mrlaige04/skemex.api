@@ -60,6 +60,13 @@ public sealed class BlobsController(IBlobStorageService storage, IOptions<Storag
     public Task<IActionResult> GetIssueAttachments(string blobPath, CancellationToken cancellationToken) =>
         Get(StorageBucketKind.IssueAttachments, blobPath, cancellationToken);
 
+    [HttpGet("/api/blobs/ai-chat-attachments/{**blobPath}")]
+    [HttpGet("/blobs/ai-chat-attachments/{**blobPath}")]
+    [AllowAnonymous]
+    [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any)]
+    public Task<IActionResult> GetAiChatAttachments(string blobPath, CancellationToken cancellationToken) =>
+        Get(StorageBucketKind.AiChatAttachments, blobPath, cancellationToken);
+
     [HttpGet("/api/blobs/{**blobPath}")]
     [HttpGet("/blobs/{**blobPath}")]
     [AllowAnonymous]

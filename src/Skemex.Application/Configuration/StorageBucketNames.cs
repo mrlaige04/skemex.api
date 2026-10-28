@@ -15,6 +15,7 @@ public static class StorageBucketNames
                 StorageBucketKind.Files => options.Minio.FilesBucket,
                 StorageBucketKind.ProjectDocuments => options.Minio.ProjectDocumentsBucket,
                 StorageBucketKind.IssueAttachments => options.Minio.IssueAttachmentsBucket,
+                StorageBucketKind.AiChatAttachments => options.Minio.AiChatAttachmentsBucket,
                 _ => throw new ArgumentOutOfRangeException(nameof(kind)),
             };
         }
@@ -25,6 +26,7 @@ public static class StorageBucketNames
             StorageBucketKind.Files => "files",
             StorageBucketKind.ProjectDocuments => "project-documents",
             StorageBucketKind.IssueAttachments => "issues-attachments",
+            StorageBucketKind.AiChatAttachments => "ai-chat-attachments",
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
     }

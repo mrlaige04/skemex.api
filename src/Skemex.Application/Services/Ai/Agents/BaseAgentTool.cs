@@ -1,16 +1,12 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Skemex.Application.Helpers.Ai;
+using Skemex.Application.Models.Ai.Agents;
 using Skemex.Application.Services.Ai.Completions;
 using Skemex.Application.Services.Ai.Rag;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
-using Skemex.Application.Models.Ai.Agents;
-using Skemex.Application.Models.Ai.Chat;
-using Skemex.Application.Models.Ai.Completions;
-using Skemex.Application.Models.Ai.Providers;
-using Skemex.Application.Models.Ai.Tools;
-using Skemex.Application.Models.Ai.Usage;
 
 namespace Skemex.Application.Services.Ai.Agents;
 
@@ -65,7 +61,7 @@ public abstract class BaseAgentTool(
     {
         if (context.ProjectId is not Guid projectId)
         {
-            return Fail("ProjectId is required.");
+            return Fail(AiUserFacingError.ProjectRequired);
         }
 
         var settings = await ProjectSettingsRepository.GetAsync(
@@ -76,15 +72,14 @@ public abstract class BaseAgentTool(
 
         if (settings is null)
         {
-            return Fail("Project settings were not found.");
+            return Fail("This project isn't ready for AI yet. Check project settings and try again.");
         }
 
         var modelExternalId = await ResolveModelExternalIdAsync(context, settings, cancellationToken)
             .ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(modelExternalId))
         {
-            return Fail(
-                "No AI model selected. Set a default model in project AI settings, or pick a model for this chat.");
+            return Fail(AiUserFacingError.NoModel);
         }
 
         var prepared = new ToolPreparedContext
@@ -144,6 +139,9 @@ public abstract class BaseAgentTool(
         return settings.DefaultAiModel?.ExternalId;
     }
 
-    protected virtual AiToolExecutionResult Fail(string error) =>
-        new(false, null, "error", null, error);
+    protected virtual AiToolExecutionResult Fail(string error)
+    {
+        var friendly = AiUserFacingError.FromMessage(error);
+        return new(false, friendly, "error", null, friendly);
+    }
 }

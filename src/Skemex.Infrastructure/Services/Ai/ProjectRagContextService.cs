@@ -118,12 +118,13 @@ public sealed class ProjectRagContextService(
             var settings = ragSettings.Value;
             var topK = Math.Clamp(settings.TopK, 1, 32);
             var rrfK = Math.Max(1, settings.RrfConstant);
+            var excludeDocumentIds = NormalizeExcludeDocumentIds(request.ExcludeDocumentIds);
 
             var vectorTask = refinedQuery.Length > 0
-                ? SearchByVectorAsync(projectId, refinedQuery, topK, cancellationToken)
+                ? SearchByVectorAsync(projectId, refinedQuery, topK, excludeDocumentIds, cancellationToken)
                 : Task.FromResult<IReadOnlyList<RagChunkMatch>>([]);
             var keywordTask = keywords.Count > 0
-                ? SearchByKeywordsAsync(projectId, keywords, topK, cancellationToken)
+                ? SearchByKeywordsAsync(projectId, keywords, topK, excludeDocumentIds, cancellationToken)
                 : Task.FromResult<IReadOnlyList<RagChunkMatch>>([]);
 
             await Task.WhenAll(vectorTask, keywordTask).ConfigureAwait(false);
@@ -156,6 +157,7 @@ public sealed class ProjectRagContextService(
         Guid projectId,
         string refinedQueryEn,
         int topK,
+        IReadOnlyList<Guid> excludeDocumentIds,
         CancellationToken cancellationToken)
     {
         var settings = ragSettings.Value;
@@ -176,11 +178,18 @@ public sealed class ProjectRagContextService(
         }
 
         var queryVector = new Vector(embedding);
-        return await dbContext.ProjectDocumentChunks
+        var query = dbContext.ProjectDocumentChunks
             .AsNoTracking()
             .Where(chunk =>
                 chunk.ProjectId == projectId
-                && chunk.Embedding.CosineDistance(queryVector) <= maxDistance)
+                && chunk.Embedding.CosineDistance(queryVector) <= maxDistance);
+
+        if (excludeDocumentIds.Count > 0)
+        {
+            query = query.Where(chunk => !excludeDocumentIds.Contains(chunk.DocumentId));
+        }
+
+        return await query
             .OrderBy(chunk => chunk.Embedding.CosineDistance(queryVector))
             .Take(topK)
             .Select(chunk => new RagChunkMatch
@@ -199,16 +208,24 @@ public sealed class ProjectRagContextService(
         Guid projectId,
         IReadOnlyList<string> keywords,
         int topK,
+        IReadOnlyList<Guid> excludeDocumentIds,
         CancellationToken cancellationToken)
     {
         // GIN-friendly overlap: any stored keyword equals any query keyword (keywords stored lowercased).
         var keywordArray = keywords.ToArray();
 
-        var rows = await dbContext.ProjectDocumentChunks
+        var query = dbContext.ProjectDocumentChunks
             .AsNoTracking()
             .Where(chunk =>
                 chunk.ProjectId == projectId
-                && chunk.Keywords.Any(k => keywordArray.Contains(k)))
+                && chunk.Keywords.Any(k => keywordArray.Contains(k)));
+
+        if (excludeDocumentIds.Count > 0)
+        {
+            query = query.Where(chunk => !excludeDocumentIds.Contains(chunk.DocumentId));
+        }
+
+        var rows = await query
             .Select(chunk => new
             {
                 chunk.Id,
@@ -291,6 +308,19 @@ public sealed class ProjectRagContextService(
             .Select(k => k?.Trim().ToLowerInvariant() ?? string.Empty)
             .Where(k => k.Length > 0)
             .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static IReadOnlyList<Guid> NormalizeExcludeDocumentIds(IReadOnlyList<Guid>? documentIds)
+    {
+        if (documentIds is null || documentIds.Count == 0)
+        {
+            return [];
+        }
+
+        return documentIds
+            .Where(id => id != Guid.Empty)
+            .Distinct()
             .ToList();
     }
 

@@ -20,6 +20,12 @@ public sealed class EnqueueAiAgentExecutionCommand : ICommand<AiAgentJobDto>
     public string? ArgumentsJson { get; init; }
     public string? Model { get; init; }
 
+    /// <summary>Optional file uploads to attach to this execution.</summary>
+    public IReadOnlyList<AiChatAttachmentUpload>? Attachments { get; init; }
+
+    /// <summary>Optional linked project artefacts (tasks / users / documents).</summary>
+    public IReadOnlyList<AiChatArtefactRef>? Artefacts { get; init; }
+
     /// <summary>Optional explicit source; inferred from chat/tool when null.</summary>
     public AiExecutionSource? Source { get; init; }
 }

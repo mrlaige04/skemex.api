@@ -17,7 +17,10 @@ using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Enums;
 using Skemex.Domain.Events.Ai;
 using Skemex.Domain.Repositories.Abstractions;
+using Skemex.Application.Helpers.Ai;
+using Skemex.Application.Models.Ai.Chat;
 using Skemex.Application.Services.Ai.Agents;
+using Skemex.Application.Services.Ai.Chat;
 using Skemex.Application.Services.Ai.Completions;
 using Skemex.Application.Services.Ai.Rag;
 using Skemex.Domain.Consts;
@@ -38,8 +41,17 @@ public sealed class AgentOrchestrator(
     IProjectRagContextService ragContextService,
     IAiUsageMeteringService usageMetering,
     IAiExecutionService executionService,
+    IAiChatProgressWriter progressWriter,
+    IAiChatAttachmentStore attachmentStore,
+    IAiChatArtefactResolver artefactResolver,
     ILogger<AgentOrchestrator> logger) : IAgentOrchestrator
 {
+    private static readonly JsonSerializerOptions AttachmentJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+    
     private const string IntentRoutingSystemPrompt = """
         You are an intent-routing assistant for an engineering delivery product.
         Analyze the user message and call exactly one registered tool that best matches their intent.
@@ -118,6 +130,11 @@ public sealed class AgentOrchestrator(
         job.Status = AiAgentJobStatus.Running;
         job.Error = null;
         await jobRepository.UpdateAsync(job, cancellationToken);
+        await progressWriter.WriteAsync(
+            tenantId,
+            job.AiChatId,
+            "Working on your request…",
+            cancellationToken);
 
         try
         {
@@ -140,6 +157,27 @@ public sealed class AgentOrchestrator(
                 }
             }
 
+            var attachmentRefs = ParseAttachmentRefs(job.AttachmentsJson);
+            var completionAttachments = attachmentRefs.Count == 0
+                ? new List<AiCompletionAttachment>()
+                : (await attachmentStore
+                    .LoadForCompletionAsync(attachmentRefs, cancellationToken)
+                    .ConfigureAwait(false)).ToList();
+
+            var artefactRefs = ParseArtefactRefs(job.ArtefactsJson);
+            string? artefactContext = null;
+            if (artefactRefs.Count > 0 && job.ProjectId is Guid artefactProjectId)
+            {
+                var resolved = await artefactResolver
+                    .ResolveAsync(tenantId, artefactProjectId, artefactRefs, cancellationToken)
+                    .ConfigureAwait(false);
+                artefactContext = resolved.PromptTableMarkdown;
+                if (resolved.DocumentAttachments.Count > 0)
+                {
+                    completionAttachments.AddRange(resolved.DocumentAttachments);
+                }
+            }
+
             var result = await ExecuteAsync(
                 new AgentOrchestratorRequest
                 {
@@ -152,14 +190,19 @@ public sealed class AgentOrchestrator(
                     UserInput = job.UserInput,
                     Model = model,
                     ArgumentsJson = job.ArgumentsJson,
+                    AttachmentRefs = attachmentRefs,
+                    CompletionAttachments = completionAttachments,
+                    ArtefactRefs = artefactRefs,
+                    ArtefactContext = artefactContext,
                 },
                 cancellationToken);
 
             if (!result.Success)
             {
+                var friendlyError = ResolveFriendlyFailure(result);
                 job.Status = AiAgentJobStatus.Failed;
-                job.Error = Truncate(result.ErrorMessage ?? "Agent execution failed.", 2000);
-                job.AssistantMessage = result.AssistantMessage;
+                job.Error = Truncate(friendlyError, 2000);
+                job.AssistantMessage = friendlyError;
                 await RaiseExecutionFinishedAsync(
                     job,
                     execution.Id,
@@ -167,16 +210,13 @@ public sealed class AgentOrchestrator(
                     artifactType: result.ArtifactType,
                     cancellationToken);
                 await jobRepository.UpdateAsync(job, cancellationToken);
-                await AppendAssistantMessageAsync(
-                    job,
-                    result.AssistantMessage ?? $"Failed: {job.Error}",
-                    cancellationToken);
+                await AppendAssistantMessageAsync(job, friendlyError, cancellationToken);
                 await executionService.CompleteAsync(
                     execution.Id,
                     new AiExecutionCompleteRequest
                     {
                         Success = false,
-                        ErrorMessage = job.Error,
+                        ErrorMessage = Truncate(result.ErrorMessage ?? friendlyError, 2000),
                         ToolName = job.ToolName,
                         Model = model,
                     },
@@ -215,8 +255,10 @@ public sealed class AgentOrchestrator(
         catch (Exception ex)
         {
             logger.LogError(ex, "AI agent job {JobId} failed.", agentJobId);
+            var friendlyError = AiUserFacingError.FromException(ex);
             job.Status = AiAgentJobStatus.Failed;
-            job.Error = Truncate(ex.Message, 2000);
+            job.Error = Truncate(friendlyError, 2000);
+            job.AssistantMessage = friendlyError;
             await RaiseExecutionFinishedAsync(
                 job,
                 execution.Id,
@@ -224,13 +266,13 @@ public sealed class AgentOrchestrator(
                 artifactType: job.ArtifactType,
                 cancellationToken);
             await jobRepository.UpdateAsync(job, cancellationToken);
-            await AppendAssistantMessageAsync(job, $"Failed: {job.Error}", cancellationToken);
+            await AppendAssistantMessageAsync(job, friendlyError, cancellationToken);
             await executionService.CompleteAsync(
                 execution.Id,
                 new AiExecutionCompleteRequest
                 {
                     Success = false,
-                    ErrorMessage = job.Error,
+                    ErrorMessage = Truncate(ex.Message, 2000),
                     ToolName = job.ToolName,
                     Model = job.Model,
                 },
@@ -286,15 +328,25 @@ public sealed class AgentOrchestrator(
         {
             return new AiToolExecutionResult(
                 false,
-                null,
+                AiUserFacingError.RoutingFailed,
                 "error",
                 null,
-                $"Unknown tool '{toolName}'.");
+                AiUserFacingError.RoutingFailed);
         }
 
         var context = BuildContext(request, tool, dbByName);
         var args = BuildDirectArgs(request);
-        var ragRequest = ResolveDirectRagSearchRequest(args, request.UserInput);
+        var ragRequest = ResolveDirectRagSearchRequest(
+            args,
+            request.UserInput,
+            request.ArtefactRefs);
+
+        await progressWriter.WriteAsync(
+            request.TenantId,
+            request.ChatId,
+            "Gathering related project context…",
+            cancellationToken).ConfigureAwait(false);
+
         var ragContext = await ResolveRagContextAsync(request.ProjectId, ragRequest, cancellationToken)
             .ConfigureAwait(false);
         var dynamicContext = await tool.BuildDynamicContextAsync(context, cancellationToken)
@@ -304,6 +356,12 @@ public sealed class AgentOrchestrator(
             RagContext = ragContext,
             DynamicToolContext = dynamicContext,
         };
+
+        await progressWriter.WriteAsync(
+            request.TenantId,
+            request.ChatId,
+            ResolveToolStartMessage(tool.SystemName),
+            cancellationToken).ConfigureAwait(false);
 
         logger.LogInformation(
             "Agent direct execution of {Tool} for tenant {TenantId}",
@@ -327,11 +385,17 @@ public sealed class AgentOrchestrator(
         {
             return new AiToolExecutionResult(
                 false,
-                null,
+                AiUserFacingError.NoModel,
                 "chat",
                 null,
-                "No AI model selected. Set a default model in project AI settings, or pick a model for this chat.");
+                AiUserFacingError.NoModel);
         }
+
+        await progressWriter.WriteAsync(
+            request.TenantId,
+            request.ChatId,
+            "Choosing the best approach…",
+            cancellationToken).ConfigureAwait(false);
 
         // Stage 1: lightweight intent routing — tools + schemas only (no RAG / dynamic / tool system prompts).
         var definitions = new List<AiToolDefinition>();
@@ -345,7 +409,7 @@ public sealed class AgentOrchestrator(
             definitions.Add(new AiToolDefinition(tool.SystemName, description, tool.ParameterSchema));
         }
 
-        var stage1UserPrompt = $"## USER REQUEST{Environment.NewLine}{request.UserInput.Trim()}";
+        var stage1UserPrompt = BuildStage1UserPrompt(request);
 
         AiFunctionCall call;
         try
@@ -402,23 +466,44 @@ public sealed class AgentOrchestrator(
                 "Stage-1 intent routing retries exhausted for tenant {TenantId}: {Reason}",
                 request.TenantId,
                 ex.Reason);
+            var friendly = AiUserFacingError.FromSemanticReason(ex.Reason);
             return new AiToolExecutionResult(
                 false,
-                null,
+                friendly,
                 "chat",
                 null,
-                ex.Reason);
+                friendly);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(
+                ex,
+                "Stage-1 intent routing failed for tenant {TenantId}",
+                request.TenantId);
+            var friendly = AiUserFacingError.FromException(ex);
+            return new AiToolExecutionResult(
+                false,
+                friendly,
+                "chat",
+                null,
+                friendly);
         }
 
         if (!toolMap.TryGetValue(call.Name, out var selectedTool))
         {
             return new AiToolExecutionResult(
                 false,
-                null,
+                AiUserFacingError.RoutingFailed,
                 "error",
                 null,
-                $"Model requested unknown tool '{call.Name}'.");
+                AiUserFacingError.RoutingFailed);
         }
+
+        await progressWriter.WriteAsync(
+            request.TenantId,
+            request.ChatId,
+            ResolveToolStartMessage(selectedTool.SystemName),
+            cancellationToken).ConfigureAwait(false);
 
         // Stage 2: selected tool builds RAG / dynamic context and executes.
         var context = BuildContext(request, selectedTool, dbByName);
@@ -494,6 +579,34 @@ public sealed class AgentOrchestrator(
             "project_qa" => AiUsageOperationNames.ProjectQa,
             _ => toolSystemName.Trim().ToLowerInvariant(),
         };
+
+    private static string ResolveToolStartMessage(string toolSystemName) =>
+        toolSystemName.Trim().ToLowerInvariant() switch
+        {
+            "task_decomposition" => "Starting task breakdown…",
+            "project_qa" => "Looking up an answer in this project…",
+            _ => "Running the next step…",
+        };
+
+    private static string ResolveFriendlyFailure(AiToolExecutionResult result)
+    {
+        if (!string.IsNullOrWhiteSpace(result.AssistantMessage)
+            && !LooksTechnical(result.AssistantMessage))
+        {
+            return result.AssistantMessage.Trim();
+        }
+
+        return AiUserFacingError.FromMessage(result.ErrorMessage ?? result.AssistantMessage);
+    }
+
+    private static bool LooksTechnical(string message)
+    {
+        var text = message.Trim();
+        return text.Contains("Exception", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("HTTP ", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("status code", StringComparison.OrdinalIgnoreCase)
+            || System.Text.RegularExpressions.Regex.IsMatch(text, @"\b[1-5]\d{2}\b");
+    }
 
     private sealed class NoopDisposable : IDisposable
     {
@@ -614,7 +727,8 @@ public sealed class AgentOrchestrator(
 
     private static RagSearchRequest ResolveDirectRagSearchRequest(
         JsonElement args,
-        string fallbackUserInput)
+        string fallbackUserInput,
+        IReadOnlyList<AiChatArtefactRef>? artefactRefs)
     {
         var refinedQueryEn = ReadString(args, "refinedQueryEn")
             ?? ReadString(args, "userInput")
@@ -630,6 +744,8 @@ public sealed class AgentOrchestrator(
         {
             RefinedQueryEn = refinedQueryEn?.Trim() ?? string.Empty,
             Keywords = keywords,
+            // Document artefacts are attached in full — do not also retrieve their RAG chunks.
+            ExcludeDocumentIds = artefactRefs.GetDocumentIds(),
         };
     }
 
@@ -697,7 +813,85 @@ public sealed class AgentOrchestrator(
             UserInput = request.UserInput?.Trim() ?? string.Empty,
             EffectiveDescription = description,
             EffectiveSystemPrompt = systemPrompt,
+            AttachmentRefs = request.AttachmentRefs,
+            CompletionAttachments = request.CompletionAttachments,
+            ArtefactRefs = request.ArtefactRefs,
+            ArtefactContext = request.ArtefactContext,
         };
+    }
+
+    private static IReadOnlyList<AiChatArtefactRef> ParseArtefactRefs(string? artefactsJson)
+    {
+        if (string.IsNullOrWhiteSpace(artefactsJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<AiChatArtefactRef>>(
+                       artefactsJson,
+                       AttachmentJsonOptions)
+                   ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static IReadOnlyList<AiChatAttachmentRef> ParseAttachmentRefs(string? attachmentsJson)
+    {
+        if (string.IsNullOrWhiteSpace(attachmentsJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<AiChatAttachmentRef>>(
+                       attachmentsJson,
+                       AttachmentJsonOptions)
+                   ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string BuildStage1UserPrompt(AgentOrchestratorRequest request)
+    {
+        var builder = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(request.ArtefactContext))
+        {
+            builder.AppendLine("## ARTEFACTS");
+            builder.AppendLine(request.ArtefactContext.Trim());
+            builder.AppendLine();
+        }
+
+        builder.AppendLine("## USER REQUEST");
+        builder.Append(request.UserInput.Trim());
+
+        var fileNames = request.AttachmentRefs
+            .Where(item => string.Equals(item.Kind, AiChatAttachmentKinds.File, StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.FileName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToList();
+
+        if (fileNames.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine();
+            builder.Append("## ATTACHED FILES");
+            builder.AppendLine();
+            foreach (var name in fileNames)
+            {
+                builder.Append("- ").AppendLine(name);
+            }
+        }
+
+        return builder.ToString().TrimEnd();
     }
 
     private static JsonElement BuildDirectArgs(AgentOrchestratorRequest request)
