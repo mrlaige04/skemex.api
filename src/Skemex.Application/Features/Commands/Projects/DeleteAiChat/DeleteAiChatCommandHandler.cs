@@ -12,7 +12,8 @@ public sealed class DeleteAiChatCommandHandler(
     ICurrentUser currentUser,
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectUser> projectUserRepository,
-    ITenantRepository<AiChat> chatRepository)
+    ITenantRepository<AiChat> chatRepository,
+    IAiChatAttachmentStore attachmentStore)
     : ICommandHandler<DeleteAiChatCommand>
 {
     public async Task<ErrorOr<Success>> Handle(
@@ -32,6 +33,9 @@ public sealed class DeleteAiChatCommandHandler(
             return result.Errors;
         }
 
+        await attachmentStore
+            .DeleteBlobsForChatAsync(result.Value.Chat.Id, cancellationToken)
+            .ConfigureAwait(false);
         await chatRepository.DeleteAsync(result.Value.Chat, cancellationToken);
         return Result.Success;
     }

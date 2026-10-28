@@ -1,3 +1,6 @@
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
+
 namespace Skemex.Application.Models.Ai.Agents;
 
 public sealed record AgentExecutionContext
@@ -27,4 +30,15 @@ public sealed record AgentExecutionContext
     /// Optional tool-specific dynamic runtime context injected after RAG on direct execution.
     /// </summary>
     public string? DynamicToolContext { get; init; }
+
+    /// <summary>Stored attachment refs (uploaded chat files).</summary>
+    public IReadOnlyList<AiChatAttachmentRef> AttachmentRefs { get; init; } = [];
+
+    /// <summary>Loaded file bytes for multimodal tool completions (uploads + document artefacts).</summary>
+    public IReadOnlyList<AiCompletionAttachment> CompletionAttachments { get; init; } = [];
+
+    public IReadOnlyList<AiChatArtefactRef> ArtefactRefs { get; init; } = [];
+
+    /// <summary>Markdown artefacts table (#|Type|Content) for referenced tasks/users.</summary>
+    public string? ArtefactContext { get; init; }
 }

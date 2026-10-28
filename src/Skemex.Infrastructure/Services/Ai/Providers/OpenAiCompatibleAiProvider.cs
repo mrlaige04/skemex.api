@@ -48,16 +48,7 @@ public sealed class OpenAiCompatibleAiProvider(
         using var request = CreateRequest(HttpMethod.Get, "models");
         var client = httpClientFactory.CreateClient(HttpClientName);
         using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            logger.LogWarning(
-                "AI provider {Provider} models list failed with {Status}: {Body}",
-                Name,
-                (int)response.StatusCode,
-                body);
-            response.EnsureSuccessStatusCode();
-        }
+        await EnsureSuccessAsync(response, "models list", cancellationToken).ConfigureAwait(false);
 
         var payload = await response.Content
             .ReadFromJsonAsync<OpenAiModelsResponse>(JsonOptions, cancellationToken)
@@ -104,6 +95,7 @@ public sealed class OpenAiCompatibleAiProvider(
                 request.UserPrompt,
                 tools: null,
                 useJsonObjectFormat,
+                request.Attachments,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -122,7 +114,7 @@ public sealed class OpenAiCompatibleAiProvider(
                     Name,
                     (int)response.StatusCode,
                     body);
-                response.EnsureSuccessStatusCode();
+                throw CreateProviderException((int)response.StatusCode, body);
             }
 
             logger.LogInformation(
@@ -136,6 +128,7 @@ public sealed class OpenAiCompatibleAiProvider(
                     request.UserPrompt,
                     tools: null,
                     useJsonObjectFormat: false,
+                    request.Attachments,
                     cancellationToken)
                 .ConfigureAwait(false);
 
@@ -170,26 +163,41 @@ public sealed class OpenAiCompatibleAiProvider(
                 request.UserPrompt,
                 request.Tools,
                 useJsonObjectFormat: false,
+                attachments: null,
                 cancellationToken)
             .ConfigureAwait(false);
 
         return await ReadFunctionCallResultAsync(response, cancellationToken).ConfigureAwait(false);
     }
 
+    private async Task EnsureSuccessAsync(
+        HttpResponseMessage response,
+        string operation,
+        CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        logger.LogWarning(
+            "AI provider {Provider} {Operation} failed with {Status}: {Body}",
+            Name,
+            operation,
+            (int)response.StatusCode,
+            body);
+        throw CreateProviderException((int)response.StatusCode, body);
+    }
+
+    private AiProviderRequestException CreateProviderException(int statusCode, string? body) =>
+        new(Name, statusCode, body);
+
     private async Task<AiCompletionResult> ReadPlainCompletionAsync(
         HttpResponseMessage response,
         CancellationToken cancellationToken)
     {
-        if (!response.IsSuccessStatusCode)
-        {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            logger.LogWarning(
-                "AI provider {Provider} chat completion failed with {Status}: {Body}",
-                Name,
-                (int)response.StatusCode,
-                body);
-            response.EnsureSuccessStatusCode();
-        }
+        await EnsureSuccessAsync(response, "chat completion", cancellationToken).ConfigureAwait(false);
 
         var payload = await response.Content
             .ReadFromJsonAsync<ChatCompletionResponse>(JsonOptions, cancellationToken)
@@ -208,16 +216,7 @@ public sealed class OpenAiCompatibleAiProvider(
         HttpResponseMessage response,
         CancellationToken cancellationToken)
     {
-        if (!response.IsSuccessStatusCode)
-        {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            logger.LogWarning(
-                "AI provider {Provider} function call failed with {Status}: {Body}",
-                Name,
-                (int)response.StatusCode,
-                body);
-            response.EnsureSuccessStatusCode();
-        }
+        await EnsureSuccessAsync(response, "function call", cancellationToken).ConfigureAwait(false);
 
         var payload = await response.Content
             .ReadFromJsonAsync<ChatCompletionResponse>(JsonOptions, cancellationToken)
@@ -280,14 +279,16 @@ public sealed class OpenAiCompatibleAiProvider(
         string userPrompt,
         IReadOnlyList<AiToolDefinition>? tools,
         bool useJsonObjectFormat,
+        IReadOnlyList<AiCompletionAttachment>? attachments,
         CancellationToken cancellationToken)
     {
         using var httpRequest = CreateRequest(HttpMethod.Post, "chat/completions");
 
+        var userContent = BuildUserContent(userPrompt, attachments);
         var messages = new object[]
         {
             new { role = "system", content = systemPrompt },
-            new { role = "user", content = userPrompt },
+            new { role = "user", content = userContent },
         };
 
         object body;
@@ -336,6 +337,57 @@ public sealed class OpenAiCompatibleAiProvider(
             "application/json");
 
         return await client.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// OpenAI-compatible multimodal user content: plain string, or text + image/file parts.
+    /// </summary>
+    private static object BuildUserContent(
+        string userPrompt,
+        IReadOnlyList<AiCompletionAttachment>? attachments)
+    {
+        if (attachments is not { Count: > 0 })
+        {
+            return userPrompt;
+        }
+
+        var parts = new List<object>
+        {
+            new { type = "text", text = userPrompt },
+        };
+
+        foreach (var attachment in attachments)
+        {
+            var mime = string.IsNullOrWhiteSpace(attachment.ContentType)
+                ? "application/octet-stream"
+                : attachment.ContentType.Trim();
+            var dataUrl =
+                $"data:{mime};base64,{Convert.ToBase64String(attachment.Data)}";
+
+            if (mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            {
+                parts.Add(
+                    new
+                    {
+                        type = "image_url",
+                        image_url = new { url = dataUrl },
+                    });
+                continue;
+            }
+
+            parts.Add(
+                new
+                {
+                    type = "file",
+                    file = new
+                    {
+                        filename = attachment.FileName,
+                        file_data = dataUrl,
+                    },
+                });
+        }
+
+        return parts;
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string relativePath)

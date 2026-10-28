@@ -7,4 +7,7 @@ public sealed class AiCompletionRequest
     public required string UserPrompt { get; init; }
     public required string Model { get; init; }
     public bool PreferJsonObject { get; init; } = true;
+
+    /// <summary>Optional multimodal file parts for the user message.</summary>
+    public IReadOnlyList<AiCompletionAttachment>? Attachments { get; init; }
 }

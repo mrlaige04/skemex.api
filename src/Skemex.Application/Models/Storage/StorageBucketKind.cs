@@ -6,4 +6,5 @@ public enum StorageBucketKind
     Files = 1,
     ProjectDocuments = 2,
     IssueAttachments = 3,
+    AiChatAttachments = 4,
 }

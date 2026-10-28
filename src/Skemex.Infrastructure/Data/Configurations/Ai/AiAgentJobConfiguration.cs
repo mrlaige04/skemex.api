@@ -14,6 +14,8 @@ public class AiAgentJobConfiguration : IEntityTypeConfiguration<AiAgentJob>
         builder.Property(job => job.ToolName).HasMaxLength(128);
         builder.Property(job => job.UserInput).HasMaxLength(8000).IsRequired();
         builder.Property(job => job.ArgumentsJson).HasColumnType("text");
+        builder.Property(job => job.AttachmentsJson).HasColumnType("text");
+        builder.Property(job => job.ArtefactsJson).HasColumnType("text");
         builder.Property(job => job.Model).HasMaxLength(256);
         builder.Property(job => job.Error).HasMaxLength(4000);
         builder.Property(job => job.AssistantMessage).HasColumnType("text");

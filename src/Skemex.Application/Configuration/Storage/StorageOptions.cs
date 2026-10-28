@@ -10,6 +10,7 @@ public sealed class StorageOptions
     public string? PublicFilesBlobBaseUrl { get; set; }
     public string? PublicProjectDocumentsBlobBaseUrl { get; set; }
     public string? PublicIssueAttachmentsBlobBaseUrl { get; set; }
+    public string? PublicAiChatAttachmentsBlobBaseUrl { get; set; }
     public string LocalPublicRequestPath { get; set; } = "/api/blobs";
 
     public LocalDiskStorageOptions Local { get; set; } = new();
@@ -40,6 +41,7 @@ public sealed class MinioStorageOptions
     public string FilesBucket { get; set; } = string.Empty;
     public string ProjectDocumentsBucket { get; set; } = string.Empty;
     public string IssueAttachmentsBucket { get; set; } = string.Empty;
+    public string AiChatAttachmentsBucket { get; set; } = string.Empty;
 
     public int PresignedDownloadExpirySeconds { get; set; } = 3600;
 }

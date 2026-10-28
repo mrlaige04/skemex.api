@@ -20,4 +20,6 @@ public class AiChatMessage : TenantEntity
 
     public Guid? RootTaskId { get; set; }
     public ProjectTask? RootTask { get; set; }
+
+    public IList<AiChatMessageAttachment> Attachments { get; set; } = [];
 }

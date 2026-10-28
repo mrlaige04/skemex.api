@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
 
 namespace Skemex.Application.Models.Ai.Agents;
 
@@ -21,4 +23,13 @@ public sealed class AgentOrchestratorRequest
 
     /// <summary>Optional raw JSON arguments string from the API/job payload.</summary>
     public string? ArgumentsJson { get; init; }
+
+    public IReadOnlyList<AiChatAttachmentRef> AttachmentRefs { get; init; } = [];
+
+    public IReadOnlyList<AiCompletionAttachment> CompletionAttachments { get; init; } = [];
+
+    public IReadOnlyList<AiChatArtefactRef> ArtefactRefs { get; init; } = [];
+
+    /// <summary>Markdown artefacts table (#|Type|Content) injected into tool user prompts.</summary>
+    public string? ArtefactContext { get; init; }
 }

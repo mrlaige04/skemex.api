@@ -13,7 +13,8 @@ public sealed class DeleteAiChatMessageCommandHandler(
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectUser> projectUserRepository,
     ITenantRepository<AiChat> chatRepository,
-    ITenantRepository<AiChatMessage> messageRepository)
+    ITenantRepository<AiChatMessage> messageRepository,
+    IAiChatAttachmentStore attachmentStore)
     : ICommandHandler<DeleteAiChatMessageCommand>
 {
     public async Task<ErrorOr<Success>> Handle(
@@ -42,6 +43,9 @@ public sealed class DeleteAiChatMessageCommandHandler(
             return Error.NotFound("AiChatMessage.NotFound", "Message was not found.");
         }
 
+        await attachmentStore
+            .DeleteBlobsForMessageAsync(message.Id, cancellationToken)
+            .ConfigureAwait(false);
         await messageRepository.DeleteAsync(message, cancellationToken);
         await chatRepository.UpdateAsync(owned.Value.Chat, cancellationToken);
         return Result.Success;

@@ -37,7 +37,9 @@ public sealed class GetAiChatQueryHandler(
             include: query => query
                 .Include(chat => chat.AiModel)
                 .Include(chat => chat.Messages)
-                .ThenInclude(message => message.RootTask));
+                .ThenInclude(message => message.RootTask)
+                .Include(chat => chat.Messages)
+                .ThenInclude(message => message.Attachments));
         if (result.IsError)
         {
             return result.Errors;

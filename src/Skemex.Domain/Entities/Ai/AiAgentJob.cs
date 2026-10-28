@@ -29,6 +29,13 @@ public class AiAgentJob : TenantEntity
 
     public string UserInput { get; set; } = string.Empty;
     public string? ArgumentsJson { get; set; }
+
+    /// <summary>JSON array of <c>AiChatAttachmentRef</c> for chat file attachments.</summary>
+    public string? AttachmentsJson { get; set; }
+
+    /// <summary>JSON array of <c>AiChatArtefactRef</c> for linked tasks/users/documents.</summary>
+    public string? ArtefactsJson { get; set; }
+
     public string? Model { get; set; }
 
     public AiAgentJobStatus Status { get; set; } = AiAgentJobStatus.Pending;
