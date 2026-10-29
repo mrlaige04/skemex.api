@@ -20,6 +20,7 @@ jobs:
       POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
       MINIO_ROOT_USER: ${{ secrets.MINIO_ROOT_USER }}
       MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
+      ENCRYPTION_MASTER_KEY: ${{ secrets.ENCRYPTION_MASTER_KEY }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
       SUPERADMIN_EMAIL: ${{ secrets.SUPERADMIN_EMAIL }}
       SUPERADMIN_PASSWORD: ${{ secrets.SUPERADMIN_PASSWORD }}
