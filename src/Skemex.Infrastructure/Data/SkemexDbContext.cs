@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Entities.EmailTemplates;
+using Skemex.Domain.Entities.Integrations;
 using Skemex.Domain.Entities.Notifications;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Entities.Users;
@@ -36,6 +37,8 @@ public class SkemexDbContext(DbContextOptions<SkemexDbContext> options) : Identi
     public DbSet<AiUsageActivity> AiUsageActivities { get; set; } = null!;
     public DbSet<AiExecution> AiExecutions { get; set; } = null!;
     public DbSet<Notification> Notifications { get; set; } = null!;
+    public DbSet<IntegrationConnection> IntegrationConnections { get; set; } = null!;
+    public DbSet<IntegrationMapping> IntegrationMappings { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
