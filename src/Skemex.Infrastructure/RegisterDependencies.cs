@@ -102,7 +102,9 @@ public static class RegisterDependencies
 
     private static void AddAi(IServiceCollection services, IConfiguration configuration)
     {
+        // Framework Data Protection (cookies/antiforgery) — unrelated to AI secret encryption.
         services.AddDataProtection();
+        services.Configure<EncryptionOptions>(configuration.GetSection(EncryptionOptions.SectionName));
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
         AddAiResilience(services, configuration);
         services.AddSingleton<IEncryptService, EncryptService>();
