@@ -42,6 +42,7 @@ using Skemex.Application.Features.Queries.Projects.GetProjectColumns;
 using Skemex.Application.Features.Queries.Projects.GetProjectDocumentById;
 using Skemex.Application.Features.Queries.Projects.GetProjectDocuments;
 using Skemex.Application.Features.Queries.Projects.GetProjectTaskByCode;
+using Skemex.Application.Features.Queries.Projects.ExportProjectTasks;
 using Skemex.Application.Features.Queries.Projects.GetProjectTasks;
 using Skemex.Application.Features.Queries.Projects.GetProjectTasksByColumnId;
 using Skemex.Application.Features.Queries.Projects.GetProjectSettings;
@@ -183,6 +184,35 @@ public class ProjectsController(ISender sender) : BaseController
             },
             cancellationToken);
         return result.Match(Ok, Problem);
+    }
+
+    [Permission(PermissionNames.TasksView)]
+    [HttpPost("{id:guid}/tasks/export")]
+    public async Task<IActionResult> ExportTasks(
+        Guid id,
+        [FromBody] ExportTasksRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new ExportProjectTasksQuery
+            {
+                ProjectId = id,
+                Scope = body.Scope,
+                Format = body.Format,
+                SelectedTaskIds = body.SelectedTaskIds ?? [],
+                Search = body.Search,
+                ColumnId = body.ColumnId,
+                AssigneeId = body.AssigneeId,
+                Unassigned = body.Unassigned,
+                Sort = string.IsNullOrWhiteSpace(body.Sort)
+                    ? ProjectTaskSort.CreatedAtDesc
+                    : body.Sort,
+            },
+            cancellationToken);
+
+        return result.Match(
+            file => File(file.Content, file.ContentType, file.FileName),
+            Problem);
     }
 
     [Permission(PermissionNames.TasksView)]

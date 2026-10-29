@@ -56,6 +56,7 @@ using Skemex.Infrastructure.Services.Ai.Usage;
 using Skemex.Infrastructure.Services.Documents;
 using Skemex.Infrastructure.Services.Embeddings;
 using Skemex.Infrastructure.Services.Notifications;
+using Skemex.Infrastructure.Services.Projects;
 using Skemex.Infrastructure.Storage;
 using Skemex.Application.Models.Ai.Agents;
 using Skemex.Application.Models.Ai.Chat;
@@ -293,6 +294,7 @@ public static class RegisterDependencies
         services.AddScoped<IUrlService, StorageUrlService>();
         services.AddScoped<IProfileImageService, ProfileImageService>();
         services.AddScoped<IProjectLogoService, ProjectLogoService>();
+        services.AddScoped<IProjectTasksExportService, ProjectTasksExportService>();
         services.AddScoped<IProjectDocumentStorageService, ProjectDocumentStorageService>();
         services.AddScoped<IIssueAttachmentStorageService, IssueAttachmentStorageService>();
 
