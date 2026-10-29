@@ -83,6 +83,9 @@
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
       Storage__Minio__PublicEndpoint: ${MINIO_PUBLIC_ENDPOINT}
       App__FrontendBaseUrl: ${FRONTEND_BASE_URL}
+      Jira__ClientId: ${JIRA_CLIENT_ID:-}
+      Jira__ClientSecret: ${JIRA_CLIENT_SECRET:-}
+      Jira__RedirectUri: ${JIRA_REDIRECT_URI:-}
       Smtp__Username: ${SMTP_USERNAME}
       Smtp__Password: ${SMTP_PASSWORD}
       Embeddings__ApiKey: ${EMBEDDINGS__APIKEY}

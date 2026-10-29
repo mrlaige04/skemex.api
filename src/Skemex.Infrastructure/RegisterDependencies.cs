@@ -18,8 +18,10 @@ using Skemex.Application.Configuration.Ai;
 using Skemex.Application.Configuration.App;
 using Skemex.Application.Configuration.Documents;
 using Skemex.Application.Configuration.Email;
+using Skemex.Application.Configuration.Integrations;
 using Skemex.Application.Configuration.Rag;
 using Skemex.Application.Configuration.Storage;
+using Skemex.Application.Services.Integrations.Jira;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Services.Ai.Agents;
 using Skemex.Application.Services.Ai.Chat;
@@ -55,6 +57,7 @@ using Skemex.Infrastructure.Services.Ai.Tools;
 using Skemex.Infrastructure.Services.Ai.Usage;
 using Skemex.Infrastructure.Services.Documents;
 using Skemex.Infrastructure.Services.Embeddings;
+using Skemex.Infrastructure.Services.Integrations.Jira;
 using Skemex.Infrastructure.Services.Notifications;
 using Skemex.Infrastructure.Services.Projects;
 using Skemex.Infrastructure.Storage;
@@ -82,6 +85,14 @@ public static class RegisterDependencies
         AddEmailing(services, configuration);
         services.Configure<AppOptions>(configuration.GetSection(AppOptions.SectionName));
         services.Configure<SuperAdminOptions>(configuration.GetSection(SuperAdminOptions.SectionName));
+        services.Configure<JiraOptions>(configuration.GetSection(JiraOptions.SectionName));
+        services.AddHttpClient(JiraApiClient.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(60);
+        });
+        services.AddScoped<IJiraApiClient, JiraApiClient>();
+        services.AddScoped<IJiraOAuthService, JiraOAuthService>();
+        services.AddScoped<IJiraConnectionTokenService, JiraConnectionTokenService>();
         services.AddScoped<INotificationPublisher, NotificationPublisher>();
         services.AddScoped<IAuthEmailService, AuthEmailService>();
         services.AddScoped<IEmailTemplateService, EmailTemplateService>();
