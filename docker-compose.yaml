@@ -86,6 +86,7 @@
       Smtp__Username: ${SMTP_USERNAME}
       Smtp__Password: ${SMTP_PASSWORD}
       Embeddings__ApiKey: ${EMBEDDINGS__APIKEY}
+      Encryption__MasterKey: ${ENCRYPTION_MASTER_KEY}
       Serilog__WriteTo__1__Args__serverUrl: http://seq
       Serilog__WriteTo__1__Args__apiKey: ${SEQ_API_KEY}
     networks:

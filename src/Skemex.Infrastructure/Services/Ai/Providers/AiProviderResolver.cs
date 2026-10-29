@@ -123,10 +123,24 @@ public sealed class AiProviderResolver(
 
     private IAiProvider CreateRuntimeProvider(AiProvider entity)
     {
+        var logger = loggerFactory.CreateLogger<AiProviderResolver>();
+
         string? apiKey = null;
         if (!string.IsNullOrWhiteSpace(entity.ApiKeyEncrypted))
         {
-            apiKey = encryptService.Unprotect(entity.ApiKeyEncrypted);
+            try
+            {
+                apiKey = encryptService.Unprotect(entity.ApiKeyEncrypted);
+            }
+            catch (Exception ex)
+            {
+                // Usually means Data Protection keys were lost on redeploy — secrets must be re-entered.
+                logger.LogError(
+                    ex,
+                    "Failed to decrypt API key for AI provider {Key}. " +
+                    "If this follows a redeploy, persist DataProtection keys and re-save the provider secret.",
+                    entity.Key);
+            }
         }
 
         AiProviderAuthConfig auth;
@@ -136,9 +150,11 @@ public sealed class AiProviderResolver(
         }
         catch (Exception ex)
         {
-            loggerFactory
-                .CreateLogger<AiProviderResolver>()
-                .LogWarning(ex, "Failed to decrypt auth config for AI provider {Key}", entity.Key);
+            logger.LogError(
+                ex,
+                "Failed to decrypt auth config for AI provider {Key}. " +
+                "If this follows a redeploy, persist DataProtection keys and re-save the provider secret.",
+                entity.Key);
             auth = new AiProviderAuthConfig();
         }
 
