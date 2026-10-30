@@ -27,7 +27,8 @@ public sealed class JiraOAuthService(
     ITenantRepository<IntegrationConnection> connectionRepository,
     ILogger<JiraOAuthService> logger) : IJiraOAuthService
 {
-    public const string AuthorizeScopes = "read:jira-work write:jira-work offline_access";
+    public const string AuthorizeScopes =
+        "read:jira-work write:jira-work read:jira-user offline_access";
 
     private static readonly TimeSpan StateTtl = TimeSpan.FromMinutes(15);
 
