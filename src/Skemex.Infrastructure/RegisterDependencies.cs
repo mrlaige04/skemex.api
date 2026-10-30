@@ -93,6 +93,8 @@ public static class RegisterDependencies
         services.AddScoped<IJiraApiClient, JiraApiClient>();
         services.AddScoped<IJiraOAuthService, JiraOAuthService>();
         services.AddScoped<IJiraConnectionTokenService, JiraConnectionTokenService>();
+        services.AddScoped<IJiraTaskExportService, JiraTaskExportService>();
+        services.AddScoped<IJiraTaskImportService, JiraTaskImportService>();
         services.AddScoped<INotificationPublisher, NotificationPublisher>();
         services.AddScoped<IAuthEmailService, AuthEmailService>();
         services.AddScoped<IEmailTemplateService, EmailTemplateService>();

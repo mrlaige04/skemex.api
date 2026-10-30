@@ -2,11 +2,15 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Features.Commands.Integrations.Jira.DisconnectJira;
+using Skemex.Application.Features.Commands.Integrations.Jira.ExportTasksToJira;
+using Skemex.Application.Features.Commands.Integrations.Jira.ImportTasksFromJira;
 using Skemex.Application.Features.Commands.Integrations.Jira.MapJiraProject;
 using Skemex.Application.Features.Commands.Integrations.Jira.StartJiraOAuth;
 using Skemex.Application.Features.Queries.Integrations.Jira.GetJiraConnection;
+using Skemex.Application.Features.Queries.Integrations.Jira.ListJiraIssues;
 using Skemex.Application.Features.Queries.Integrations.Jira.ListJiraProjects;
 using Skemex.Application.Features.Queries.Integrations.Jira.ListJiraSites;
+using Skemex.Application.Features.Queries.Integrations.Jira.ListJiraUsers;
 using Skemex.Application.Models.Integrations.Jira;
 using Skemex.Application.Services.Integrations.Jira;
 using Skemex.Domain.Consts;
@@ -91,6 +95,68 @@ public sealed class JiraIntegrationsController(ISender sender) : BaseController
             new DisconnectJiraCommand { ProjectId = projectId },
             cancellationToken);
         return result.Match(_ => NoContent(), Problem);
+    }
+
+    [Permission(PermissionNames.ProjectsEdit)]
+    [HttpPost("export-tasks")]
+    public async Task<IActionResult> ExportTasks(
+        Guid projectId,
+        [FromBody] ExportTasksToJiraRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new ExportTasksToJiraCommand
+            {
+                ProjectId = projectId,
+                Scope = body.Scope,
+                SelectedTaskIds = body.SelectedTaskIds ?? [],
+                Search = body.Search,
+                ColumnId = body.ColumnId,
+                AssigneeId = body.AssigneeId,
+                Unassigned = body.Unassigned,
+                SkipAlreadyExported = body.SkipAlreadyExported,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [Permission(PermissionNames.ProjectsEdit)]
+    [HttpGet("issues")]
+    public async Task<IActionResult> ListIssues(Guid projectId, CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new ListJiraIssuesQuery { ProjectId = projectId },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [Permission(PermissionNames.ProjectsEdit)]
+    [HttpGet("users")]
+    public async Task<IActionResult> ListUsers(Guid projectId, CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new ListJiraUsersQuery { ProjectId = projectId },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [Permission(PermissionNames.ProjectsEdit)]
+    [HttpPost("import-tasks")]
+    public async Task<IActionResult> ImportTasks(
+        Guid projectId,
+        [FromBody] ImportTasksFromJiraRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new ImportTasksFromJiraCommand
+            {
+                ProjectId = projectId,
+                ImportAll = body.ImportAll,
+                IssueKeys = body.IssueKeys ?? [],
+                SkipAlreadyImported = body.SkipAlreadyImported,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
     }
 }
 
