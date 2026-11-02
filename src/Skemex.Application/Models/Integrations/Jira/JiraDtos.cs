@@ -107,6 +107,26 @@ public sealed class JiraCreatedIssueDto
     public string Key { get; init; } = string.Empty;
 }
 
+/// <summary>Lightweight issue lookup used while building parent/child trees on export.</summary>
+public sealed class JiraIssueRefDto
+{
+    public string Id { get; init; } = string.Empty;
+    public string Key { get; init; } = string.Empty;
+    public string IssueTypeName { get; init; } = string.Empty;
+    public bool Subtask { get; init; }
+
+    public bool IsEpic =>
+        string.Equals(IssueTypeName, "Epic", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(IssueTypeName, "Feature", StringComparison.OrdinalIgnoreCase);
+}
+
+public sealed class JiraIssueTypeDto
+{
+    public string Id { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public bool Subtask { get; init; }
+}
+
 public sealed class JiraUserDto
 {
     public string AccountId { get; init; } = string.Empty;
@@ -121,9 +141,13 @@ public sealed class JiraCreateIssueRequest
     public required string ProjectKey { get; init; }
     public required string Summary { get; init; }
     public required string IssueTypeName { get; init; }
+    public string? IssueTypeId { get; init; }
     public string? Description { get; init; }
     public string? AssigneeAccountId { get; init; }
+    /// <summary>Jira parent issue key (fallback when id is unavailable).</summary>
     public string? ParentIssueKey { get; init; }
+    /// <summary>Jira parent issue id — preferred for Epic/Story hierarchy via the parent field.</summary>
+    public string? ParentIssueId { get; init; }
     public IReadOnlyList<string> Labels { get; init; } = [];
     public string? OriginalEstimate { get; init; }
     public string? RemainingEstimate { get; init; }

@@ -1362,6 +1362,46 @@ namespace Skemex.Infrastructure.Migrations
                     b.ToTable("project_task_attachments", (string)null);
                 });
 
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskComment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AuthorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(50000)
+                        .HasColumnType("character varying(50000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuthorId");
+
+                    b.HasIndex("ProjectId", "AuthorId");
+
+                    b.HasIndex("TaskId", "CreatedAt");
+
+                    b.ToTable("project_task_comments", (string)null);
+                });
+
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskCounter", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2337,6 +2377,33 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("UploadedBy");
                 });
 
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskComment", b =>
+                {
+                    b.HasOne("Skemex.Domain.Entities.Users.User", "Author")
+                        .WithMany()
+                        .HasForeignKey("AuthorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectTask", "Task")
+                        .WithMany("Comments")
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Author");
+
+                    b.Navigation("Project");
+
+                    b.Navigation("Task");
+                });
+
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskCounter", b =>
                 {
                     b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
@@ -2574,6 +2641,8 @@ namespace Skemex.Infrastructure.Migrations
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTask", b =>
                 {
                     b.Navigation("Attachments");
+
+                    b.Navigation("Comments");
 
                     b.Navigation("Subtasks");
 

@@ -52,15 +52,18 @@ public sealed partial class JiraTaskExportService(
                 .Include(t => t.Reporter)
                 .Include(t => t.Parent)
                 .Include(t => t.WorkLogs)
-                .ThenInclude(w => w.User)
-                .OrderBy(t => t.ParentId.HasValue ? 1 : 0)
-                .ThenBy(t => t.CreatedAt)
-                .ThenBy(t => t.Code),
+                .ThenInclude(w => w.User),
             cancellationToken: cancellationToken);
 
         if (tasks.Count == 0)
         {
             return new ExportTasksToJiraResultDto();
+        }
+
+        // Selected export must include ancestor chain so parent links can be created in Jira.
+        if (request.Scope == JiraExportScope.Selected)
+        {
+            tasks = await EnsureAncestorsIncludedAsync(projectId, tasks, cancellationToken);
         }
 
         if (tasks.Count > MaxExportTasks)
@@ -70,6 +73,9 @@ public sealed partial class JiraTaskExportService(
                 $"Export is limited to {MaxExportTasks} tasks. Narrow filters or export a selection.");
         }
 
+        // Parents before children so Epic → Story → Sub-task links resolve in one pass.
+        tasks = OrderForTreeExport(tasks);
+
         var existingMappings = await mappingRepository.GetAllAsync(
             filter: m =>
                 m.ProjectId == projectId
@@ -78,9 +84,13 @@ public sealed partial class JiraTaskExportService(
             cancellationToken: cancellationToken);
 
         var mappedByTaskId = existingMappings.ToDictionary(m => m.LocalEntityId);
-        var localToJiraKey = existingMappings
-            .Where(m => !string.IsNullOrWhiteSpace(m.ExternalEntityKey))
-            .ToDictionary(m => m.LocalEntityId, m => m.ExternalEntityKey!);
+        var localToJira = existingMappings
+            .Where(m =>
+                !string.IsNullOrWhiteSpace(m.ExternalEntityId)
+                || !string.IsNullOrWhiteSpace(m.ExternalEntityKey))
+            .ToDictionary(
+                m => m.LocalEntityId,
+                m => (Id: m.ExternalEntityId, Key: m.ExternalEntityKey ?? string.Empty));
 
         var tokenResult = await tokenService.GetValidAccessTokenAsync(connection, cancellationToken);
         if (tokenResult.IsError)
@@ -97,41 +107,148 @@ public sealed partial class JiraTaskExportService(
         var skipped = 0;
         var failed = 0;
 
+        IReadOnlyList<JiraIssueTypeDto> issueTypes;
+        try
+        {
+            issueTypes = await jiraApiClient.GetProjectIssueTypesAsync(
+                accessToken,
+                cloudId,
+                projectKey,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to load Jira issue types for project {ProjectKey}", projectKey);
+            issueTypes = [];
+        }
+
+        var tasksById = tasks.ToDictionary(t => t.Id);
+        var issueCache = new Dictionary<string, JiraIssueRefDto?>(StringComparer.OrdinalIgnoreCase);
+
+        // Level-by-level: parents first, then children with parent.key.
         foreach (var task in tasks)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (request.SkipAlreadyExported && mappedByTaskId.TryGetValue(task.Id, out var existing))
-            {
-                skipped++;
-                items.Add(new ExportTasksToJiraItemResultDto
-                {
-                    TaskId = task.Id,
-                    TaskCode = task.Code,
-                    Status = "Skipped",
-                    JiraIssueKey = existing.ExternalEntityKey,
-                    Message = "Already exported to Jira.",
-                });
-                continue;
-            }
-
             try
             {
+                mappedByTaskId.TryGetValue(task.Id, out var existingMapping);
+                var issueRef = existingMapping is null ? null : PreferIssueKey(existingMapping);
+                var remote = string.IsNullOrWhiteSpace(issueRef)
+                    ? null
+                    : await GetCachedIssueAsync(
+                        accessToken,
+                        cloudId,
+                        issueRef,
+                        issueCache,
+                        cancellationToken);
+
+                if (remote is not null && existingMapping is not null)
+                {
+                    // Keep mapping + local index in sync with the live Jira issue.
+                    existingMapping.ExternalEntityId = remote.Id;
+                    existingMapping.ExternalEntityKey = remote.Key;
+                    localToJira[task.Id] = (remote.Id, remote.Key);
+
+                    var parentKey = ResolveParentKey(task, localToJira);
+                    if (parentKey is not null)
+                    {
+                        try
+                        {
+                            await jiraApiClient.UpdateIssueParentAsync(
+                                accessToken,
+                                cloudId,
+                                remote.Key,
+                                parentKey,
+                                cancellationToken);
+
+                            existingMapping.LastSyncedAt = DateTimeOffset.UtcNow;
+                            await mappingRepository.UpdateAsync(existingMapping, cancellationToken);
+                            exported++;
+                            items.Add(new ExportTasksToJiraItemResultDto
+                            {
+                                TaskId = task.Id,
+                                TaskCode = task.Code,
+                                Status = "Updated",
+                                JiraIssueKey = remote.Key,
+                                Message = $"Linked under parent {parentKey}.",
+                            });
+                            continue;
+                        }
+                        catch (Exception ex) when (IsJiraNotFound(ex))
+                        {
+                            logger.LogWarning(
+                                ex,
+                                "Mapped Jira issue {IssueKey} for {TaskCode} vanished; recreating",
+                                remote.Key,
+                                task.Code);
+                            issueCache[remote.Key] = null;
+                            localToJira.Remove(task.Id);
+                        }
+                        catch (Exception ex)
+                        {
+                            failed++;
+                            logger.LogWarning(
+                                ex,
+                                "Failed to link Jira issue {IssueKey} under parent {ParentKey}",
+                                remote.Key,
+                                parentKey);
+                            items.Add(new ExportTasksToJiraItemResultDto
+                            {
+                                TaskId = task.Id,
+                                TaskCode = task.Code,
+                                Status = "Failed",
+                                JiraIssueKey = remote.Key,
+                                Message = Truncate(ex.Message, 400),
+                            });
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        existingMapping.LastSyncedAt = DateTimeOffset.UtcNow;
+                        await mappingRepository.UpdateAsync(existingMapping, cancellationToken);
+                        skipped++;
+                        items.Add(new ExportTasksToJiraItemResultDto
+                        {
+                            TaskId = task.Id,
+                            TaskCode = task.Code,
+                            Status = "Skipped",
+                            JiraIssueKey = remote.Key,
+                            Message = "Already exported to Jira.",
+                        });
+                        continue;
+                    }
+                }
+                else if (!string.IsNullOrWhiteSpace(issueRef))
+                {
+                    logger.LogWarning(
+                        "Mapped Jira issue {IssueRef} for {TaskCode} is missing; recreating",
+                        issueRef,
+                        task.Code);
+                    localToJira.Remove(task.Id);
+                }
+
+                var wasMapped = existingMapping is not null;
                 var issue = await ExportOneAsync(
                     task,
                     accessToken,
                     cloudId,
                     projectKey,
-                    localToJiraKey,
+                    localToJira,
+                    tasksById,
+                    issueCache,
                     accountCache,
+                    issueTypes,
                     cancellationToken);
 
-                if (mappedByTaskId.TryGetValue(task.Id, out var prior))
+                if (existingMapping is not null)
                 {
-                    prior.ExternalEntityId = issue.Id;
-                    prior.ExternalEntityKey = issue.Key;
-                    prior.LastSyncedAt = DateTimeOffset.UtcNow;
-                    await mappingRepository.UpdateAsync(prior, cancellationToken);
+                    existingMapping.ExternalEntityId = issue.Id;
+                    existingMapping.ExternalEntityKey = issue.Key;
+                    existingMapping.LastSyncedAt = DateTimeOffset.UtcNow;
+                    await mappingRepository.UpdateAsync(existingMapping, cancellationToken);
+                    mappedByTaskId[task.Id] = existingMapping;
                 }
                 else
                 {
@@ -152,14 +269,24 @@ public sealed partial class JiraTaskExportService(
                     mappedByTaskId[task.Id] = mapping;
                 }
 
-                localToJiraKey[task.Id] = issue.Key;
+                localToJira[task.Id] = (issue.Id, issue.Key);
+                issueCache[issue.Key] = new JiraIssueRefDto
+                {
+                    Id = issue.Id,
+                    Key = issue.Key,
+                    IssueTypeName = task.Type == ProjectTaskType.Feature ? "Epic" : "Task",
+                    Subtask = false,
+                };
                 exported++;
                 items.Add(new ExportTasksToJiraItemResultDto
                 {
                     TaskId = task.Id,
                     TaskCode = task.Code,
-                    Status = "Exported",
+                    Status = wasMapped ? "Recreated" : "Exported",
                     JiraIssueKey = issue.Key,
+                    Message = wasMapped
+                        ? "Previous Jira issue was missing; created a new one."
+                        : null,
                 });
             }
             catch (Exception ex)
@@ -186,24 +313,127 @@ public sealed partial class JiraTaskExportService(
         };
     }
 
+    private static string? PreferIssueKey(IntegrationMapping mapping) =>
+        !string.IsNullOrWhiteSpace(mapping.ExternalEntityKey)
+            ? mapping.ExternalEntityKey
+            : mapping.ExternalEntityId;
+
+    private static string? ResolveParentKey(
+        ProjectTask task,
+        IReadOnlyDictionary<Guid, (string Id, string Key)> localToJira)
+    {
+        if (task.ParentId is not { } parentTaskId
+            || !localToJira.TryGetValue(parentTaskId, out var mappedParent))
+        {
+            return null;
+        }
+
+        return !string.IsNullOrWhiteSpace(mappedParent.Key)
+            ? mappedParent.Key
+            : null;
+    }
+
+    private static ProjectTask? ResolveParentTask(
+        ProjectTask task,
+        IReadOnlyDictionary<Guid, ProjectTask> tasksById)
+    {
+        if (task.Parent is not null)
+        {
+            return task.Parent;
+        }
+
+        if (task.ParentId is { } parentId && tasksById.TryGetValue(parentId, out var parent))
+        {
+            return parent;
+        }
+
+        return null;
+    }
+
+    private static bool IsJiraNotFound(Exception ex) =>
+        ex.Message.Contains("(404)", StringComparison.Ordinal)
+        || ex.Message.Contains("does not exist", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsInvalidParentError(Exception ex) =>
+        ex.Message.Contains("valid parent", StringComparison.OrdinalIgnoreCase)
+        || ex.Message.Contains("\"parent\"", StringComparison.OrdinalIgnoreCase);
+
+    private async Task<JiraIssueRefDto?> GetCachedIssueAsync(
+        string accessToken,
+        string cloudId,
+        string issueIdOrKey,
+        Dictionary<string, JiraIssueRefDto?> cache,
+        CancellationToken cancellationToken)
+    {
+        if (cache.TryGetValue(issueIdOrKey, out var cached))
+        {
+            return cached;
+        }
+
+        var remote = await jiraApiClient.TryGetIssueAsync(
+            accessToken,
+            cloudId,
+            issueIdOrKey,
+            cancellationToken);
+        cache[issueIdOrKey] = remote;
+        if (remote is not null
+            && !string.Equals(issueIdOrKey, remote.Key, StringComparison.OrdinalIgnoreCase))
+        {
+            cache[remote.Key] = remote;
+        }
+
+        return remote;
+    }
+
     private async Task<JiraCreatedIssueDto> ExportOneAsync(
         ProjectTask task,
         string accessToken,
         string cloudId,
         string projectKey,
-        IReadOnlyDictionary<Guid, string> localToJiraKey,
+        IReadOnlyDictionary<Guid, (string Id, string Key)> localToJira,
+        IReadOnlyDictionary<Guid, ProjectTask> tasksById,
+        Dictionary<string, JiraIssueRefDto?> issueCache,
         Dictionary<string, string?> accountCache,
+        IReadOnlyList<JiraIssueTypeDto> issueTypes,
         CancellationToken cancellationToken)
     {
-        string? parentKey = null;
-        var issueType = MapIssueType(task.Type, hasParent: false);
+        var parentKey = ResolveParentKey(task, localToJira);
+        var parentLocal = ResolveParentTask(task, tasksById);
 
-        if (task.ParentId is { } parentId
-            && localToJiraKey.TryGetValue(parentId, out var mappedParent))
+        JiraIssueRefDto? parentRemote = null;
+        if (parentKey is not null)
         {
-            parentKey = mappedParent;
-            issueType = "Sub-task";
+            parentRemote = await GetCachedIssueAsync(
+                accessToken,
+                cloudId,
+                parentKey,
+                issueCache,
+                cancellationToken);
+            if (parentRemote is null)
+            {
+                throw new InvalidOperationException(
+                    $"Parent Jira issue {parentKey} does not exist. Export/recreate the parent task first.");
+            }
+
+            parentKey = parentRemote.Key;
         }
+
+        // Team-managed (KAN): Sub-task cannot sit under Epic — use Story/Task + parent.key.
+        // Sub-task is only valid under a base-level issue (Task/Story/Bug).
+        var parentIsEpic = parentLocal?.Type == ProjectTaskType.Feature
+                           || parentRemote?.IsEpic == true;
+        var hasJiraParent = parentKey is not null;
+        var useSubtask = hasJiraParent && !parentIsEpic && parentRemote is { Subtask: false };
+        var underEpic = hasJiraParent && parentIsEpic;
+        var resolvedType = ResolveIssueType(task.Type, useSubtask, underEpic, issueTypes);
+
+        logger.LogInformation(
+            "Exporting {TaskCode} as Jira {IssueType} (subtask={Subtask}) under parent {ParentKey} ({ParentType})",
+            task.Code,
+            resolvedType.Name,
+            useSubtask,
+            parentKey ?? "(none)",
+            parentRemote?.IssueTypeName ?? parentLocal?.Type.ToString() ?? "(none)");
 
         string? assigneeAccountId = null;
         if (task.Assignee is not null)
@@ -218,22 +448,56 @@ public sealed partial class JiraTaskExportService(
                 cancellationToken);
         }
 
-        var created = await jiraApiClient.CreateIssueAsync(
-            accessToken,
-            cloudId,
-            new JiraCreateIssueRequest
+        async Task<JiraCreatedIssueDto> CreateAsync(JiraIssueTypeDto type, string? withParentKey) =>
+            await jiraApiClient.CreateIssueAsync(
+                accessToken,
+                cloudId,
+                new JiraCreateIssueRequest
+                {
+                    ProjectKey = projectKey,
+                    Summary = BuildSummary(task),
+                    IssueTypeName = type.Name,
+                    IssueTypeId = string.IsNullOrWhiteSpace(type.Id) ? null : type.Id,
+                    Description = BuildDescription(task, withParentKey),
+                    AssigneeAccountId = assigneeAccountId,
+                    ParentIssueKey = withParentKey,
+                    ParentIssueId = null,
+                    Labels = BuildLabels(task),
+                    OriginalEstimate = FormatEstimate(task.OriginalEstimateMinutes),
+                    RemainingEstimate = FormatEstimate(task.RemainingEstimateMinutes),
+                },
+                cancellationToken);
+
+        JiraCreatedIssueDto created;
+        try
+        {
+            created = await CreateAsync(resolvedType, parentKey);
+        }
+        catch (Exception ex) when (parentKey is not null && IsInvalidParentError(ex))
+        {
+            // Wrong child type for this parent (e.g. Sub-task→Epic on team-managed).
+            // Retry once as a non-subtask Story/Task under the same parent key.
+            if (useSubtask || !underEpic)
             {
-                ProjectKey = projectKey,
-                Summary = BuildSummary(task),
-                IssueTypeName = issueType,
-                Description = BuildDescription(task),
-                AssigneeAccountId = assigneeAccountId,
-                ParentIssueKey = parentKey,
-                Labels = BuildLabels(task),
-                OriginalEstimate = FormatEstimate(task.OriginalEstimateMinutes),
-                RemainingEstimate = FormatEstimate(task.RemainingEstimateMinutes),
-            },
-            cancellationToken);
+                var retryType = ResolveIssueType(
+                    task.Type,
+                    useSubtask: false,
+                    underEpic: true,
+                    issueTypes);
+                logger.LogWarning(
+                    ex,
+                    "Parent {ParentKey} rejected {IssueType} for {TaskCode}; retrying as {RetryType}",
+                    parentKey,
+                    resolvedType.Name,
+                    task.Code,
+                    retryType.Name);
+                created = await CreateAsync(retryType, parentKey);
+            }
+            else
+            {
+                throw;
+            }
+        }
 
         foreach (var workLog in task.WorkLogs.OrderBy(w => w.StartedAt))
         {
@@ -326,6 +590,83 @@ public sealed partial class JiraTaskExportService(
         return $"{emailPart}|{namePart}";
     }
 
+    private async Task<List<ProjectTask>> EnsureAncestorsIncludedAsync(
+        Guid projectId,
+        List<ProjectTask> selected,
+        CancellationToken cancellationToken)
+    {
+        var byId = selected.ToDictionary(t => t.Id);
+        var missingParentIds = selected
+            .Where(t => t.ParentId is { } pid && !byId.ContainsKey(pid))
+            .Select(t => t.ParentId!.Value)
+            .Distinct()
+            .ToHashSet();
+
+        while (missingParentIds.Count > 0)
+        {
+            var ancestors = await taskRepository.GetAllAsync(
+                filter: t => t.ProjectId == projectId && missingParentIds.Contains(t.Id),
+                include: query => query
+                    .Include(t => t.Assignee)
+                    .Include(t => t.Reporter)
+                    .Include(t => t.Parent)
+                    .Include(t => t.WorkLogs)
+                    .ThenInclude(w => w.User),
+                cancellationToken: cancellationToken);
+
+            missingParentIds.Clear();
+            foreach (var ancestor in ancestors)
+            {
+                if (!byId.TryAdd(ancestor.Id, ancestor))
+                {
+                    continue;
+                }
+
+                if (ancestor.ParentId is { } pid && !byId.ContainsKey(pid))
+                {
+                    missingParentIds.Add(pid);
+                }
+            }
+        }
+
+        return byId.Values.ToList();
+    }
+
+    private static List<ProjectTask> OrderForTreeExport(List<ProjectTask> tasks)
+    {
+        var byId = tasks.ToDictionary(t => t.Id);
+        var depth = new Dictionary<Guid, int>();
+
+        int DepthOf(ProjectTask task)
+        {
+            if (depth.TryGetValue(task.Id, out var known))
+            {
+                return known;
+            }
+
+            if (task.ParentId is not { } parentId || !byId.ContainsKey(parentId))
+            {
+                return depth[task.Id] = 0;
+            }
+
+            // Guard cycles; treat as root.
+            depth[task.Id] = -1;
+            var parentDepth = DepthOf(byId[parentId]);
+            return depth[task.Id] = parentDepth < 0 ? 0 : parentDepth + 1;
+        }
+
+        foreach (var task in tasks)
+        {
+            DepthOf(task);
+        }
+
+        return tasks
+            .OrderBy(t => depth[t.Id])
+            .ThenBy(t => t.CreatedAt)
+            .ThenBy(t => t.Code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     private static System.Linq.Expressions.Expression<Func<ProjectTask, bool>> BuildTaskFilter(
         Guid projectId,
         ExportTasksToJiraRequest request) =>
@@ -351,15 +692,60 @@ public sealed partial class JiraTaskExportService(
                 request.Search),
         };
 
-    private static string MapIssueType(ProjectTaskType type, bool hasParent) =>
-        hasParent
-            ? "Sub-task"
+    private static JiraIssueTypeDto ResolveIssueType(
+        ProjectTaskType type,
+        bool useSubtask,
+        bool underEpic,
+        IReadOnlyList<JiraIssueTypeDto> available)
+    {
+        if (available.Count == 0)
+        {
+            var fallbackName = useSubtask
+                ? "Sub-task"
+                : type switch
+                {
+                    ProjectTaskType.Bug => "Bug",
+                    ProjectTaskType.Feature => "Epic",
+                    _ when underEpic => "Story",
+                    _ => "Task",
+                };
+            return new JiraIssueTypeDto { Name = fallbackName, Subtask = useSubtask };
+        }
+
+        string[] preferredNames = useSubtask
+            ? ["Sub-task", "Subtask", "Sub Task"]
             : type switch
             {
-                ProjectTaskType.Bug => "Bug",
-                ProjectTaskType.Feature => "Story",
-                _ => "Task",
+                ProjectTaskType.Bug => ["Bug", "Defect", "Error", "Story", "Task"],
+                ProjectTaskType.Feature => ["Epic", "Feature", "Story", "Initiative"],
+                // Epic children: Story is the usual hierarchy child in Jira Software.
+                _ when underEpic => ["Story", "Task", "Work Item", "Issue", "Bug"],
+                _ => ["Task", "Story", "Work Item", "Issue"],
             };
+
+        foreach (var preferred in preferredNames)
+        {
+            var match = available.FirstOrDefault(t =>
+                string.Equals(t.Name, preferred, StringComparison.OrdinalIgnoreCase)
+                && (useSubtask ? t.Subtask : !t.Subtask));
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        if (useSubtask)
+        {
+            var anySubtask = available.FirstOrDefault(t => t.Subtask);
+            if (anySubtask is not null)
+            {
+                return anySubtask;
+            }
+        }
+
+        var anyStandard = available.FirstOrDefault(t => !t.Subtask);
+        return anyStandard ?? available[0];
+    }
 
     private static string BuildSummary(ProjectTask task)
     {
@@ -368,11 +754,15 @@ public sealed partial class JiraTaskExportService(
         return summary.Length <= 255 ? summary : summary[..255];
     }
 
-    private static string BuildDescription(ProjectTask task)
+    private static string BuildDescription(ProjectTask task, string? jiraParentKey = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"Skemex key: {task.Code}");
         sb.AppendLine($"Type: {task.Type}");
+        if (!string.IsNullOrWhiteSpace(jiraParentKey))
+        {
+            sb.AppendLine($"Parent Jira issue: {jiraParentKey}");
+        }
         if (task.StoryPoints is { } sp)
         {
             sb.AppendLine($"Story points: {sp.ToString(CultureInfo.InvariantCulture)}");

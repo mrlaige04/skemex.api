@@ -28,6 +28,7 @@ public class ProjectTask : TenantEntity
 
     public IList<ProjectTaskWorkLog> WorkLogs { get; set; } = [];
     public IList<ProjectTaskAttachment> Attachments { get; set; } = [];
+    public IList<ProjectTaskComment> Comments { get; set; } = [];
 
     public Guid? AssigneeId { get; set; }
     public User? Assignee { get; set; }

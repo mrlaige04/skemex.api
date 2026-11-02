@@ -362,17 +362,90 @@ public sealed class JiraApiClient(
         return avatarUrls.Values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
     }
 
+    public async Task<IReadOnlyList<JiraIssueTypeDto>> GetProjectIssueTypesAsync(
+        string accessToken,
+        string cloudId,
+        string projectKeyOrId,
+        CancellationToken cancellationToken = default)
+    {
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        var collected = new List<JiraIssueTypeDto>();
+        var startAt = 0;
+        const int pageSize = 50;
+
+        while (true)
+        {
+            var url =
+                $"https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3/issue/createmeta/"
+                + $"{Uri.EscapeDataString(projectKeyOrId)}/issuetypes"
+                + $"?startAt={startAt}&maxResults={pageSize}";
+
+            using var request = CreateAuthorizedGet(url, accessToken);
+            using var response = await client.SendAsync(request, cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException(
+                    $"Jira issue types failed ({(int)response.StatusCode}): {Truncate(body)}");
+            }
+
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("issueTypes", out var typesEl)
+                || typesEl.ValueKind != JsonValueKind.Array)
+            {
+                break;
+            }
+
+            var pageCount = 0;
+            foreach (var typeEl in typesEl.EnumerateArray())
+            {
+                pageCount++;
+                var id = typeEl.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                var name = typeEl.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : null;
+                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                var subtask = typeEl.TryGetProperty("subtask", out var subEl)
+                              && subEl.ValueKind == JsonValueKind.True;
+                collected.Add(new JiraIssueTypeDto
+                {
+                    Id = id,
+                    Name = name,
+                    Subtask = subtask,
+                });
+            }
+
+            var total = root.TryGetProperty("total", out var totalEl) && totalEl.TryGetInt32(out var t)
+                ? t
+                : startAt + pageCount;
+            startAt += pageCount;
+            if (pageCount == 0 || startAt >= total)
+            {
+                break;
+            }
+        }
+
+        return collected;
+    }
+
     public async Task<JiraCreatedIssueDto> CreateIssueAsync(
         string accessToken,
         string cloudId,
         JiraCreateIssueRequest request,
         CancellationToken cancellationToken = default)
     {
+        object issueType = !string.IsNullOrWhiteSpace(request.IssueTypeId)
+            ? new { id = request.IssueTypeId }
+            : new { name = request.IssueTypeName };
+
         var fields = new Dictionary<string, object?>
         {
             ["project"] = new { key = request.ProjectKey },
             ["summary"] = request.Summary,
-            ["issuetype"] = new { name = request.IssueTypeName },
+            ["issuetype"] = issueType,
         };
 
         if (!string.IsNullOrWhiteSpace(request.Description))
@@ -385,10 +458,15 @@ public sealed class JiraApiClient(
             fields["assignee"] = new { accountId = request.AssigneeAccountId };
         }
 
-        if (!string.IsNullOrWhiteSpace(request.ParentIssueKey)
-            && string.Equals(request.IssueTypeName, "Sub-task", StringComparison.OrdinalIgnoreCase))
+        // Parent by key (Jira docs): { "parent": { "key": "PROJ-123" } }.
+        // Id is only a fallback when key is unavailable.
+        if (!string.IsNullOrWhiteSpace(request.ParentIssueKey))
         {
             fields["parent"] = new { key = request.ParentIssueKey };
+        }
+        else if (!string.IsNullOrWhiteSpace(request.ParentIssueId))
+        {
+            fields["parent"] = new { id = request.ParentIssueId };
         }
 
         if (request.Labels.Count > 0)
@@ -438,6 +516,105 @@ public sealed class JiraApiClient(
         }
 
         return new JiraCreatedIssueDto { Id = created.Id, Key = created.Key };
+    }
+
+    public async Task<JiraIssueRefDto?> TryGetIssueAsync(
+        string accessToken,
+        string cloudId,
+        string issueIdOrKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(issueIdOrKey))
+        {
+            return null;
+        }
+
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        var url =
+            $"https://api.atlassian.com/ex/jira/{cloudId}/rest/api/2/issue/"
+            + $"{Uri.EscapeDataString(issueIdOrKey.Trim())}"
+            + "?fields=issuetype,summary";
+        using var request = CreateAuthorizedGet(url, accessToken);
+        using var response = await client.SendAsync(request, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Jira get issue failed ({(int)response.StatusCode}): {Truncate(body)}");
+        }
+
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+        var id = root.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+        var key = root.TryGetProperty("key", out var keyEl) ? keyEl.GetString() : null;
+        if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(key))
+        {
+            return null;
+        }
+
+        var typeName = "Task";
+        var subtask = false;
+        if (root.TryGetProperty("fields", out var fields)
+            && fields.TryGetProperty("issuetype", out var typeEl))
+        {
+            if (typeEl.TryGetProperty("name", out var nameEl)
+                && nameEl.GetString() is { Length: > 0 } name)
+            {
+                typeName = name;
+            }
+
+            subtask = typeEl.TryGetProperty("subtask", out var subEl)
+                      && subEl.ValueKind == JsonValueKind.True;
+        }
+
+        return new JiraIssueRefDto
+        {
+            Id = id,
+            Key = key,
+            IssueTypeName = typeName,
+            Subtask = subtask,
+        };
+    }
+
+    public async Task UpdateIssueParentAsync(
+        string accessToken,
+        string cloudId,
+        string issueIdOrKey,
+        string parentIssueKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(parentIssueKey))
+        {
+            throw new ArgumentException("Parent issue key is required.", nameof(parentIssueKey));
+        }
+
+        // Same API version as create; parent by key per Jira Cloud docs.
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        using var httpRequest = new HttpRequestMessage(
+            HttpMethod.Put,
+            $"https://api.atlassian.com/ex/jira/{cloudId}/rest/api/2/issue/{Uri.EscapeDataString(issueIdOrKey)}")
+        {
+            Content = JsonContent.Create(
+                new { fields = new { parent = new { key = parentIssueKey.Trim() } } },
+                options: JsonOptions),
+        };
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await client.SendAsync(httpRequest, cancellationToken);
+        if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NoContent)
+        {
+            return;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"Jira update parent failed ({(int)response.StatusCode}): {Truncate(body)}");
     }
 
     public async Task AddWorklogAsync(

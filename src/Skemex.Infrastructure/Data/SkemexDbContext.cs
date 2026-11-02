@@ -22,6 +22,7 @@ public class SkemexDbContext(DbContextOptions<SkemexDbContext> options) : Identi
     public DbSet<ProjectColumn> ProjectColumns { get; set; } = null!;
     public DbSet<ProjectTask> ProjectTasks { get; set; } = null!;
     public DbSet<ProjectTaskWorkLog> ProjectTaskWorkLogs { get; set; } = null!;
+    public DbSet<ProjectTaskComment> ProjectTaskComments { get; set; } = null!;
     public DbSet<ProjectTaskAttachment> ProjectTaskAttachments { get; set; } = null!;
     public DbSet<ProjectDocument> ProjectDocuments { get; set; } = null!;
     public DbSet<ProjectDocumentChunk> ProjectDocumentChunks { get; set; } = null!;

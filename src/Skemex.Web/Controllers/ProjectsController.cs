@@ -21,12 +21,14 @@ using Skemex.Application.Features.Commands.Projects.UpdateAiChat;
 using Skemex.Application.Features.Commands.Projects.UpdateAiChatMessage;
 using Skemex.Application.Features.Commands.Projects.UpdateProject;
 using Skemex.Application.Features.Commands.Projects.UpdateProjectTask;
+using Skemex.Application.Features.Commands.Projects.CreateProjectTaskComment;
 using Skemex.Application.Features.Commands.Projects.CreateProjectTaskWorkLog;
 using Skemex.Application.Features.Commands.Projects.DeleteProjectTaskAttachment;
 using Skemex.Application.Features.Commands.Projects.DeleteProjectTaskWorkLog;
 using Skemex.Application.Features.Commands.Projects.UpdateProjectTaskWorkLog;
 using Skemex.Application.Features.Commands.Projects.UploadProjectTaskAttachment;
 using Skemex.Application.Features.Queries.Projects.GetProjectTaskAttachments;
+using Skemex.Application.Features.Queries.Projects.GetProjectTaskComments;
 using Skemex.Application.Features.Queries.Projects.GetProjectTaskWorkLogs;
 using Skemex.Application.Features.Commands.Projects.ReorderProjectColumns;
 using Skemex.Application.Features.Commands.Projects.UpdateProjectColumn;
@@ -598,6 +600,38 @@ public class ProjectsController(ISender sender) : BaseController
     {
         var result = await sender.Send(
             new GetProjectTaskWorkLogsQuery { ProjectId = id, TaskId = taskId },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [Permission(PermissionNames.TasksView)]
+    [HttpGet("{id:guid}/tasks/{taskId:guid}/comments")]
+    public async Task<IActionResult> ListTaskComments(
+        Guid id,
+        Guid taskId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new GetProjectTaskCommentsQuery { ProjectId = id, TaskId = taskId },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [Permission(PermissionNames.TasksEdit)]
+    [HttpPost("{id:guid}/tasks/{taskId:guid}/comments")]
+    public async Task<IActionResult> CreateTaskComment(
+        Guid id,
+        Guid taskId,
+        [FromBody] CreateProjectTaskCommentRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new CreateProjectTaskCommentCommand
+            {
+                ProjectId = id,
+                TaskId = taskId,
+                Body = body.Body,
+            },
             cancellationToken);
         return result.Match(Ok, Problem);
     }

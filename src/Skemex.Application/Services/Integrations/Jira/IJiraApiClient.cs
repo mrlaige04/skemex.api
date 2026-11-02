@@ -43,10 +43,35 @@ public interface IJiraApiClient
         int maxResults = 200,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Issue types available when creating issues in the given project.</summary>
+    Task<IReadOnlyList<JiraIssueTypeDto>> GetProjectIssueTypesAsync(
+        string accessToken,
+        string cloudId,
+        string projectKeyOrId,
+        CancellationToken cancellationToken = default);
+
     Task<JiraCreatedIssueDto> CreateIssueAsync(
         string accessToken,
         string cloudId,
         JiraCreateIssueRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Returns the issue or <c>null</c> when it is missing (404).</summary>
+    Task<JiraIssueRefDto?> TryGetIssueAsync(
+        string accessToken,
+        string cloudId,
+        string issueIdOrKey,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the parent of an existing issue by parent issue key
+    /// (<c>fields.parent.key</c>), matching Jira Cloud create/update docs.
+    /// </summary>
+    Task UpdateIssueParentAsync(
+        string accessToken,
+        string cloudId,
+        string issueIdOrKey,
+        string parentIssueKey,
         CancellationToken cancellationToken = default);
 
     Task AddWorklogAsync(
