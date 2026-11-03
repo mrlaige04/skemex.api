@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Skemex.Application.Configuration.Integrations;
 using Skemex.Application.Models.Integrations.Jira;
 using Skemex.Application.Services.Integrations.Jira;
+using Skemex.Application.Services.Integrations.Jira.Webhooks;
 
 namespace Skemex.Infrastructure.Services.Integrations.Jira;
 
@@ -581,6 +582,275 @@ public sealed class JiraApiClient(
         };
     }
 
+    public async Task<JiraRemoteIssueDto?> GetRemoteIssueAsync(
+        string accessToken,
+        string cloudId,
+        string issueIdOrKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(issueIdOrKey))
+        {
+            return null;
+        }
+
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        var fields = string.Join(
+            ',',
+            "summary",
+            "description",
+            "issuetype",
+            "status",
+            "assignee",
+            "parent",
+            "labels",
+            "timetracking",
+            "worklog");
+        var url =
+            $"https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3/issue/"
+            + $"{Uri.EscapeDataString(issueIdOrKey.Trim())}"
+            + $"?fields={Uri.EscapeDataString(fields)}";
+
+        using var request = CreateAuthorizedGet(url, accessToken);
+        using var response = await client.SendAsync(request, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Jira get issue failed ({(int)response.StatusCode}): {Truncate(body)}");
+        }
+
+        using var document = JsonDocument.Parse(body);
+        return MapRemoteIssue(document.RootElement);
+    }
+
+    public async Task<JiraRegisteredWebhookDto> RegisterWebhookAsync(
+        string accessToken,
+        string cloudId,
+        JiraRegisterWebhookRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Url))
+        {
+            throw new ArgumentException("Webhook URL is required.", nameof(request));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.ProjectKey))
+        {
+            throw new ArgumentException("Project key is required.", nameof(request));
+        }
+
+        // OAuth 3LO must use dynamic webhooks (api/3), not admin /rest/webhooks/1.0.
+        var events = request.Events.Count > 0
+            ? request.Events
+            : JiraWebhookEventCatalog.OAuthDynamicJiraEventNames;
+
+        var jql = $"project = \"{EscapeJqlValue(request.ProjectKey.Trim())}\"";
+        var payload = new Dictionary<string, object?>
+        {
+            ["url"] = request.Url.Trim(),
+            ["webhooks"] = new object[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["jqlFilter"] = jql,
+                    ["events"] = events,
+                },
+            },
+        };
+
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        using var httpRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3/webhook")
+        {
+            Content = JsonContent.Create(payload, options: JsonOptions),
+        };
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await client.SendAsync(httpRequest, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Jira register webhook failed ({(int)response.StatusCode}): {Truncate(body)}");
+        }
+
+        var id = TryExtractDynamicWebhookId(body);
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            throw new InvalidOperationException(
+                $"Jira register webhook response missing id: {Truncate(body)}");
+        }
+
+        return new JiraRegisteredWebhookDto { Id = id };
+    }
+
+    public async Task DeleteWebhookAsync(
+        string accessToken,
+        string cloudId,
+        string webhookId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(webhookId))
+        {
+            return;
+        }
+
+        if (!long.TryParse(webhookId.Trim(), out var numericId))
+        {
+            return;
+        }
+
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        using var httpRequest = new HttpRequestMessage(
+            HttpMethod.Delete,
+            $"https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3/webhook")
+        {
+            Content = JsonContent.Create(
+                new Dictionary<string, object?> { ["webhookIds"] = new[] { numericId } },
+                options: JsonOptions),
+        };
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await client.SendAsync(httpRequest, cancellationToken);
+        if (response.IsSuccessStatusCode
+            || response.StatusCode == System.Net.HttpStatusCode.NotFound
+            || response.StatusCode == System.Net.HttpStatusCode.NoContent)
+        {
+            return;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"Jira delete webhook failed ({(int)response.StatusCode}): {Truncate(body)}");
+    }
+
+    public async Task RefreshWebhookAsync(
+        string accessToken,
+        string cloudId,
+        string webhookId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(webhookId) || !long.TryParse(webhookId.Trim(), out var numericId))
+        {
+            return;
+        }
+
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        using var httpRequest = new HttpRequestMessage(
+            HttpMethod.Put,
+            $"https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3/webhook/refresh")
+        {
+            Content = JsonContent.Create(
+                new Dictionary<string, object?> { ["webhookIds"] = new[] { numericId } },
+                options: JsonOptions),
+        };
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await client.SendAsync(httpRequest, cancellationToken);
+        if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NoContent)
+        {
+            return;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"Jira refresh webhook failed ({(int)response.StatusCode}): {Truncate(body)}");
+    }
+
+    private static string? TryExtractDynamicWebhookId(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+
+            if (root.TryGetProperty("webhookRegistrationResult", out var results)
+                && results.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in results.EnumerateArray())
+                {
+                    var id = ReadCreatedWebhookId(item);
+                    if (!string.IsNullOrWhiteSpace(id))
+                    {
+                        return id;
+                    }
+
+                    if (item.TryGetProperty("errors", out var errors)
+                        && errors.ValueKind == JsonValueKind.Array
+                        && errors.GetArrayLength() > 0)
+                    {
+                        var messages = string.Join("; ", errors.EnumerateArray().Select(e => e.GetString()).Where(s => !string.IsNullOrWhiteSpace(s)));
+                        throw new InvalidOperationException(
+                            $"Jira rejected webhook registration: {messages}");
+                    }
+                }
+            }
+
+            // Some responses return a bare array of registration results.
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in root.EnumerateArray())
+                {
+                    var id = ReadCreatedWebhookId(item);
+                    if (!string.IsNullOrWhiteSpace(id))
+                    {
+                        return id;
+                    }
+                }
+            }
+
+            return ReadCreatedWebhookId(root) ?? TryReadIdProperty(root);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? ReadCreatedWebhookId(JsonElement item)
+    {
+        if (item.TryGetProperty("createdWebhookId", out var created))
+        {
+            return created.ValueKind switch
+            {
+                JsonValueKind.Number => created.GetRawText(),
+                JsonValueKind.String => created.GetString(),
+                _ => null,
+            };
+        }
+
+        return null;
+    }
+
+    private static string? TryReadIdProperty(JsonElement item)
+    {
+        if (!item.TryGetProperty("id", out var idEl))
+        {
+            return null;
+        }
+
+        return idEl.ValueKind switch
+        {
+            JsonValueKind.Number => idEl.GetRawText(),
+            JsonValueKind.String => idEl.GetString(),
+            _ => null,
+        };
+    }
+
     public async Task UpdateIssueParentAsync(
         string accessToken,
         string cloudId,
@@ -653,6 +923,154 @@ public sealed class JiraApiClient(
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         throw new InvalidOperationException(
             $"Jira add worklog failed ({(int)response.StatusCode}): {Truncate(body)}");
+    }
+
+    public async Task<JiraCreatedCommentDto> AddIssueCommentAsync(
+        string accessToken,
+        string cloudId,
+        string issueIdOrKey,
+        JiraAddCommentRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Body))
+        {
+            throw new ArgumentException("Comment body is required.", nameof(request));
+        }
+
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        using var httpRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"https://api.atlassian.com/ex/jira/{cloudId}/rest/api/2/issue/{Uri.EscapeDataString(issueIdOrKey)}/comment")
+        {
+            Content = JsonContent.Create(new { body = request.Body }, options: JsonOptions),
+        };
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await client.SendAsync(httpRequest, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Jira add comment failed ({(int)response.StatusCode}): {Truncate(responseBody)}");
+        }
+
+        using var document = JsonDocument.Parse(responseBody);
+        var id = document.RootElement.TryGetProperty("id", out var idEl)
+            ? idEl.GetString()
+            : null;
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            throw new InvalidOperationException("Jira add comment response missing id.");
+        }
+
+        return new JiraCreatedCommentDto { Id = id };
+    }
+
+    public async Task<IReadOnlyList<JiraRemoteCommentDto>> GetIssueCommentsAsync(
+        string accessToken,
+        string cloudId,
+        string issueIdOrKey,
+        CancellationToken cancellationToken = default)
+    {
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        var collected = new List<JiraRemoteCommentDto>();
+        const int pageSize = 100;
+        var startAt = 0;
+
+        while (true)
+        {
+            var url =
+                $"https://api.atlassian.com/ex/jira/{cloudId}/rest/api/2/issue/{Uri.EscapeDataString(issueIdOrKey)}/comment"
+                + $"?startAt={startAt}&maxResults={pageSize}";
+
+            using var httpRequest = CreateAuthorizedGet(url, accessToken);
+            using var response = await client.SendAsync(httpRequest, cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException(
+                    $"Jira list comments failed ({(int)response.StatusCode}): {Truncate(body)}");
+            }
+
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("comments", out var commentsEl)
+                || commentsEl.ValueKind != JsonValueKind.Array)
+            {
+                break;
+            }
+
+            var pageCount = 0;
+            foreach (var commentEl in commentsEl.EnumerateArray())
+            {
+                pageCount++;
+                var mapped = MapRemoteComment(commentEl);
+                if (mapped is not null)
+                {
+                    collected.Add(mapped);
+                }
+            }
+
+            var total = root.TryGetProperty("total", out var totalEl) && totalEl.TryGetInt32(out var totalValue)
+                ? totalValue
+                : collected.Count;
+            startAt += pageCount;
+            if (pageCount == 0 || startAt >= total)
+            {
+                break;
+            }
+        }
+
+        return collected;
+    }
+
+    private static JiraRemoteCommentDto? MapRemoteComment(JsonElement commentEl)
+    {
+        var id = commentEl.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        string? body = null;
+        if (commentEl.TryGetProperty("body", out var bodyEl) && bodyEl.ValueKind != JsonValueKind.Null)
+        {
+            body = ExtractJiraText(bodyEl);
+        }
+
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        string? authorEmail = null;
+        string? authorDisplayName = null;
+        if (commentEl.TryGetProperty("author", out var authorEl)
+            && authorEl.ValueKind == JsonValueKind.Object)
+        {
+            authorEmail = authorEl.TryGetProperty("emailAddress", out var emailEl)
+                ? emailEl.GetString()
+                : null;
+            authorDisplayName = authorEl.TryGetProperty("displayName", out var nameEl)
+                ? nameEl.GetString()
+                : null;
+        }
+
+        DateTime? createdAt = null;
+        if (commentEl.TryGetProperty("created", out var createdEl))
+        {
+            createdAt = ParseJiraDateTime(createdEl.GetString());
+        }
+
+        return new JiraRemoteCommentDto
+        {
+            Id = id,
+            Body = body.Trim(),
+            AuthorEmail = authorEmail,
+            AuthorDisplayName = authorDisplayName,
+            CreatedAt = createdAt,
+        };
     }
 
     public async Task<IReadOnlyList<JiraRemoteIssueDto>> SearchProjectIssuesAsync(

@@ -52,7 +52,9 @@ public sealed partial class JiraTaskExportService(
                 .Include(t => t.Reporter)
                 .Include(t => t.Parent)
                 .Include(t => t.WorkLogs)
-                .ThenInclude(w => w.User),
+                .ThenInclude(w => w.User)
+                .Include(t => t.Comments)
+                .ThenInclude(c => c.Author),
             cancellationToken: cancellationToken);
 
         if (tasks.Count == 0)
@@ -82,6 +84,16 @@ public sealed partial class JiraTaskExportService(
                 && m.IntegrationConnectionId == connection.Id
                 && m.LocalEntityType == "Task",
             cancellationToken: cancellationToken);
+
+        var existingCommentMappings = await mappingRepository.GetAllAsync(
+            filter: m =>
+                m.ProjectId == projectId
+                && m.IntegrationConnectionId == connection.Id
+                && m.LocalEntityType == "TaskComment",
+            cancellationToken: cancellationToken);
+        var exportedCommentIds = existingCommentMappings
+            .Select(m => m.LocalEntityId)
+            .ToHashSet();
 
         var mappedByTaskId = existingMappings.ToDictionary(m => m.LocalEntityId);
         var localToJira = existingMappings
@@ -164,6 +176,15 @@ public sealed partial class JiraTaskExportService(
 
                             existingMapping.LastSyncedAt = DateTimeOffset.UtcNow;
                             await mappingRepository.UpdateAsync(existingMapping, cancellationToken);
+                            var commentsLinked = await ExportCommentsAsync(
+                                task,
+                                remote.Key,
+                                projectId,
+                                connection,
+                                exportedCommentIds,
+                                accessToken,
+                                cloudId,
+                                cancellationToken);
                             exported++;
                             items.Add(new ExportTasksToJiraItemResultDto
                             {
@@ -171,7 +192,9 @@ public sealed partial class JiraTaskExportService(
                                 TaskCode = task.Code,
                                 Status = "Updated",
                                 JiraIssueKey = remote.Key,
-                                Message = $"Linked under parent {parentKey}.",
+                                Message = commentsLinked > 0
+                                    ? $"Linked under parent {parentKey}; exported {commentsLinked} comment(s)."
+                                    : $"Linked under parent {parentKey}.",
                             });
                             continue;
                         }
@@ -208,15 +231,40 @@ public sealed partial class JiraTaskExportService(
                     {
                         existingMapping.LastSyncedAt = DateTimeOffset.UtcNow;
                         await mappingRepository.UpdateAsync(existingMapping, cancellationToken);
-                        skipped++;
-                        items.Add(new ExportTasksToJiraItemResultDto
+                        var commentsSynced = await ExportCommentsAsync(
+                            task,
+                            remote.Key,
+                            projectId,
+                            connection,
+                            exportedCommentIds,
+                            accessToken,
+                            cloudId,
+                            cancellationToken);
+                        if (commentsSynced > 0)
                         {
-                            TaskId = task.Id,
-                            TaskCode = task.Code,
-                            Status = "Skipped",
-                            JiraIssueKey = remote.Key,
-                            Message = "Already exported to Jira.",
-                        });
+                            exported++;
+                            items.Add(new ExportTasksToJiraItemResultDto
+                            {
+                                TaskId = task.Id,
+                                TaskCode = task.Code,
+                                Status = "Updated",
+                                JiraIssueKey = remote.Key,
+                                Message = $"Exported {commentsSynced} new comment(s).",
+                            });
+                        }
+                        else
+                        {
+                            skipped++;
+                            items.Add(new ExportTasksToJiraItemResultDto
+                            {
+                                TaskId = task.Id,
+                                TaskCode = task.Code,
+                                Status = "Skipped",
+                                JiraIssueKey = remote.Key,
+                                Message = "Already exported to Jira.",
+                            });
+                        }
+
                         continue;
                     }
                 }
@@ -277,6 +325,39 @@ public sealed partial class JiraTaskExportService(
                     IssueTypeName = task.Type == ProjectTaskType.Feature ? "Epic" : "Task",
                     Subtask = false,
                 };
+
+                // Stale comment mappings pointed at a deleted Jira issue — allow re-export.
+                if (wasMapped && task.Comments is { Count: > 0 })
+                {
+                    var commentIds = task.Comments.Select(c => c.Id).ToList();
+                    foreach (var commentId in commentIds)
+                    {
+                        exportedCommentIds.Remove(commentId);
+                    }
+
+                    var staleCommentMappings = await mappingRepository.GetAllAsync(
+                        filter: m =>
+                            m.ProjectId == projectId
+                            && m.IntegrationConnectionId == connection.Id
+                            && m.LocalEntityType == "TaskComment"
+                            && commentIds.Contains(m.LocalEntityId),
+                        cancellationToken: cancellationToken);
+                    foreach (var stale in staleCommentMappings)
+                    {
+                        await mappingRepository.DeleteAsync(stale, cancellationToken);
+                    }
+                }
+
+                var commentsExported = await ExportCommentsAsync(
+                    task,
+                    issue.Key,
+                    projectId,
+                    connection,
+                    exportedCommentIds,
+                    accessToken,
+                    cloudId,
+                    cancellationToken);
+
                 exported++;
                 items.Add(new ExportTasksToJiraItemResultDto
                 {
@@ -285,8 +366,12 @@ public sealed partial class JiraTaskExportService(
                     Status = wasMapped ? "Recreated" : "Exported",
                     JiraIssueKey = issue.Key,
                     Message = wasMapped
-                        ? "Previous Jira issue was missing; created a new one."
-                        : null,
+                        ? commentsExported > 0
+                            ? $"Previous Jira issue was missing; created a new one and exported {commentsExported} comment(s)."
+                            : "Previous Jira issue was missing; created a new one."
+                        : commentsExported > 0
+                            ? $"Exported with {commentsExported} comment(s)."
+                            : null,
                 });
             }
             catch (Exception ex)
@@ -611,8 +696,10 @@ public sealed partial class JiraTaskExportService(
                     .Include(t => t.Reporter)
                     .Include(t => t.Parent)
                     .Include(t => t.WorkLogs)
-                    .ThenInclude(w => w.User),
-                cancellationToken: cancellationToken);
+                    .ThenInclude(w => w.User)
+                    .Include(t => t.Comments)
+                    .ThenInclude(c => c.Author),
+            cancellationToken: cancellationToken);
 
             missingParentIds.Clear();
             foreach (var ancestor in ancestors)
@@ -874,6 +961,105 @@ public sealed partial class JiraTaskExportService(
         }
 
         return parts.Count == 0 ? null : string.Join(" — ", parts);
+    }
+
+    private async Task<int> ExportCommentsAsync(
+        ProjectTask task,
+        string jiraIssueKey,
+        Guid projectId,
+        IntegrationConnection connection,
+        HashSet<Guid> exportedCommentIds,
+        string accessToken,
+        string cloudId,
+        CancellationToken cancellationToken)
+    {
+        if (task.Comments is not { Count: > 0 })
+        {
+            return 0;
+        }
+
+        var exported = 0;
+        foreach (var comment in task.Comments.OrderBy(c => c.CreatedAt).ThenBy(c => c.Id))
+        {
+            if (exportedCommentIds.Contains(comment.Id))
+            {
+                continue;
+            }
+
+            var body = BuildIssueCommentBody(comment);
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                continue;
+            }
+
+            try
+            {
+                var created = await jiraApiClient.AddIssueCommentAsync(
+                    accessToken,
+                    cloudId,
+                    jiraIssueKey,
+                    new JiraAddCommentRequest { Body = body },
+                    cancellationToken);
+
+                await mappingRepository.AddAsync(
+                    new IntegrationMapping
+                    {
+                        Id = Guid.NewGuid(),
+                        TenantId = connection.TenantId,
+                        ProjectId = projectId,
+                        IntegrationConnectionId = connection.Id,
+                        LocalEntityType = "TaskComment",
+                        LocalEntityId = comment.Id,
+                        ExternalEntityType = "Comment",
+                        ExternalEntityId = created.Id,
+                        ExternalEntityKey = $"{jiraIssueKey}:{created.Id}",
+                        LastSyncedAt = DateTimeOffset.UtcNow,
+                    },
+                    cancellationToken);
+
+                exportedCommentIds.Add(comment.Id);
+                exported++;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Comment export failed for task {TaskCode} / issue {IssueKey} / comment {CommentId}",
+                    task.Code,
+                    jiraIssueKey,
+                    comment.Id);
+            }
+        }
+
+        return exported;
+    }
+
+    private static string? BuildIssueCommentBody(ProjectTaskComment comment)
+    {
+        var plain = HtmlToPlainText(comment.Body);
+        if (string.IsNullOrWhiteSpace(plain))
+        {
+            return null;
+        }
+
+        var who = comment.Author is null
+            ? null
+            : $"{comment.Author.FirstName} {comment.Author.LastName}".Trim();
+        if (string.IsNullOrWhiteSpace(who) && !string.IsNullOrWhiteSpace(comment.Author?.Email))
+        {
+            who = comment.Author.Email;
+        }
+
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(who))
+        {
+            sb.AppendLine($"{who}:");
+        }
+
+        sb.AppendLine(plain.Trim());
+        sb.AppendLine();
+        sb.Append("— Exported from Skemex");
+        return sb.ToString().Trim();
     }
 
     private static string HtmlToPlainText(string? html)

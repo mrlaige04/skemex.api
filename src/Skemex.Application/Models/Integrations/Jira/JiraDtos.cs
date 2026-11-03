@@ -19,8 +19,44 @@ public sealed class JiraConnectionDto
     public string? ExternalProjectKey { get; init; }
     public string? ExternalProjectName { get; init; }
     public string? LastError { get; init; }
+    public bool WebhookRegistered { get; init; }
+    /// <summary>Full inbound URL (includes secret). Configure manually in Jira if auto-register failed.</summary>
+    public string? WebhookCallbackUrl { get; init; }
+    /// <summary>
+    /// True when the callback host is localhost/loopback — Jira Cloud cannot deliver to it without a tunnel.
+    /// </summary>
+    public bool WebhookUrlNotPubliclyReachable { get; init; }
+    public DateTimeOffset? WebhookRegisteredAt { get; init; }
+    public IReadOnlyList<JiraWebhookEventSettingDto> WebhookEvents { get; init; } = [];
     public DateTime CreatedAt { get; init; }
     public DateTime? UpdatedAt { get; init; }
+}
+
+public sealed class JiraWebhookEventSettingDto
+{
+    public string Key { get; init; } = string.Empty;
+    public string DisplayName { get; init; } = string.Empty;
+    public string JiraEventName { get; init; } = string.Empty;
+    public bool Enabled { get; init; }
+}
+
+public sealed class UpdateJiraWebhookSettingsRequest
+{
+    /// <summary>Map of event key → enabled.</summary>
+    public Dictionary<string, bool> Events { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed class JiraRegisterWebhookRequest
+{
+    public string Name { get; init; } = string.Empty;
+    public string Url { get; init; } = string.Empty;
+    public string ProjectKey { get; init; } = string.Empty;
+    public IReadOnlyList<string> Events { get; init; } = [];
+}
+
+public sealed class JiraRegisteredWebhookDto
+{
+    public string Id { get; init; } = string.Empty;
 }
 
 /// <summary>Wrapper so <see cref="ErrorOr"/> can represent “no connection yet” without a null value.</summary>
@@ -160,6 +196,16 @@ public sealed class JiraAddWorklogRequest
     public string? Comment { get; init; }
 }
 
+public sealed class JiraAddCommentRequest
+{
+    public required string Body { get; init; }
+}
+
+public sealed class JiraCreatedCommentDto
+{
+    public string Id { get; init; } = string.Empty;
+}
+
 public sealed class JiraRemoteIssueDto
 {
     public string Id { get; init; } = string.Empty;
@@ -184,6 +230,15 @@ public sealed class JiraRemoteWorklogDto
     public int SpentMinutes { get; init; }
     public string? Comment { get; init; }
     public string? AuthorEmail { get; init; }
+}
+
+public sealed class JiraRemoteCommentDto
+{
+    public string Id { get; init; } = string.Empty;
+    public string Body { get; init; } = string.Empty;
+    public string? AuthorEmail { get; init; }
+    public string? AuthorDisplayName { get; init; }
+    public DateTime? CreatedAt { get; init; }
 }
 
 public sealed class JiraIssuePreviewDto

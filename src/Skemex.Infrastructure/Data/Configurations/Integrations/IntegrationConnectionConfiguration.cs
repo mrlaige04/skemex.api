@@ -26,6 +26,12 @@ public sealed class IntegrationConnectionConfiguration : IEntityTypeConfiguratio
         builder.Property(x => x.EncryptedRefreshToken).HasMaxLength(4000);
         builder.Property(x => x.Scopes).HasMaxLength(512);
         builder.Property(x => x.LastError).HasMaxLength(2000);
+        builder.Property(x => x.WebhookId).HasMaxLength(64);
+        builder.Property(x => x.WebhookSecret).HasMaxLength(128);
+        builder.HasIndex(x => x.WebhookSecret)
+            .IsUnique()
+            .HasFilter("\"WebhookSecret\" IS NOT NULL");
+        builder.Property(x => x.WebhookEventSettingsJson).HasColumnType("text");
 
         builder
             .HasOne(x => x.Project)

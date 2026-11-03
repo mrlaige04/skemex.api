@@ -2,6 +2,7 @@ using ErrorOr;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Helpers.Integrations;
 using Skemex.Application.Models.Integrations.Jira;
+using Skemex.Application.Services.Integrations.Jira;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Integrations;
 using Skemex.Domain.Enums;
@@ -13,7 +14,8 @@ namespace Skemex.Application.Features.Queries.Integrations.Jira.GetJiraConnectio
 public sealed class GetJiraConnectionQueryHandler(
     ICurrentUser currentUser,
     IProjectAccessService projectAccessService,
-    ITenantRepository<IntegrationConnection> connectionRepository)
+    ITenantRepository<IntegrationConnection> connectionRepository,
+    IJiraWebhookService webhookService)
     : IQueryHandler<GetJiraConnectionQuery, JiraConnectionResponseDto>
 {
     public async Task<ErrorOr<JiraConnectionResponseDto>> Handle(
@@ -40,7 +42,9 @@ public sealed class GetJiraConnectionQueryHandler(
 
         return new JiraConnectionResponseDto
         {
-            Connection = connection is null ? null : JiraConnectionDtoHelper.Map(connection),
+            Connection = connection is null
+                ? null
+                : JiraConnectionDtoHelper.Map(connection, webhookService),
         };
     }
 }

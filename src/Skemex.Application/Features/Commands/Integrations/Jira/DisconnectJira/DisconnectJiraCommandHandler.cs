@@ -1,5 +1,6 @@
 using ErrorOr;
 using Skemex.Application.Features.Abstractions;
+using Skemex.Application.Services.Integrations.Jira;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Integrations;
 using Skemex.Domain.Enums;
@@ -11,7 +12,9 @@ namespace Skemex.Application.Features.Commands.Integrations.Jira.DisconnectJira;
 public sealed class DisconnectJiraCommandHandler(
     ICurrentUser currentUser,
     IProjectAccessService projectAccessService,
-    ITenantRepository<IntegrationConnection> connectionRepository)
+    ITenantRepository<IntegrationConnection> connectionRepository,
+    IJiraConnectionTokenService tokenService,
+    IJiraWebhookService webhookService)
     : ICommandHandler<DisconnectJiraCommand>
 {
     public async Task<ErrorOr<Success>> Handle(
@@ -41,6 +44,14 @@ public sealed class DisconnectJiraCommandHandler(
             return Result.Success;
         }
 
+        string? accessToken = null;
+        var tokenResult = await tokenService.GetValidAccessTokenAsync(connection, cancellationToken);
+        if (!tokenResult.IsError)
+        {
+            accessToken = tokenResult.Value;
+        }
+
+        await webhookService.TryUnregisterAsync(connection, accessToken, cancellationToken);
         await connectionRepository.DeleteAsync(connection, cancellationToken);
         return Result.Success;
     }

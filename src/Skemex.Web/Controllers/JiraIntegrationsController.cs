@@ -6,6 +6,7 @@ using Skemex.Application.Features.Commands.Integrations.Jira.ExportTasksToJira;
 using Skemex.Application.Features.Commands.Integrations.Jira.ImportTasksFromJira;
 using Skemex.Application.Features.Commands.Integrations.Jira.MapJiraProject;
 using Skemex.Application.Features.Commands.Integrations.Jira.StartJiraOAuth;
+using Skemex.Application.Features.Commands.Integrations.Jira.UpdateJiraWebhookSettings;
 using Skemex.Application.Features.Queries.Integrations.Jira.GetJiraConnection;
 using Skemex.Application.Features.Queries.Integrations.Jira.ListJiraIssues;
 using Skemex.Application.Features.Queries.Integrations.Jira.ListJiraProjects;
@@ -98,6 +99,23 @@ public sealed class JiraIntegrationsController(ISender sender) : BaseController
     }
 
     [Permission(PermissionNames.ProjectsEdit)]
+    [HttpPut("webhook-settings")]
+    public async Task<IActionResult> UpdateWebhookSettings(
+        Guid projectId,
+        [FromBody] UpdateJiraWebhookSettingsRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new UpdateJiraWebhookSettingsCommand
+            {
+                ProjectId = projectId,
+                Events = body.Events ?? new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase),
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [Permission(PermissionNames.ProjectsEdit)]
     [HttpPost("export-tasks")]
     public async Task<IActionResult> ExportTasks(
         Guid projectId,
@@ -161,7 +179,9 @@ public sealed class JiraIntegrationsController(ISender sender) : BaseController
 }
 
 [Route("api/integrations/jira")]
-public sealed class JiraOAuthCallbackController(IJiraOAuthService jiraOAuthService) : BaseController
+public sealed class JiraOAuthCallbackController(
+    IJiraOAuthService jiraOAuthService,
+    IJiraWebhookService jiraWebhookService) : BaseController
 {
     [AllowAnonymous]
     [HttpGet("callback")]
@@ -179,5 +199,21 @@ public sealed class JiraOAuthCallbackController(IJiraOAuthService jiraOAuthServi
             error_description,
             cancellationToken);
         return Redirect(redirect.ToString());
+    }
+
+    /// <summary>
+    /// Single inbound Jira Cloud webhook for the integration.
+    /// Connection is resolved by <c>?token=</c>; <c>webhookEvent</c> in the payload selects the handler.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpPost("webhook")]
+    public async Task<IActionResult> Webhook(
+        [FromQuery] string? token,
+        CancellationToken cancellationToken)
+    {
+        using var reader = new StreamReader(Request.Body);
+        var body = await reader.ReadToEndAsync(cancellationToken);
+        var result = await jiraWebhookService.HandleInboundAsync(token, body, cancellationToken);
+        return result.Match(_ => Ok(), Problem);
     }
 }

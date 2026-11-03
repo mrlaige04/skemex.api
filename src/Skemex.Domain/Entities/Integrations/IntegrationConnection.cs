@@ -42,5 +42,19 @@ public class IntegrationConnection : TenantEntity
 
     public Guid? ConnectedByUserId { get; set; }
 
+    /// <summary>Jira webhook id (<c>/rest/webhooks/1.0/webhook/{id}</c>) when registered.</summary>
+    public string? WebhookId { get; set; }
+
+    /// <summary>Shared secret appended as <c>?token=</c> on the inbound webhook URL.</summary>
+    public string? WebhookSecret { get; set; }
+
+    public DateTimeOffset? WebhookRegisteredAt { get; set; }
+
+    /// <summary>
+    /// JSON map of Skemex webhook event keys → enabled.
+    /// Jira still delivers all subscribed events; disabled keys are ignored locally.
+    /// </summary>
+    public string? WebhookEventSettingsJson { get; set; }
+
     public IList<IntegrationMapping> Mappings { get; set; } = [];
 }

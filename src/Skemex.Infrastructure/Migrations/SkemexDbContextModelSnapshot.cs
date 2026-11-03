@@ -829,9 +829,27 @@ namespace Skemex.Infrastructure.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("WebhookEventSettingsJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("WebhookId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("WebhookRegisteredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("WebhookSecret")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ProjectId");
+
+                    b.HasIndex("WebhookSecret")
+                        .IsUnique()
+                        .HasFilter("\"WebhookSecret\" IS NOT NULL");
 
                     b.HasIndex("TenantId", "ProjectId", "Provider")
                         .IsUnique();

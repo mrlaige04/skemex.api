@@ -2,6 +2,7 @@ using ErrorOr;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Helpers.Integrations;
 using Skemex.Application.Models.Integrations.Jira;
+using Skemex.Application.Services.Integrations.Jira;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Integrations;
 using Skemex.Domain.Enums;
@@ -13,7 +14,9 @@ namespace Skemex.Application.Features.Commands.Integrations.Jira.MapJiraProject;
 public sealed class MapJiraProjectCommandHandler(
     ICurrentUser currentUser,
     IProjectAccessService projectAccessService,
-    ITenantRepository<IntegrationConnection> connectionRepository)
+    ITenantRepository<IntegrationConnection> connectionRepository,
+    IJiraConnectionTokenService tokenService,
+    IJiraWebhookService webhookService)
     : ICommandHandler<MapJiraProjectCommand, JiraConnectionDto>
 {
     public async Task<ErrorOr<JiraConnectionDto>> Handle(
@@ -55,6 +58,11 @@ public sealed class MapJiraProjectCommandHandler(
                 "Connect Jira with OAuth before selecting a project.");
         }
 
+        var projectChanged = !string.Equals(
+            connection.ExternalProjectKey,
+            request.ExternalProjectKey.Trim(),
+            StringComparison.OrdinalIgnoreCase);
+
         connection.CloudId = request.CloudId.Trim();
         connection.SiteUrl = string.IsNullOrWhiteSpace(request.SiteUrl)
             ? connection.SiteUrl
@@ -70,7 +78,31 @@ public sealed class MapJiraProjectCommandHandler(
         connection.Status = IntegrationConnectionStatus.Connected;
         connection.LastError = null;
 
+        // Remap → drop old webhook so EnsureRegistered creates one for the new project filter.
+        if (projectChanged && !string.IsNullOrWhiteSpace(connection.WebhookId))
+        {
+            var oldToken = await tokenService.GetValidAccessTokenAsync(connection, cancellationToken);
+            if (!oldToken.IsError)
+            {
+                await webhookService.TryUnregisterAsync(connection, oldToken.Value, cancellationToken);
+            }
+
+            connection.WebhookId = null;
+            connection.WebhookRegisteredAt = null;
+        }
+
         await connectionRepository.UpdateAsync(connection, cancellationToken);
-        return JiraConnectionDtoHelper.Map(connection);
+
+        var tokenResult = await tokenService.GetValidAccessTokenAsync(connection, cancellationToken);
+        if (!tokenResult.IsError)
+        {
+            await webhookService.EnsureRegisteredAsync(connection, tokenResult.Value, cancellationToken);
+            // Reload after webhook fields may have changed.
+            connection = await connectionRepository.GetAsync(
+                filter: c => c.Id == connection.Id,
+                cancellationToken: cancellationToken) ?? connection;
+        }
+
+        return JiraConnectionDtoHelper.Map(connection, webhookService);
     }
 }
