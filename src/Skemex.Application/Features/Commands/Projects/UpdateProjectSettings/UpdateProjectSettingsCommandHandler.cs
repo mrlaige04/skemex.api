@@ -54,16 +54,6 @@ public sealed class UpdateProjectSettingsCommandHandler(
             settings.DefaultTaskColumnId = columnId;
         }
 
-        if (request.AiMaxTreeDepth is { } depth)
-        {
-            settings.AiMaxTreeDepth = depth;
-        }
-
-        if (request.AiMaxNodes is { } nodes)
-        {
-            settings.AiMaxNodes = nodes;
-        }
-
         if (request.ClearDefaultAiModel)
         {
             settings.DefaultAiModelId = null;
