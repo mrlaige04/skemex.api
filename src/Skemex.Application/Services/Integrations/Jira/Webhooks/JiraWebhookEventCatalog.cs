@@ -1,8 +1,9 @@
+using Skemex.Domain.Enums;
+
 namespace Skemex.Application.Services.Integrations.Jira.Webhooks;
 
 /// <summary>
-/// Canonical Skemex webhook event keys + Jira <c>webhookEvent</c> names.
-/// Jira registration always subscribes to the full set; enable/disable is local only.
+/// Canonical Skemex webhook event keys + Jira <c>webhookEvent</c> names + flags.
 /// </summary>
 public static class JiraWebhookEventCatalog
 {
@@ -10,8 +11,6 @@ public static class JiraWebhookEventCatalog
     public const string IssueUpdated = "issue.updated";
     public const string IssueDeleted = "issue.deleted";
     public const string CommentCreated = "comment.created";
-    public const string CommentUpdated = "comment.updated";
-    public const string CommentDeleted = "comment.deleted";
     public const string WorklogCreated = "worklog.created";
     public const string WorklogUpdated = "worklog.updated";
     public const string WorklogDeleted = "worklog.deleted";
@@ -23,22 +22,18 @@ public static class JiraWebhookEventCatalog
 
     public static IReadOnlyList<JiraWebhookEventDefinition> All { get; } =
     [
-        // OAuth 3LO dynamic webhook API supports issue + comment events only.
-        new(IssueCreated, "Issue created", "jira:issue_created", DefaultEnabled: true, OAuthDynamicSupported: true),
-        new(IssueUpdated, "Issue updated", "jira:issue_updated", DefaultEnabled: true, OAuthDynamicSupported: true),
-        new(IssueDeleted, "Issue deleted", "jira:issue_deleted", DefaultEnabled: true, OAuthDynamicSupported: true),
-        new(CommentCreated, "Comment created", "comment_created", DefaultEnabled: true, OAuthDynamicSupported: true),
-        new(CommentUpdated, "Comment updated", "comment_updated", DefaultEnabled: true, OAuthDynamicSupported: true),
-        new(CommentDeleted, "Comment deleted", "comment_deleted", DefaultEnabled: true, OAuthDynamicSupported: true),
-        // Worklog / attachment / user are admin-webhook (or Connect) only — not registerable via OAuth dynamic API.
-        new(WorklogCreated, "Worklog created", "worklog_created", DefaultEnabled: true, OAuthDynamicSupported: false),
-        new(WorklogUpdated, "Worklog updated", "worklog_updated", DefaultEnabled: true, OAuthDynamicSupported: false),
-        new(WorklogDeleted, "Worklog deleted", "worklog_deleted", DefaultEnabled: true, OAuthDynamicSupported: false),
-        new(AttachmentCreated, "Attachment created", "attachment_created", DefaultEnabled: false, OAuthDynamicSupported: false),
-        new(AttachmentDeleted, "Attachment deleted", "attachment_deleted", DefaultEnabled: false, OAuthDynamicSupported: false),
-        new(UserCreated, "User created", "user_created", DefaultEnabled: false, OAuthDynamicSupported: false),
-        new(UserUpdated, "User updated", "user_updated", DefaultEnabled: false, OAuthDynamicSupported: false),
-        new(UserDeleted, "User deleted", "user_deleted", DefaultEnabled: false, OAuthDynamicSupported: false),
+        new(IssueCreated, "Issue created", "jira:issue_created", JiraWebhookEventType.IssueCreated, true, true),
+        new(IssueUpdated, "Issue updated", "jira:issue_updated", JiraWebhookEventType.IssueUpdated, true, true),
+        new(IssueDeleted, "Issue deleted", "jira:issue_deleted", JiraWebhookEventType.IssueDeleted, true, true),
+        new(CommentCreated, "Comment created", "comment_created", JiraWebhookEventType.CommentCreated, true, true),
+        new(WorklogCreated, "Worklog created", "worklog_created", JiraWebhookEventType.WorklogCreated, true, false),
+        new(WorklogUpdated, "Worklog updated", "worklog_updated", JiraWebhookEventType.WorklogUpdated, true, false),
+        new(WorklogDeleted, "Worklog deleted", "worklog_deleted", JiraWebhookEventType.WorklogDeleted, true, false),
+        new(AttachmentCreated, "Attachment created", "attachment_created", JiraWebhookEventType.AttachmentCreated, true, false),
+        new(AttachmentDeleted, "Attachment deleted", "attachment_deleted", JiraWebhookEventType.AttachmentDeleted, true, false),
+        new(UserCreated, "User created", "user_created", JiraWebhookEventType.UserCreated, true, false),
+        new(UserUpdated, "User updated", "user_updated", JiraWebhookEventType.UserUpdated, true, false),
+        new(UserDeleted, "User deleted", "user_deleted", JiraWebhookEventType.UserDeleted, true, false),
     ];
 
     private static readonly Dictionary<string, JiraWebhookEventDefinition> ByKey =
@@ -47,17 +42,16 @@ public static class JiraWebhookEventCatalog
     private static readonly Dictionary<string, JiraWebhookEventDefinition> ByJiraEvent =
         All.ToDictionary(e => e.JiraEventName, StringComparer.OrdinalIgnoreCase);
 
-    public static IReadOnlyList<string> AllJiraEventNames { get; } =
-        All.Select(e => e.JiraEventName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
-    /// <summary>
-    /// Events Jira accepts on <c>POST /rest/api/3/webhook</c> for OAuth 2.0 (3LO) apps.
-    /// </summary>
     public static IReadOnlyList<string> OAuthDynamicJiraEventNames { get; } =
         All.Where(e => e.OAuthDynamicSupported)
             .Select(e => e.JiraEventName)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    public static JiraWebhookEventType DefaultEnabledFlags { get; } =
+        All.Where(e => e.DefaultEnabled).Aggregate(JiraWebhookEventType.None, (acc, e) => acc | e.Flag);
+
+    public static JiraWebhookEventType OAuthDynamicFlags { get; } = JiraWebhookEventType.OAuthDynamic;
 
     public static JiraWebhookEventDefinition? FindByKey(string? key) =>
         !string.IsNullOrWhiteSpace(key) && ByKey.TryGetValue(key.Trim(), out var def) ? def : null;
@@ -67,26 +61,29 @@ public static class JiraWebhookEventCatalog
             ? def
             : null;
 
-    public static Dictionary<string, bool> CreateDefaultSettings() =>
-        All.ToDictionary(e => e.Key, e => e.DefaultEnabled, StringComparer.OrdinalIgnoreCase);
-
-    public static Dictionary<string, bool> MergeWithDefaults(IReadOnlyDictionary<string, bool>? stored)
+    public static JiraWebhookEventType FlagsFromEnabledMap(IReadOnlyDictionary<string, bool> enabledByKey)
     {
-        var merged = CreateDefaultSettings();
-        if (stored is null)
+        var flags = JiraWebhookEventType.None;
+        foreach (var def in All)
         {
-            return merged;
-        }
-
-        foreach (var (key, enabled) in stored)
-        {
-            if (merged.ContainsKey(key))
+            if (enabledByKey.TryGetValue(def.Key, out var enabled) ? enabled : def.DefaultEnabled)
             {
-                merged[key] = enabled;
+                flags |= def.Flag;
             }
         }
 
-        return merged;
+        return flags;
+    }
+
+    public static Dictionary<string, bool> EnabledMapFromFlags(JiraWebhookEventType enabled)
+    {
+        var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        foreach (var def in All)
+        {
+            map[def.Key] = enabled.HasFlag(def.Flag);
+        }
+
+        return map;
     }
 }
 
@@ -94,5 +91,6 @@ public sealed record JiraWebhookEventDefinition(
     string Key,
     string DisplayName,
     string JiraEventName,
+    JiraWebhookEventType Flag,
     bool DefaultEnabled,
     bool OAuthDynamicSupported);

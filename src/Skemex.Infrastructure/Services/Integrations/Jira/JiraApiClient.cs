@@ -766,6 +766,78 @@ public sealed class JiraApiClient(
             $"Jira refresh webhook failed ({(int)response.StatusCode}): {Truncate(body)}");
     }
 
+    public async Task<(Stream Content, string ContentType, string? FileName)?> DownloadAttachmentAsync(
+        string accessToken,
+        string cloudId,
+        string attachmentId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(attachmentId))
+        {
+            return null;
+        }
+
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        using var metaRequest = CreateAuthorizedGet(
+            $"https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3/attachment/{Uri.EscapeDataString(attachmentId.Trim())}",
+            accessToken);
+        using var metaResponse = await client.SendAsync(metaRequest, cancellationToken);
+        if (!metaResponse.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var metaJson = await metaResponse.Content.ReadAsStringAsync(cancellationToken);
+        string? fileName = null;
+        string? contentUrl = null;
+        string contentType = "application/octet-stream";
+        try
+        {
+            using var doc = JsonDocument.Parse(metaJson);
+            var root = doc.RootElement;
+            fileName = root.TryGetProperty("filename", out var fn) ? fn.GetString() : null;
+            contentUrl = root.TryGetProperty("content", out var cu) ? cu.GetString() : null;
+            if (root.TryGetProperty("mimeType", out var mt) && mt.ValueKind == JsonValueKind.String)
+            {
+                contentType = mt.GetString() ?? contentType;
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(contentUrl))
+        {
+            contentUrl =
+                $"https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3/attachment/content/{Uri.EscapeDataString(attachmentId.Trim())}";
+        }
+
+        using var contentRequest = CreateAuthorizedGet(contentUrl, accessToken);
+        var contentResponse = await client.SendAsync(
+            contentRequest,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        if (!contentResponse.IsSuccessStatusCode)
+        {
+            contentResponse.Dispose();
+            return null;
+        }
+
+        if (contentResponse.Content.Headers.ContentType?.MediaType is { } mediaType)
+        {
+            contentType = mediaType;
+        }
+
+        await using var stream = await contentResponse.Content.ReadAsStreamAsync(cancellationToken);
+        // Buffer so we can dispose the HTTP response before returning.
+        var memory = new MemoryStream();
+        await stream.CopyToAsync(memory, cancellationToken);
+        contentResponse.Dispose();
+        memory.Position = 0;
+        return (memory, contentType, fileName);
+    }
+
     private static string? TryExtractDynamicWebhookId(string body)
     {
         if (string.IsNullOrWhiteSpace(body))
@@ -887,7 +959,7 @@ public sealed class JiraApiClient(
             $"Jira update parent failed ({(int)response.StatusCode}): {Truncate(body)}");
     }
 
-    public async Task AddWorklogAsync(
+    public async Task<JiraCreatedWorklogDto> AddWorklogAsync(
         string accessToken,
         string cloudId,
         string issueIdOrKey,
@@ -915,14 +987,23 @@ public sealed class JiraApiClient(
         httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         using var response = await client.SendAsync(httpRequest, cancellationToken);
-        if (response.IsSuccessStatusCode)
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
         {
-            return;
+            throw new InvalidOperationException(
+                $"Jira add worklog failed ({(int)response.StatusCode}): {Truncate(body)}");
         }
 
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        throw new InvalidOperationException(
-            $"Jira add worklog failed ({(int)response.StatusCode}): {Truncate(body)}");
+        using var document = JsonDocument.Parse(body);
+        var id = document.RootElement.TryGetProperty("id", out var idEl)
+            ? (idEl.ValueKind == JsonValueKind.Number ? idEl.GetRawText() : idEl.GetString())
+            : null;
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            throw new InvalidOperationException("Jira add worklog response missing id.");
+        }
+
+        return new JiraCreatedWorklogDto { Id = id };
     }
 
     public async Task<JiraCreatedCommentDto> AddIssueCommentAsync(
@@ -1194,11 +1275,15 @@ public sealed class JiraApiClient(
             status = statusNameEl.GetString();
         }
 
+        string? assigneeAccountId = null;
         string? assigneeEmail = null;
         string? assigneeDisplayName = null;
         if (fields.TryGetProperty("assignee", out var assigneeEl)
             && assigneeEl.ValueKind == JsonValueKind.Object)
         {
+            assigneeAccountId = assigneeEl.TryGetProperty("accountId", out var accountIdEl)
+                ? accountIdEl.GetString()
+                : null;
             assigneeEmail = assigneeEl.TryGetProperty("emailAddress", out var emailEl)
                 ? emailEl.GetString()
                 : null;
@@ -1260,6 +1345,9 @@ public sealed class JiraApiClient(
         {
             foreach (var wl in worklogsEl.EnumerateArray())
             {
+                var worklogId = wl.TryGetProperty("id", out var wlIdEl)
+                    ? (wlIdEl.ValueKind == JsonValueKind.Number ? wlIdEl.GetRawText() : wlIdEl.GetString())
+                    : null;
                 var started = wl.TryGetProperty("started", out var startedEl)
                     ? ParseJiraDateTime(startedEl.GetString())
                     : null;
@@ -1286,6 +1374,7 @@ public sealed class JiraApiClient(
 
                 worklogs.Add(new JiraRemoteWorklogDto
                 {
+                    Id = worklogId,
                     StartedAt = started.Value,
                     SpentMinutes = Math.Max(1, seconds / 60),
                     Comment = comment,
@@ -1302,6 +1391,7 @@ public sealed class JiraApiClient(
             Description = description,
             IssueType = issueType,
             Status = status,
+            AssigneeAccountId = assigneeAccountId,
             AssigneeEmail = assigneeEmail,
             AssigneeDisplayName = assigneeDisplayName,
             ParentKey = parentKey,

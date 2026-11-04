@@ -14,7 +14,7 @@ public sealed class JiraWebhookSyncHelper(
     ITenantRepository<ProjectUser> projectUserRepository)
 {
     public async Task<IntegrationMapping?> FindTaskMappingAsync(
-        IntegrationConnection connection,
+        ProjectIntegration connection,
         string? issueKey,
         string? issueId,
         CancellationToken cancellationToken)
@@ -23,8 +23,8 @@ public sealed class JiraWebhookSyncHelper(
         {
             var byKey = await mappingRepository.GetAsync(
                 filter: m =>
-                    m.IntegrationConnectionId == connection.Id
-                    && m.LocalEntityType == "Task"
+                    m.ProjectIntegrationId == connection.Id
+                    && m.LocalEntityType == IntegrationLocalEntityTypes.Task
                     && m.ExternalEntityKey == issueKey,
                 cancellationToken: cancellationToken);
             if (byKey is not null)
@@ -37,8 +37,8 @@ public sealed class JiraWebhookSyncHelper(
         {
             return await mappingRepository.GetAsync(
                 filter: m =>
-                    m.IntegrationConnectionId == connection.Id
-                    && m.LocalEntityType == "Task"
+                    m.ProjectIntegrationId == connection.Id
+                    && m.LocalEntityType == IntegrationLocalEntityTypes.Task
                     && m.ExternalEntityId == issueId,
                 cancellationToken: cancellationToken);
         }
@@ -47,7 +47,7 @@ public sealed class JiraWebhookSyncHelper(
     }
 
     public async Task ApplyRemoteIssueToTaskAsync(
-        IntegrationConnection connection,
+        ProjectIntegration connection,
         ProjectTask task,
         JiraRemoteIssueDto remote,
         CancellationToken cancellationToken)

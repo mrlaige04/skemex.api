@@ -19,7 +19,7 @@ public interface IJiraTaskImportService
     /// Creates or refreshes a local task from a Jira webhook (no interactive user required).
     /// </summary>
     Task<ErrorOr<Guid>> UpsertIssueFromWebhookAsync(
-        IntegrationConnection connection,
+        ProjectIntegration connection,
         string accessToken,
         string issueIdOrKey,
         CancellationToken cancellationToken = default);

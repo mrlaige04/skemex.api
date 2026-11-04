@@ -95,6 +95,13 @@ public interface IJiraApiClient
         string webhookId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Downloads attachment binary content by Jira attachment id.</summary>
+    Task<(Stream Content, string ContentType, string? FileName)?> DownloadAttachmentAsync(
+        string accessToken,
+        string cloudId,
+        string attachmentId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Sets the parent of an existing issue by parent issue key
     /// (<c>fields.parent.key</c>), matching Jira Cloud create/update docs.
@@ -106,7 +113,7 @@ public interface IJiraApiClient
         string parentIssueKey,
         CancellationToken cancellationToken = default);
 
-    Task AddWorklogAsync(
+    Task<JiraCreatedWorklogDto> AddWorklogAsync(
         string accessToken,
         string cloudId,
         string issueIdOrKey,

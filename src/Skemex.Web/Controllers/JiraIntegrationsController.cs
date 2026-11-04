@@ -1,13 +1,16 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Skemex.Application.Features.Abstractions;
+using Skemex.Application.Features.Commands.Integrations.Jira.DeleteJiraEntityMapping;
 using Skemex.Application.Features.Commands.Integrations.Jira.DisconnectJira;
 using Skemex.Application.Features.Commands.Integrations.Jira.ExportTasksToJira;
 using Skemex.Application.Features.Commands.Integrations.Jira.ImportTasksFromJira;
 using Skemex.Application.Features.Commands.Integrations.Jira.MapJiraProject;
 using Skemex.Application.Features.Commands.Integrations.Jira.StartJiraOAuth;
 using Skemex.Application.Features.Commands.Integrations.Jira.UpdateJiraWebhookSettings;
+using Skemex.Application.Features.Commands.Integrations.Jira.UpsertJiraEntityMapping;
 using Skemex.Application.Features.Queries.Integrations.Jira.GetJiraConnection;
+using Skemex.Application.Features.Queries.Integrations.Jira.GetJiraEntityMappings;
 using Skemex.Application.Features.Queries.Integrations.Jira.ListJiraIssues;
 using Skemex.Application.Features.Queries.Integrations.Jira.ListJiraProjects;
 using Skemex.Application.Features.Queries.Integrations.Jira.ListJiraSites;
@@ -175,6 +178,61 @@ public sealed class JiraIntegrationsController(ISender sender) : BaseController
             },
             cancellationToken);
         return result.Match(Ok, Problem);
+    }
+
+    [Permission(PermissionNames.ProjectsEdit)]
+    [HttpGet("entity-mappings")]
+    public async Task<IActionResult> GetEntityMappings(
+        Guid projectId,
+        [FromQuery] string localEntityType,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new GetJiraEntityMappingsQuery
+            {
+                ProjectId = projectId,
+                LocalEntityType = localEntityType,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [Permission(PermissionNames.ProjectsEdit)]
+    [HttpPut("entity-mappings")]
+    public async Task<IActionResult> UpsertEntityMapping(
+        Guid projectId,
+        [FromBody] UpsertJiraEntityMappingRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new UpsertJiraEntityMappingCommand
+            {
+                ProjectId = projectId,
+                LocalEntityType = body.LocalEntityType,
+                LocalEntityId = body.LocalEntityId,
+                ExternalEntityId = body.ExternalEntityId,
+                ExternalEntityKey = body.ExternalEntityKey,
+                Status = body.Status,
+            },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [Permission(PermissionNames.ProjectsEdit)]
+    [HttpDelete("entity-mappings/{mappingId:guid}")]
+    public async Task<IActionResult> DeleteEntityMapping(
+        Guid projectId,
+        Guid mappingId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new DeleteJiraEntityMappingCommand
+            {
+                ProjectId = projectId,
+                MappingId = mappingId,
+            },
+            cancellationToken);
+        return result.Match(_ => NoContent(), Problem);
     }
 }
 

@@ -98,14 +98,13 @@ public static class RegisterDependencies
         services.AddScoped<IJiraConnectionTokenService, JiraConnectionTokenService>();
         services.AddScoped<IJiraTaskExportService, JiraTaskExportService>();
         services.AddScoped<IJiraTaskImportService, JiraTaskImportService>();
+        services.AddScoped<IJiraEntityMappingService, JiraEntityMappingService>();
         services.AddScoped<JiraWebhookSyncHelper>();
         services.AddScoped<IJiraWebhookService, JiraWebhookService>();
         services.AddScoped<IJiraWebhookEventHandler, JiraIssueCreatedWebhookHandler>();
         services.AddScoped<IJiraWebhookEventHandler, JiraIssueUpdatedWebhookHandler>();
         services.AddScoped<IJiraWebhookEventHandler, JiraIssueDeletedWebhookHandler>();
         services.AddScoped<IJiraWebhookEventHandler, JiraCommentCreatedWebhookHandler>();
-        services.AddScoped<IJiraWebhookEventHandler, JiraCommentUpdatedWebhookHandler>();
-        services.AddScoped<IJiraWebhookEventHandler, JiraCommentDeletedWebhookHandler>();
         services.AddScoped<IJiraWebhookEventHandler, JiraWorklogCreatedWebhookHandler>();
         services.AddScoped<IJiraWebhookEventHandler, JiraWorklogUpdatedWebhookHandler>();
         services.AddScoped<IJiraWebhookEventHandler, JiraWorklogDeletedWebhookHandler>();
@@ -114,6 +113,7 @@ public static class RegisterDependencies
         services.AddScoped<IJiraWebhookEventHandler, JiraUserCreatedWebhookHandler>();
         services.AddScoped<IJiraWebhookEventHandler, JiraUserUpdatedWebhookHandler>();
         services.AddScoped<IJiraWebhookEventHandler, JiraUserDeletedWebhookHandler>();
+        // Handlers above cover the full JiraWebhookEventCatalog.
         services.AddScoped<INotificationPublisher, NotificationPublisher>();
         services.AddScoped<IAuthEmailService, AuthEmailService>();
         services.AddScoped<IEmailTemplateService, EmailTemplateService>();

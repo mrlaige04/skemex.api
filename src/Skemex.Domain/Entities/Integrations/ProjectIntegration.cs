@@ -4,16 +4,19 @@ using Skemex.Domain.Enums;
 
 namespace Skemex.Domain.Entities.Integrations;
 
-/// <summary>OAuth connection between a Skemex project and an external system (e.g. Jira Cloud).</summary>
-public class IntegrationConnection : TenantEntity
+/// <summary>
+/// Project-scoped link to an external provider (e.g. Jira).
+/// Unique per (Tenant, Project, Provider) — at most one Jira integration per project.
+/// Distinct from future tenant/global integrations.
+/// </summary>
+public class ProjectIntegration : TenantEntity
 {
     public Guid ProjectId { get; set; }
     public Project Project { get; set; } = null!;
 
     public IntegrationProvider Provider { get; set; }
 
-    public IntegrationConnectionStatus Status { get; set; } =
-        IntegrationConnectionStatus.PendingProjectMapping;
+    public IntegrationStatus Status { get; set; } = IntegrationStatus.PendingProjectMapping;
 
     /// <summary>Atlassian cloud ID for the selected site.</summary>
     public string? CloudId { get; set; }
@@ -42,19 +45,7 @@ public class IntegrationConnection : TenantEntity
 
     public Guid? ConnectedByUserId { get; set; }
 
-    /// <summary>Jira webhook id (<c>/rest/webhooks/1.0/webhook/{id}</c>) when registered.</summary>
-    public string? WebhookId { get; set; }
-
-    /// <summary>Shared secret appended as <c>?token=</c> on the inbound webhook URL.</summary>
-    public string? WebhookSecret { get; set; }
-
-    public DateTimeOffset? WebhookRegisteredAt { get; set; }
-
-    /// <summary>
-    /// JSON map of Skemex webhook event keys → enabled.
-    /// Jira still delivers all subscribed events; disabled keys are ignored locally.
-    /// </summary>
-    public string? WebhookEventSettingsJson { get; set; }
+    public IList<IntegrationWebhook> Webhooks { get; set; } = [];
 
     public IList<IntegrationMapping> Mappings { get; set; } = [];
 }

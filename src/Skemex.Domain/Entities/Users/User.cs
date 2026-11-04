@@ -16,6 +16,9 @@ public class User : IdentityUser<Guid>, IEntity<Guid>, IAuditableEntity
     public string? RefreshToken { get; set; }
     public DateTimeOffset? RefreshTokenExpiresAt { get; set; }
 
+    /// <summary>Last workspace the user entered; preferred on the next login.</summary>
+    public Guid? LastUsedTenantId { get; set; }
+
     public User() { }
 
     public IList<TenantUser> Tenants { get; set; } = [];

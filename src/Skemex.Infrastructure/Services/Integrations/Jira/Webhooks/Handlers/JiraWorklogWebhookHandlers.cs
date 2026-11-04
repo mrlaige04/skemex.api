@@ -33,7 +33,7 @@ public sealed class JiraWorklogCreatedWebhookHandler(
     public Task<ErrorOr<Success>> HandleAsync(
         JiraWebhookEventContext context,
         CancellationToken cancellationToken = default) =>
-        UpsertAsync(context, cancellationToken);
+        CreateAsync(context, cancellationToken);
 }
 
 public sealed class JiraWorklogUpdatedWebhookHandler(
@@ -59,7 +59,7 @@ public sealed class JiraWorklogUpdatedWebhookHandler(
     public Task<ErrorOr<Success>> HandleAsync(
         JiraWebhookEventContext context,
         CancellationToken cancellationToken = default) =>
-        UpsertAsync(context, cancellationToken);
+        UpdateAsync(context, cancellationToken);
 }
 
 public sealed class JiraWorklogDeletedWebhookHandler(
@@ -74,7 +74,7 @@ public sealed class JiraWorklogDeletedWebhookHandler(
         JiraWebhookEventContext context,
         CancellationToken cancellationToken = default)
     {
-        var worklogId = ReadWorklogId(context.Payload);
+        var worklogId = JiraWorklogWebhookHandlerBase.ReadWorklogId(context.Payload);
         if (string.IsNullOrWhiteSpace(worklogId))
         {
             return Result.Success;
@@ -82,8 +82,8 @@ public sealed class JiraWorklogDeletedWebhookHandler(
 
         var mapping = await mappingRepository.GetAsync(
             filter: m =>
-                m.IntegrationConnectionId == context.Connection.Id
-                && m.LocalEntityType == "TaskWorkLog"
+                m.ProjectIntegrationId == context.Connection.Id
+                && m.LocalEntityType == IntegrationLocalEntityTypes.TaskWorkLog
                 && m.ExternalEntityId == worklogId,
             cancellationToken: cancellationToken);
         if (mapping is null)
@@ -115,9 +115,6 @@ public sealed class JiraWorklogDeletedWebhookHandler(
 
         return Result.Success;
     }
-
-    private static string? ReadWorklogId(JsonElement payload) =>
-        JiraWorklogWebhookHandlerBase.ReadWorklogId(payload);
 }
 
 public abstract class JiraWorklogWebhookHandlerBase(
@@ -129,51 +126,175 @@ public abstract class JiraWorklogWebhookHandlerBase(
     ICurrentUser currentUser,
     ILogger logger)
 {
-    protected async Task<ErrorOr<Success>> UpsertAsync(
+    protected async Task<ErrorOr<Success>> CreateAsync(
         JiraWebhookEventContext context,
         CancellationToken cancellationToken)
     {
-        if (!context.Payload.TryGetProperty("worklog", out var worklogEl))
+        if (!TryReadWorklog(context.Payload, out var worklogId, out var worklogEl)
+            || string.IsNullOrWhiteSpace(worklogId))
         {
             return Result.Success;
         }
 
-        var worklogId = ReadWorklogId(context.Payload);
-        if (string.IsNullOrWhiteSpace(worklogId))
-        {
-            return Result.Success;
-        }
-
-        var issueKey = worklogEl.TryGetProperty("issueId", out _)
-            ? null
-            : JiraIssueWebhookShared.ReadIssueIds(context.Payload).Key;
-        // Prefer issue from envelope; some payloads only have worklog.issueId (numeric).
-        var (envelopeKey, envelopeId) = JiraIssueWebhookShared.ReadIssueIds(context.Payload);
-        var taskMapping = await syncHelper.FindTaskMappingAsync(
-            context.Connection,
-            envelopeKey ?? issueKey,
-            envelopeId ?? (worklogEl.TryGetProperty("issueId", out var issueIdEl)
-                ? (issueIdEl.ValueKind == JsonValueKind.Number ? issueIdEl.GetRawText() : issueIdEl.GetString())
-                : null),
-            cancellationToken);
+        var taskMapping = await FindTaskMappingAsync(context, worklogEl, cancellationToken);
         if (taskMapping is null)
         {
             return Result.Success;
         }
 
-        var startedAt = ParseJiraDate(
-            worklogEl.TryGetProperty("started", out var startedEl) ? startedEl.GetString() : null)
-            ?? DateTime.UtcNow;
-        var seconds = worklogEl.TryGetProperty("timeSpentSeconds", out var secEl)
-                      && secEl.TryGetInt32(out var s)
-            ? s
-            : 60;
-        var spentMinutes = Math.Max(1, seconds / 60);
-        var endedAt = startedAt.AddMinutes(spentMinutes);
-        var comment = worklogEl.TryGetProperty("comment", out var commentEl)
-            ? (commentEl.ValueKind == JsonValueKind.String ? commentEl.GetString() : commentEl.ToString())
-            : null;
+        var existingMapping = await FindWorklogMappingAsync(context.Connection.Id, worklogId, cancellationToken);
+        if (existingMapping is not null)
+        {
+            return await UpdateExistingAsync(context, existingMapping, worklogEl, taskMapping, cancellationToken);
+        }
 
+        var task = await taskRepository.GetAsync(
+            filter: t => t.Id == taskMapping.LocalEntityId,
+            cancellationToken: cancellationToken);
+        if (task is null)
+        {
+            return Result.Success;
+        }
+
+        var parsed = ParseWorklogFields(worklogEl);
+        var userId = await ResolveUserIdAsync(context, worklogEl, cancellationToken);
+        if (userId is null)
+        {
+            return Result.Success;
+        }
+
+        var (envelopeKey, envelopeId) = JiraIssueWebhookShared.ReadIssueIds(context.Payload);
+        var created = new ProjectTaskWorkLog
+        {
+            Id = Guid.NewGuid(),
+            TenantId = context.Connection.TenantId,
+            ProjectId = context.Connection.ProjectId,
+            TaskId = task.Id,
+            UserId = userId.Value,
+            StartedAt = DateTime.SpecifyKind(parsed.StartedAt, DateTimeKind.Utc),
+            EndedAt = DateTime.SpecifyKind(parsed.EndedAt, DateTimeKind.Utc),
+            SpentMinutes = parsed.SpentMinutes,
+            Comment = string.IsNullOrWhiteSpace(parsed.Comment)
+                ? $"Imported from Jira {envelopeKey}"
+                : parsed.Comment.Trim(),
+        };
+        await workLogRepository.AddAsync(created, cancellationToken);
+        task.SpentMinutes += parsed.SpentMinutes;
+        await taskRepository.UpdateAsync(task, cancellationToken);
+        await mappingRepository.AddAsync(
+            IntegrationMappingFactory.ForWorkLog(
+                context.Connection.TenantId,
+                context.Connection.ProjectId,
+                context.Connection.Id,
+                created.Id,
+                worklogId,
+                $"{envelopeKey ?? envelopeId}:{worklogId}"),
+            cancellationToken);
+
+        logger.LogInformation(
+            "Imported Jira worklog {WorklogId} onto task {TaskCode}",
+            worklogId,
+            task.Code);
+        return Result.Success;
+    }
+
+    protected async Task<ErrorOr<Success>> UpdateAsync(
+        JiraWebhookEventContext context,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadWorklog(context.Payload, out var worklogId, out var worklogEl)
+            || string.IsNullOrWhiteSpace(worklogId))
+        {
+            return Result.Success;
+        }
+
+        var existingMapping = await FindWorklogMappingAsync(context.Connection.Id, worklogId, cancellationToken);
+        if (existingMapping is null)
+        {
+            return Result.Success;
+        }
+
+        var taskMapping = await FindTaskMappingAsync(context, worklogEl, cancellationToken);
+        if (taskMapping is null)
+        {
+            return Result.Success;
+        }
+
+        return await UpdateExistingAsync(context, existingMapping, worklogEl, taskMapping, cancellationToken);
+    }
+
+    private async Task<ErrorOr<Success>> UpdateExistingAsync(
+        JiraWebhookEventContext context,
+        IntegrationMapping existingMapping,
+        JsonElement worklogEl,
+        IntegrationMapping taskMapping,
+        CancellationToken cancellationToken)
+    {
+        var existing = await workLogRepository.GetAsync(
+            filter: w => w.Id == existingMapping.LocalEntityId,
+            cancellationToken: cancellationToken);
+        if (existing is null)
+        {
+            return Result.Success;
+        }
+
+        var task = await taskRepository.GetAsync(
+            filter: t => t.Id == taskMapping.LocalEntityId,
+            cancellationToken: cancellationToken);
+        if (task is null)
+        {
+            return Result.Success;
+        }
+
+        var parsed = ParseWorklogFields(worklogEl);
+        var userId = await ResolveUserIdAsync(context, worklogEl, cancellationToken) ?? existing.UserId;
+        var delta = parsed.SpentMinutes - existing.SpentMinutes;
+        existing.StartedAt = DateTime.SpecifyKind(parsed.StartedAt, DateTimeKind.Utc);
+        existing.EndedAt = DateTime.SpecifyKind(parsed.EndedAt, DateTimeKind.Utc);
+        existing.SpentMinutes = parsed.SpentMinutes;
+        existing.Comment = string.IsNullOrWhiteSpace(parsed.Comment) ? existing.Comment : parsed.Comment.Trim();
+        existing.UserId = userId;
+        await workLogRepository.UpdateAsync(existing, cancellationToken);
+        task.SpentMinutes = Math.Max(0, task.SpentMinutes + delta);
+        await taskRepository.UpdateAsync(task, cancellationToken);
+        existingMapping.LastSyncedAt = DateTimeOffset.UtcNow;
+        JiraMappingTouch.MarkActive(existingMapping);
+        await mappingRepository.UpdateAsync(existingMapping, cancellationToken);
+        return Result.Success;
+    }
+
+    private async Task<IntegrationMapping?> FindTaskMappingAsync(
+        JiraWebhookEventContext context,
+        JsonElement worklogEl,
+        CancellationToken cancellationToken)
+    {
+        var (envelopeKey, envelopeId) = JiraIssueWebhookShared.ReadIssueIds(context.Payload);
+        var worklogIssueId = worklogEl.TryGetProperty("issueId", out var issueIdEl)
+            ? (issueIdEl.ValueKind == JsonValueKind.Number ? issueIdEl.GetRawText() : issueIdEl.GetString())
+            : null;
+        return await syncHelper.FindTaskMappingAsync(
+            context.Connection,
+            envelopeKey,
+            envelopeId ?? worklogIssueId,
+            cancellationToken);
+    }
+
+    private async Task<IntegrationMapping?> FindWorklogMappingAsync(
+        Guid connectionId,
+        string worklogId,
+        CancellationToken cancellationToken) =>
+        await mappingRepository.GetAsync(
+            filter: m =>
+                m.ProjectIntegrationId == connectionId
+                && m.LocalEntityType == IntegrationLocalEntityTypes.TaskWorkLog
+                && m.ExternalEntityId == worklogId,
+            cancellationToken: cancellationToken);
+
+    private async Task<Guid?> ResolveUserIdAsync(
+        JiraWebhookEventContext context,
+        JsonElement worklogEl,
+        CancellationToken cancellationToken)
+    {
         string? authorEmail = null;
         string? authorName = null;
         if (worklogEl.TryGetProperty("author", out var authorEl)
@@ -206,103 +327,49 @@ public abstract class JiraWorklogWebhookHandlerBase(
             .GroupBy(x => x.FullName, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First().UserId, StringComparer.OrdinalIgnoreCase);
 
-        var userId = JiraWebhookSyncHelper.ResolveLocalUserId(
-                         authorEmail,
-                         authorName,
-                         userIdByEmail,
-                         userIdByFullName)
-                     ?? context.Connection.ConnectedByUserId
-                     ?? currentUser.GetUserId()
-                     ?? members.FirstOrDefault()?.UserId;
-        if (userId is null)
-        {
-            return Result.Success;
-        }
-
-        var existingMapping = await mappingRepository.GetAsync(
-            filter: m =>
-                m.IntegrationConnectionId == context.Connection.Id
-                && m.LocalEntityType == "TaskWorkLog"
-                && m.ExternalEntityId == worklogId,
-            cancellationToken: cancellationToken);
-
-        var task = await taskRepository.GetAsync(
-            filter: t => t.Id == taskMapping.LocalEntityId,
-            cancellationToken: cancellationToken);
-        if (task is null)
-        {
-            return Result.Success;
-        }
-
-        if (existingMapping is not null)
-        {
-            var existing = await workLogRepository.GetAsync(
-                filter: w => w.Id == existingMapping.LocalEntityId,
-                cancellationToken: cancellationToken);
-            if (existing is not null)
-            {
-                var delta = spentMinutes - existing.SpentMinutes;
-                existing.StartedAt = DateTime.SpecifyKind(startedAt, DateTimeKind.Utc);
-                existing.EndedAt = DateTime.SpecifyKind(endedAt, DateTimeKind.Utc);
-                existing.SpentMinutes = spentMinutes;
-                existing.Comment = string.IsNullOrWhiteSpace(comment) ? existing.Comment : comment.Trim();
-                existing.UserId = userId.Value;
-                await workLogRepository.UpdateAsync(existing, cancellationToken);
-                task.SpentMinutes = Math.Max(0, task.SpentMinutes + delta);
-                await taskRepository.UpdateAsync(task, cancellationToken);
-                existingMapping.LastSyncedAt = DateTimeOffset.UtcNow;
-                await mappingRepository.UpdateAsync(existingMapping, cancellationToken);
-                return Result.Success;
-            }
-        }
-
-        var created = new ProjectTaskWorkLog
-        {
-            Id = Guid.NewGuid(),
-            TenantId = context.Connection.TenantId,
-            ProjectId = context.Connection.ProjectId,
-            TaskId = task.Id,
-            UserId = userId.Value,
-            StartedAt = DateTime.SpecifyKind(startedAt, DateTimeKind.Utc),
-            EndedAt = DateTime.SpecifyKind(endedAt, DateTimeKind.Utc),
-            SpentMinutes = spentMinutes,
-            Comment = string.IsNullOrWhiteSpace(comment) ? $"Imported from Jira {envelopeKey}" : comment.Trim(),
-        };
-        await workLogRepository.AddAsync(created, cancellationToken);
-        task.SpentMinutes += spentMinutes;
-        await taskRepository.UpdateAsync(task, cancellationToken);
-        await mappingRepository.AddAsync(
-            new IntegrationMapping
-            {
-                Id = Guid.NewGuid(),
-                TenantId = context.Connection.TenantId,
-                ProjectId = context.Connection.ProjectId,
-                IntegrationConnectionId = context.Connection.Id,
-                LocalEntityType = "TaskWorkLog",
-                LocalEntityId = created.Id,
-                ExternalEntityType = "Worklog",
-                ExternalEntityId = worklogId,
-                ExternalEntityKey = $"{envelopeKey ?? envelopeId}:{worklogId}",
-                LastSyncedAt = DateTimeOffset.UtcNow,
-            },
-            cancellationToken);
-
-        logger.LogInformation(
-            "Imported Jira worklog {WorklogId} onto task {TaskCode}",
-            worklogId,
-            task.Code);
-        return Result.Success;
+        return JiraWebhookSyncHelper.ResolveLocalUserId(
+                   authorEmail,
+                   authorName,
+                   userIdByEmail,
+                   userIdByFullName)
+               ?? context.Connection.ConnectedByUserId
+               ?? currentUser.GetUserId()
+               ?? members.FirstOrDefault()?.UserId;
     }
 
-    internal static string? ReadWorklogId(JsonElement payload)
+    internal static string? ReadWorklogId(JsonElement payload) =>
+        TryReadWorklog(payload, out var id, out _) ? id : null;
+
+    private static bool TryReadWorklog(JsonElement payload, out string? worklogId, out JsonElement worklogEl)
     {
-        if (payload.TryGetProperty("worklog", out var worklogEl)
-            && worklogEl.TryGetProperty("id", out var idEl))
+        worklogId = null;
+        worklogEl = default;
+        if (!payload.TryGetProperty("worklog", out worklogEl)
+            || !worklogEl.TryGetProperty("id", out var idEl))
         {
-            return idEl.ValueKind == JsonValueKind.Number ? idEl.GetRawText() : idEl.GetString();
+            return false;
         }
 
-        return null;
+        worklogId = idEl.ValueKind == JsonValueKind.Number ? idEl.GetRawText() : idEl.GetString();
+        return !string.IsNullOrWhiteSpace(worklogId);
+    }
+
+    private static (DateTime StartedAt, DateTime EndedAt, int SpentMinutes, string? Comment) ParseWorklogFields(
+        JsonElement worklogEl)
+    {
+        var startedAt = ParseJiraDate(
+            worklogEl.TryGetProperty("started", out var startedEl) ? startedEl.GetString() : null)
+            ?? DateTime.UtcNow;
+        var seconds = worklogEl.TryGetProperty("timeSpentSeconds", out var secEl)
+                      && secEl.TryGetInt32(out var s)
+            ? s
+            : 60;
+        var spentMinutes = Math.Max(1, seconds / 60);
+        var endedAt = startedAt.AddMinutes(spentMinutes);
+        var comment = worklogEl.TryGetProperty("comment", out var commentEl)
+            ? (commentEl.ValueKind == JsonValueKind.String ? commentEl.GetString() : commentEl.ToString())
+            : null;
+        return (startedAt, endedAt, spentMinutes, comment);
     }
 
     private static DateTime? ParseJiraDate(string? value)

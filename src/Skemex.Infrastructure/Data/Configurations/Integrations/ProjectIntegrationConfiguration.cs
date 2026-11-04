@@ -4,11 +4,11 @@ using Skemex.Domain.Entities.Integrations;
 
 namespace Skemex.Infrastructure.Data.Configurations.Integrations;
 
-public sealed class IntegrationConnectionConfiguration : IEntityTypeConfiguration<IntegrationConnection>
+public sealed class ProjectIntegrationConfiguration : IEntityTypeConfiguration<ProjectIntegration>
 {
-    public void Configure(EntityTypeBuilder<IntegrationConnection> builder)
+    public void Configure(EntityTypeBuilder<ProjectIntegration> builder)
     {
-        builder.ToTable("integration_connections");
+        builder.ToTable("project_integrations");
         builder.HasKey(x => x.Id);
 
         builder.HasIndex(x => new { x.TenantId, x.ProjectId, x.Provider }).IsUnique();
@@ -26,16 +26,10 @@ public sealed class IntegrationConnectionConfiguration : IEntityTypeConfiguratio
         builder.Property(x => x.EncryptedRefreshToken).HasMaxLength(4000);
         builder.Property(x => x.Scopes).HasMaxLength(512);
         builder.Property(x => x.LastError).HasMaxLength(2000);
-        builder.Property(x => x.WebhookId).HasMaxLength(64);
-        builder.Property(x => x.WebhookSecret).HasMaxLength(128);
-        builder.HasIndex(x => x.WebhookSecret)
-            .IsUnique()
-            .HasFilter("\"WebhookSecret\" IS NOT NULL");
-        builder.Property(x => x.WebhookEventSettingsJson).HasColumnType("text");
 
         builder
             .HasOne(x => x.Project)
-            .WithMany()
+            .WithMany(p => p.ProjectIntegrations)
             .HasForeignKey(x => x.ProjectId)
             .OnDelete(DeleteBehavior.Cascade);
     }

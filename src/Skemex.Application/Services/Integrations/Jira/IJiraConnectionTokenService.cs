@@ -7,6 +7,6 @@ namespace Skemex.Application.Services.Integrations.Jira;
 public interface IJiraConnectionTokenService
 {
     Task<ErrorOr<string>> GetValidAccessTokenAsync(
-        IntegrationConnection connection,
+        ProjectIntegration connection,
         CancellationToken cancellationToken = default);
 }

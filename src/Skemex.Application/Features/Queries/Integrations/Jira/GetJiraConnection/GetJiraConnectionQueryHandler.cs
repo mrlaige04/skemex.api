@@ -1,4 +1,5 @@
 using ErrorOr;
+using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Helpers.Integrations;
 using Skemex.Application.Models.Integrations.Jira;
@@ -14,7 +15,7 @@ namespace Skemex.Application.Features.Queries.Integrations.Jira.GetJiraConnectio
 public sealed class GetJiraConnectionQueryHandler(
     ICurrentUser currentUser,
     IProjectAccessService projectAccessService,
-    ITenantRepository<IntegrationConnection> connectionRepository,
+    ITenantRepository<ProjectIntegration> integrationRepository,
     IJiraWebhookService webhookService)
     : IQueryHandler<GetJiraConnectionQuery, JiraConnectionResponseDto>
 {
@@ -35,16 +36,17 @@ public sealed class GetJiraConnectionQueryHandler(
             return access.Errors;
         }
 
-        var connection = await connectionRepository.GetAsync(
+        var integration = await integrationRepository.GetAsync(
             filter: c =>
                 c.ProjectId == request.ProjectId && c.Provider == IntegrationProvider.Jira,
+            include: q => q.Include(i => i.Webhooks),
             cancellationToken: cancellationToken);
 
         return new JiraConnectionResponseDto
         {
-            Connection = connection is null
+            Connection = integration is null
                 ? null
-                : JiraConnectionDtoHelper.Map(connection, webhookService),
+                : JiraConnectionDtoHelper.Map(integration, webhookService),
         };
     }
 }

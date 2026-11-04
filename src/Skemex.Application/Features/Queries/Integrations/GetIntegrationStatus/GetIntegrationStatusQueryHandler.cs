@@ -12,7 +12,7 @@ namespace Skemex.Application.Features.Queries.Integrations.GetIntegrationStatus;
 public sealed class GetIntegrationStatusQueryHandler(
     ICurrentUser currentUser,
     IProjectAccessService projectAccessService,
-    ITenantRepository<IntegrationConnection> connectionRepository)
+    ITenantRepository<ProjectIntegration> connectionRepository)
     : IQueryHandler<GetIntegrationStatusQuery, IntegrationStatusDto>
 {
     public async Task<ErrorOr<IntegrationStatusDto>> Handle(
@@ -35,7 +35,7 @@ public sealed class GetIntegrationStatusQueryHandler(
         if (!TryParseProvider(request.Provider, out var provider, out var normalizedKey))
         {
             return Error.Validation(
-                "Integration.UnknownProvider",
+                "ProjectIntegration.UnknownProvider",
                 $"Unknown integration provider '{request.Provider}'. Supported: jira.");
         }
 
@@ -65,14 +65,14 @@ public sealed class GetIntegrationStatusQueryHandler(
         };
     }
 
-    private static bool IsConfigured(IntegrationProvider provider, IntegrationConnection connection) =>
+    private static bool IsConfigured(IntegrationProvider provider, ProjectIntegration connection) =>
         provider switch
         {
             IntegrationProvider.Jira =>
-                connection.Status == IntegrationConnectionStatus.Connected
+                connection.Status == IntegrationStatus.Connected
                 && !string.IsNullOrWhiteSpace(connection.CloudId)
                 && !string.IsNullOrWhiteSpace(connection.ExternalProjectKey),
-            _ => connection.Status == IntegrationConnectionStatus.Connected,
+            _ => connection.Status == IntegrationStatus.Connected,
         };
 
     private static bool TryParseProvider(

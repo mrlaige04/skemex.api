@@ -1,5 +1,6 @@
 using Skemex.Application.Models.Integrations.Jira;
 using Skemex.Application.Services.Integrations.Jira;
+using Skemex.Application.Services.Integrations.Jira.Webhooks;
 using Skemex.Domain.Entities.Integrations;
 
 namespace Skemex.Application.Helpers.Integrations;
@@ -7,29 +8,30 @@ namespace Skemex.Application.Helpers.Integrations;
 public static class JiraConnectionDtoHelper
 {
     public static JiraConnectionDto Map(
-        IntegrationConnection connection,
+        ProjectIntegration integration,
         IJiraWebhookService? webhookService = null)
     {
-        var callbackUrl = webhookService?.BuildCallbackUrl(connection);
+        var webhook = JiraWebhookEventSettingsHelper.PrimaryWebhook(integration);
+        var callbackUrl = webhookService?.BuildCallbackUrl(integration);
         return new()
         {
-            Id = connection.Id,
-            ProjectId = connection.ProjectId,
-            Status = connection.Status.ToString(),
-            CloudId = connection.CloudId,
-            SiteUrl = connection.SiteUrl,
-            SiteName = connection.SiteName,
-            ExternalProjectId = connection.ExternalProjectId,
-            ExternalProjectKey = connection.ExternalProjectKey,
-            ExternalProjectName = connection.ExternalProjectName,
-            LastError = connection.LastError,
-            WebhookRegistered = !string.IsNullOrWhiteSpace(connection.WebhookId),
+            Id = integration.Id,
+            ProjectId = integration.ProjectId,
+            Status = integration.Status.ToString(),
+            CloudId = integration.CloudId,
+            SiteUrl = integration.SiteUrl,
+            SiteName = integration.SiteName,
+            ExternalProjectId = integration.ExternalProjectId,
+            ExternalProjectKey = integration.ExternalProjectKey,
+            ExternalProjectName = integration.ExternalProjectName,
+            LastError = integration.LastError,
+            WebhookRegistered = !string.IsNullOrWhiteSpace(webhook?.ExternalWebhookId),
             WebhookCallbackUrl = callbackUrl,
             WebhookUrlNotPubliclyReachable = IsLocalOrPrivateCallback(callbackUrl),
-            WebhookRegisteredAt = connection.WebhookRegisteredAt,
-            WebhookEvents = webhookService?.GetEventSettings(connection) ?? [],
-            CreatedAt = connection.CreatedAt,
-            UpdatedAt = connection.UpdatedAt,
+            WebhookRegisteredAt = webhook?.RegisteredAt,
+            WebhookEvents = webhookService?.GetEventSettings(integration) ?? [],
+            CreatedAt = integration.CreatedAt,
+            UpdatedAt = integration.UpdatedAt,
         };
     }
 

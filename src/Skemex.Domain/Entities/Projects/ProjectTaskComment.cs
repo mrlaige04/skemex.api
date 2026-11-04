@@ -1,4 +1,5 @@
 using Skemex.Domain.Entities.Abstractions;
+using Skemex.Domain.Entities.Integrations;
 using Skemex.Domain.Entities.Users;
 
 namespace Skemex.Domain.Entities.Projects;
@@ -17,4 +18,6 @@ public class ProjectTaskComment : TenantEntity
 
     /// <summary>Comment body as HTML (same rich format as task description).</summary>
     public string Body { get; set; } = string.Empty;
+
+    public IList<IntegrationMapping> IntegrationMappings { get; set; } = [];
 }

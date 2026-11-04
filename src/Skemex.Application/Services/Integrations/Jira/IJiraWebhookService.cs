@@ -11,21 +11,21 @@ public interface IJiraWebhookService
     /// Per-event enable/disable is local-only and does not re-register in Jira.
     /// </summary>
     Task EnsureRegisteredAsync(
-        IntegrationConnection connection,
+        ProjectIntegration connection,
         string accessToken,
         CancellationToken cancellationToken = default);
 
     Task TryUnregisterAsync(
-        IntegrationConnection connection,
+        ProjectIntegration connection,
         string? accessToken,
         CancellationToken cancellationToken = default);
 
-    string? BuildCallbackUrl(IntegrationConnection connection);
+    string? BuildCallbackUrl(ProjectIntegration connection);
 
-    IReadOnlyList<JiraWebhookEventSettingDto> GetEventSettings(IntegrationConnection connection);
+    IReadOnlyList<JiraWebhookEventSettingDto> GetEventSettings(ProjectIntegration connection);
 
     void ApplyEventSettings(
-        IntegrationConnection connection,
+        ProjectIntegration connection,
         IReadOnlyDictionary<string, bool> enabledByKey);
 
     /// <summary>

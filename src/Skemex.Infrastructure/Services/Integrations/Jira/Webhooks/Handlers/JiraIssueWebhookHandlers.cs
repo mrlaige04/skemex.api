@@ -10,10 +10,6 @@ using Skemex.Domain.Repositories.Abstractions;
 namespace Skemex.Infrastructure.Services.Integrations.Jira.Webhooks.Handlers;
 
 public sealed class JiraIssueCreatedWebhookHandler(
-    JiraWebhookSyncHelper syncHelper,
-    ITenantRepository<ProjectTask> taskRepository,
-    ITenantRepository<IntegrationMapping> mappingRepository,
-    IJiraApiClient jiraApiClient,
     IJiraTaskImportService importService,
     ILogger<JiraIssueCreatedWebhookHandler> logger) : IJiraWebhookEventHandler
 {
@@ -23,46 +19,23 @@ public sealed class JiraIssueCreatedWebhookHandler(
         JiraWebhookEventContext context,
         CancellationToken cancellationToken = default)
     {
-        var (issueKey, issueId) = JiraIssueWebhookShared.ReadIssueIds(context.Payload);
-        var mapping = await syncHelper.FindTaskMappingAsync(
-            context.Connection,
-            issueKey,
-            issueId,
-            cancellationToken);
-
-        // Already linked → refresh fields; otherwise create a local task.
-        if (mapping is not null)
+        var lookup = JiraIssueWebhookShared.ResolveIssueLookup(context.Payload);
+        if (lookup is null)
         {
-            return await JiraIssueWebhookShared.SyncMappedIssueAsync(
-                context,
-                syncHelper,
-                taskRepository,
-                mappingRepository,
-                jiraApiClient,
-                logger,
-                cancellationToken);
-        }
-
-        var lookup = !string.IsNullOrWhiteSpace(issueKey) ? issueKey! : issueId;
-        if (string.IsNullOrWhiteSpace(lookup))
-        {
-            logger.LogDebug("Ignoring issue_created webhook without issue key/id");
             return Result.Success;
         }
 
-        var upsert = await importService.UpsertIssueFromWebhookAsync(
+        var result = await importService.UpsertIssueFromWebhookAsync(
             context.Connection,
             context.AccessToken,
             lookup,
             cancellationToken);
-        if (upsert.IsError)
+        if (result.IsError)
         {
             logger.LogWarning(
-                "Failed to create local task from Jira {Issue}: {Error}",
+                "issue_created upsert failed for {Issue}: {Error}",
                 lookup,
-                upsert.FirstError.Description);
-            // Ack to Jira; avoid poison retries for validation issues.
-            return Result.Success;
+                result.FirstError.Description);
         }
 
         return Result.Success;
@@ -70,25 +43,37 @@ public sealed class JiraIssueCreatedWebhookHandler(
 }
 
 public sealed class JiraIssueUpdatedWebhookHandler(
-    JiraWebhookSyncHelper syncHelper,
-    ITenantRepository<ProjectTask> taskRepository,
-    ITenantRepository<IntegrationMapping> mappingRepository,
-    IJiraApiClient jiraApiClient,
+    IJiraTaskImportService importService,
     ILogger<JiraIssueUpdatedWebhookHandler> logger) : IJiraWebhookEventHandler
 {
     public string EventKey => JiraWebhookEventCatalog.IssueUpdated;
 
-    public Task<ErrorOr<Success>> HandleAsync(
+    public async Task<ErrorOr<Success>> HandleAsync(
         JiraWebhookEventContext context,
-        CancellationToken cancellationToken = default) =>
-        JiraIssueWebhookShared.SyncMappedIssueAsync(
-            context,
-            syncHelper,
-            taskRepository,
-            mappingRepository,
-            jiraApiClient,
-            logger,
+        CancellationToken cancellationToken = default)
+    {
+        // Create if missing, otherwise refresh mapped task.
+        var lookup = JiraIssueWebhookShared.ResolveIssueLookup(context.Payload);
+        if (lookup is null)
+        {
+            return Result.Success;
+        }
+
+        var result = await importService.UpsertIssueFromWebhookAsync(
+            context.Connection,
+            context.AccessToken,
+            lookup,
             cancellationToken);
+        if (result.IsError)
+        {
+            logger.LogWarning(
+                "issue_updated upsert failed for {Issue}: {Error}",
+                lookup,
+                result.FirstError.Description);
+        }
+
+        return Result.Success;
+    }
 }
 
 public sealed class JiraIssueDeletedWebhookHandler(
@@ -120,8 +105,9 @@ public sealed class JiraIssueDeletedWebhookHandler(
 
         var related = await mappingRepository.GetAllAsync(
             filter: m =>
-                m.IntegrationConnectionId == context.Connection.Id
+                m.ProjectIntegrationId == context.Connection.Id
                 && (m.LocalEntityId == mapping.LocalEntityId
+                    || m.TaskId == mapping.LocalEntityId
                     || (issueKey != null
                         && m.ExternalEntityKey != null
                         && m.ExternalEntityKey.StartsWith(issueKey + ":"))),
@@ -147,63 +133,10 @@ public sealed class JiraIssueDeletedWebhookHandler(
 
 internal static class JiraIssueWebhookShared
 {
-    public static async Task<ErrorOr<Success>> SyncMappedIssueAsync(
-        JiraWebhookEventContext context,
-        JiraWebhookSyncHelper syncHelper,
-        ITenantRepository<ProjectTask> taskRepository,
-        ITenantRepository<IntegrationMapping> mappingRepository,
-        IJiraApiClient jiraApiClient,
-        ILogger logger,
-        CancellationToken cancellationToken)
+    public static string? ResolveIssueLookup(JsonElement payload)
     {
-        var (issueKey, issueId) = ReadIssueIds(context.Payload);
-        var mapping = await syncHelper.FindTaskMappingAsync(
-            context.Connection,
-            issueKey,
-            issueId,
-            cancellationToken);
-        if (mapping is null)
-        {
-            return Result.Success;
-        }
-
-        var lookup = !string.IsNullOrWhiteSpace(issueKey) ? issueKey! : issueId!;
-        var remote = await jiraApiClient.GetRemoteIssueAsync(
-            context.AccessToken,
-            context.Connection.CloudId!,
-            lookup,
-            cancellationToken);
-        if (remote is null)
-        {
-            return Result.Success;
-        }
-
-        var task = await taskRepository.GetAsync(
-            filter: t => t.Id == mapping.LocalEntityId && t.ProjectId == context.Connection.ProjectId,
-            cancellationToken: cancellationToken);
-        if (task is null)
-        {
-            return Result.Success;
-        }
-
-        await syncHelper.ApplyRemoteIssueToTaskAsync(
-            context.Connection,
-            task,
-            remote,
-            cancellationToken);
-
-        mapping.ExternalEntityId = remote.Id;
-        mapping.ExternalEntityKey = remote.Key;
-        mapping.LastSyncedAt = DateTimeOffset.UtcNow;
-        await mappingRepository.UpdateAsync(mapping, cancellationToken);
-
-        logger.LogInformation(
-            "Webhook {Event} synced Jira {IssueKey} → {TaskCode}",
-            context.EventKey,
-            remote.Key,
-            task.Code);
-
-        return Result.Success;
+        var (key, id) = ReadIssueIds(payload);
+        return !string.IsNullOrWhiteSpace(key) ? key : id;
     }
 
     public static (string? Key, string? Id) ReadIssueIds(JsonElement payload)
@@ -213,7 +146,9 @@ internal static class JiraIssueWebhookShared
         if (payload.TryGetProperty("issue", out var issueEl))
         {
             key = issueEl.TryGetProperty("key", out var keyEl) ? keyEl.GetString() : null;
-            id = issueEl.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+            id = issueEl.TryGetProperty("id", out var idEl)
+                ? (idEl.ValueKind == JsonValueKind.Number ? idEl.GetRawText() : idEl.GetString())
+                : null;
         }
 
         return (key, id);

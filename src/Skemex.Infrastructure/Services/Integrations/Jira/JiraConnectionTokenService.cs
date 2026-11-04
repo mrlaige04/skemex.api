@@ -9,12 +9,12 @@ namespace Skemex.Infrastructure.Services.Integrations.Jira;
 public sealed class JiraConnectionTokenService(
     IJiraApiClient jiraApiClient,
     IEncryptService encryptService,
-    ITenantRepository<IntegrationConnection> connectionRepository) : IJiraConnectionTokenService
+    ITenantRepository<ProjectIntegration> connectionRepository) : IJiraConnectionTokenService
 {
     private static readonly TimeSpan RefreshSkew = TimeSpan.FromMinutes(2);
 
     public async Task<ErrorOr<string>> GetValidAccessTokenAsync(
-        IntegrationConnection connection,
+        ProjectIntegration connection,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(connection.EncryptedAccessToken))

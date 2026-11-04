@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ErrorOr;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Skemex.Application.Configuration.Integrations;
@@ -17,13 +18,14 @@ using Skemex.Infrastructure.Services;
 namespace Skemex.Infrastructure.Services.Integrations.Jira;
 
 /// <summary>
-/// One Jira webhook registration covers all catalog events. Enable/disable toggles only
-/// affect local processing so settings changes never require re-registering in Jira.
+/// Manages IntegrationWebhook rows under a Jira ProjectIntegration.
+/// Event enable/disable is local-only (EnabledEventTypes flags).
 /// </summary>
 public sealed class JiraWebhookService(
     IOptions<JiraOptions> jiraOptions,
     IOptions<ExternalAuthOptions> externalAuthOptions,
-    ITenantRepository<IntegrationConnection> connectionRepository,
+    ITenantRepository<ProjectIntegration> integrationRepository,
+    ITenantRepository<IntegrationWebhook> webhookRepository,
     IJiraConnectionTokenService tokenService,
     IJiraApiClient jiraApiClient,
     IEnumerable<IJiraWebhookEventHandler> eventHandlers,
@@ -34,190 +36,171 @@ public sealed class JiraWebhookService(
         .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
     public async Task EnsureRegisteredAsync(
-        IntegrationConnection connection,
+        ProjectIntegration integration,
         string accessToken,
         CancellationToken cancellationToken = default)
     {
-        if (connection.Status != IntegrationConnectionStatus.Connected
-            || string.IsNullOrWhiteSpace(connection.CloudId)
-            || string.IsNullOrWhiteSpace(connection.ExternalProjectKey))
+        if (integration.Status != IntegrationStatus.Connected
+            || string.IsNullOrWhiteSpace(integration.CloudId)
+            || string.IsNullOrWhiteSpace(integration.ExternalProjectKey))
         {
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(connection.WebhookSecret))
-        {
-            connection.WebhookSecret = CreateSecret();
-        }
+        await EnsureWebhooksLoadedAsync(integration, cancellationToken);
+        var webhook = await GetOrCreatePrimaryWebhookAsync(integration, cancellationToken);
+        JiraWebhookEventSettingsHelper.EnsureDefaults(webhook);
 
-        // First time we persist per-event settings → previous registration may have subscribed
-        // only to issue events; drop it so we re-register with the full catalog once.
-        var upgradingToMultiEvent = string.IsNullOrWhiteSpace(connection.WebhookEventSettingsJson);
-        JiraWebhookEventSettingsHelper.EnsureDefaults(connection);
-
-        var callbackUrl = BuildCallbackUrl(connection);
+        var callbackUrl = BuildCallbackUrl(webhook);
         if (string.IsNullOrWhiteSpace(callbackUrl))
         {
             logger.LogWarning(
-                "Cannot register Jira webhook for connection {ConnectionId}: public API base URL is not configured.",
-                connection.Id);
-            connection.LastError =
+                "Cannot register Jira webhook for integration {ProjectIntegrationId}: public API base URL is not configured.",
+                integration.Id);
+            integration.LastError =
                 "Webhook URL could not be built. Set Jira:PublicApiBaseUrl or Auth:External:CallbackBaseUrl to a public HTTPS origin.";
-            await connectionRepository.UpdateAsync(connection, cancellationToken);
+            await integrationRepository.UpdateAsync(integration, cancellationToken);
+            await webhookRepository.UpdateAsync(webhook, cancellationToken);
             return;
         }
 
-        if (upgradingToMultiEvent && !string.IsNullOrWhiteSpace(connection.WebhookId))
+        if (!string.IsNullOrWhiteSpace(webhook.ExternalWebhookId))
         {
-            try
-            {
-                await jiraApiClient.DeleteWebhookAsync(
-                    accessToken,
-                    connection.CloudId!,
-                    connection.WebhookId,
-                    cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(
-                    ex,
-                    "Failed to delete legacy Jira webhook {WebhookId} before multi-event re-register",
-                    connection.WebhookId);
-            }
-
-            connection.WebhookId = null;
-            connection.WebhookRegisteredAt = null;
-        }
-
-        if (!string.IsNullOrWhiteSpace(connection.WebhookId))
-        {
-            // Dynamic OAuth webhooks expire after 30 days — refresh on each ensure.
             try
             {
                 await jiraApiClient.RefreshWebhookAsync(
                     accessToken,
-                    connection.CloudId!,
-                    connection.WebhookId,
+                    integration.CloudId!,
+                    webhook.ExternalWebhookId,
                     cancellationToken);
-                connection.WebhookRegisteredAt = DateTimeOffset.UtcNow;
-                connection.LastError = null;
+                webhook.RegisteredAt = DateTimeOffset.UtcNow;
+                integration.LastError = null;
             }
             catch (Exception ex)
             {
                 logger.LogWarning(
                     ex,
-                    "Failed to refresh Jira webhook {WebhookId}; will try re-register on next mapping",
-                    connection.WebhookId);
+                    "Failed to refresh Jira webhook {WebhookId}",
+                    webhook.ExternalWebhookId);
             }
 
-            await connectionRepository.UpdateAsync(connection, cancellationToken);
+            await webhookRepository.UpdateAsync(webhook, cancellationToken);
+            await integrationRepository.UpdateAsync(integration, cancellationToken);
             return;
         }
 
         try
         {
+            webhook.SubscribedEventTypes = JiraWebhookEventCatalog.OAuthDynamicFlags;
             var registered = await jiraApiClient.RegisterWebhookAsync(
                 accessToken,
-                connection.CloudId!,
+                integration.CloudId!,
                 new JiraRegisterWebhookRequest
                 {
-                    Name = $"Skemex {connection.ExternalProjectKey}",
+                    Name = $"Skemex {integration.ExternalProjectKey}",
                     Url = callbackUrl,
-                    ProjectKey = connection.ExternalProjectKey!,
+                    ProjectKey = integration.ExternalProjectKey!,
                     Events = JiraWebhookEventCatalog.OAuthDynamicJiraEventNames,
                 },
                 cancellationToken);
 
-            connection.WebhookId = registered.Id;
-            connection.WebhookRegisteredAt = DateTimeOffset.UtcNow;
-            connection.LastError = null;
-            await connectionRepository.UpdateAsync(connection, cancellationToken);
+            webhook.ExternalWebhookId = registered.Id;
+            webhook.RegisteredAt = DateTimeOffset.UtcNow;
+            integration.LastError = null;
+            await webhookRepository.UpdateAsync(webhook, cancellationToken);
+            await integrationRepository.UpdateAsync(integration, cancellationToken);
             logger.LogInformation(
-                "Registered Jira dynamic webhook {WebhookId} for project {ProjectKey} ({EventCount} OAuth-supported events)",
+                "Registered Jira dynamic webhook {WebhookId} for project {ProjectKey}",
                 registered.Id,
-                connection.ExternalProjectKey,
-                JiraWebhookEventCatalog.OAuthDynamicJiraEventNames.Count);
+                integration.ExternalProjectKey);
         }
         catch (Exception ex)
         {
             logger.LogWarning(
                 ex,
-                "Auto-register Jira webhook failed for {ProjectKey}. Manual webhook URL is available on the connection.",
-                connection.ExternalProjectKey);
+                "Auto-register Jira webhook failed for {ProjectKey}",
+                integration.ExternalProjectKey);
             var hint = ex.Message.Contains("scope does not match", StringComparison.OrdinalIgnoreCase)
                 ? "Disconnect and reconnect Jira to grant the manage:jira-webhook scope, then map the project again."
                 : "Use the callback URL from integrations settings to add a webhook manually in Jira, or reconnect after updating Atlassian app scopes.";
-            connection.LastError = $"Could not auto-register the Jira webhook. {hint}";
-            await connectionRepository.UpdateAsync(connection, cancellationToken);
+            integration.LastError = $"Could not auto-register the Jira webhook. {hint}";
+            await webhookRepository.UpdateAsync(webhook, cancellationToken);
+            await integrationRepository.UpdateAsync(integration, cancellationToken);
         }
     }
 
     public async Task TryUnregisterAsync(
-        IntegrationConnection connection,
+        ProjectIntegration integration,
         string? accessToken,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(connection.WebhookId)
-            || string.IsNullOrWhiteSpace(connection.CloudId)
-            || string.IsNullOrWhiteSpace(accessToken))
+        await EnsureWebhooksLoadedAsync(integration, cancellationToken);
+        if (string.IsNullOrWhiteSpace(integration.CloudId) || string.IsNullOrWhiteSpace(accessToken))
         {
             return;
         }
 
-        try
+        foreach (var webhook in integration.Webhooks.ToList())
         {
-            await jiraApiClient.DeleteWebhookAsync(
-                accessToken,
-                connection.CloudId,
-                connection.WebhookId,
-                cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(
-                ex,
-                "Failed to delete Jira webhook {WebhookId} on disconnect",
-                connection.WebhookId);
+            if (string.IsNullOrWhiteSpace(webhook.ExternalWebhookId))
+            {
+                continue;
+            }
+
+            try
+            {
+                await jiraApiClient.DeleteWebhookAsync(
+                    accessToken,
+                    integration.CloudId,
+                    webhook.ExternalWebhookId,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Failed to delete Jira webhook {WebhookId} on disconnect",
+                    webhook.ExternalWebhookId);
+            }
+
+            webhook.ExternalWebhookId = null;
+            webhook.RegisteredAt = null;
+            await webhookRepository.UpdateAsync(webhook, cancellationToken);
         }
     }
 
-    public string? BuildCallbackUrl(IntegrationConnection connection)
+    public string? BuildCallbackUrl(ProjectIntegration integration)
     {
-        if (string.IsNullOrWhiteSpace(connection.WebhookSecret))
-        {
-            return null;
-        }
-
-        var baseUrl = ResolvePublicApiBaseUrl();
-        if (string.IsNullOrWhiteSpace(baseUrl))
-        {
-            return null;
-        }
-
-        // Single shared path for the Jira integration; connection is identified by token.
-        return $"{baseUrl}/api/integrations/jira/webhook"
-               + $"?token={Uri.EscapeDataString(connection.WebhookSecret)}";
+        var webhook = JiraWebhookEventSettingsHelper.PrimaryWebhook(integration);
+        return webhook is null ? null : BuildCallbackUrl(webhook);
     }
 
-    public IReadOnlyList<JiraWebhookEventSettingDto> GetEventSettings(IntegrationConnection connection)
+    public IReadOnlyList<JiraWebhookEventSettingDto> GetEventSettings(ProjectIntegration integration)
     {
-        var settings = JiraWebhookEventSettingsHelper.Read(connection);
+        var webhook = JiraWebhookEventSettingsHelper.PrimaryWebhook(integration);
+        var enabled = webhook?.EnabledEventTypes ?? JiraWebhookEventCatalog.DefaultEnabledFlags;
         return JiraWebhookEventCatalog.All
             .Select(def => new JiraWebhookEventSettingDto
             {
                 Key = def.Key,
                 DisplayName = def.DisplayName,
                 JiraEventName = def.JiraEventName,
-                Enabled = settings.TryGetValue(def.Key, out var enabled) && enabled,
+                Enabled = enabled.HasFlag(def.Flag),
             })
             .ToList();
     }
 
     public void ApplyEventSettings(
-        IntegrationConnection connection,
+        ProjectIntegration integration,
         IReadOnlyDictionary<string, bool> enabledByKey)
     {
-        JiraWebhookEventSettingsHelper.Write(connection, enabledByKey);
+        var webhook = JiraWebhookEventSettingsHelper.PrimaryWebhook(integration);
+        if (webhook is null)
+        {
+            return;
+        }
+
+        JiraWebhookEventSettingsHelper.ApplyEnabledMap(webhook, enabledByKey);
     }
 
     public async Task<ErrorOr<Success>> HandleInboundAsync(
@@ -230,21 +213,23 @@ public sealed class JiraWebhookService(
             return Error.Unauthorized("Jira.WebhookUnauthorized", "Missing webhook token.");
         }
 
-        var connection = await connectionRepository.GetAsync(
-            filter: c =>
-                c.Provider == IntegrationProvider.Jira
-                && c.WebhookSecret == token
-                && c.Status == IntegrationConnectionStatus.Connected,
+        var webhook = await webhookRepository.GetAsync(
+            filter: w => w.Secret == token,
+            include: q => q.Include(w => w.ProjectIntegration),
             cancellationToken: cancellationToken);
 
-        if (connection is null || string.IsNullOrWhiteSpace(connection.WebhookSecret))
+        if (webhook?.ProjectIntegration is null
+            || webhook.ProjectIntegration.Provider != IntegrationProvider.Jira
+            || webhook.ProjectIntegration.Status != IntegrationStatus.Connected
+            || !SecureTokenEquals(webhook.Secret, token))
         {
             return Error.Unauthorized("Jira.WebhookUnauthorized", "Invalid webhook token.");
         }
 
-        if (!SecureTokenEquals(connection.WebhookSecret, token))
+        var integration = webhook.ProjectIntegration;
+        if (integration.Webhooks.Count == 0)
         {
-            return Error.Unauthorized("Jira.WebhookUnauthorized", "Invalid webhook token.");
+            integration.Webhooks.Add(webhook);
         }
 
         if (string.IsNullOrWhiteSpace(rawJsonBody))
@@ -275,12 +260,12 @@ public sealed class JiraWebhookService(
             return Result.Success;
         }
 
-        if (!JiraWebhookEventSettingsHelper.IsEnabled(connection, definition.Key))
+        if (!JiraWebhookEventSettingsHelper.IsEnabled(webhook, definition.Flag))
         {
             logger.LogDebug(
-                "Skipping disabled webhook event {EventKey} for connection {ConnectionId}",
+                "Skipping disabled webhook event {EventKey} for integration {ProjectIntegrationId}",
                 definition.Key,
-                connection.Id);
+                integration.Id);
             return Result.Success;
         }
 
@@ -290,27 +275,27 @@ public sealed class JiraWebhookService(
             return Result.Success;
         }
 
-        var tokenResult = await tokenService.GetValidAccessTokenAsync(connection, cancellationToken);
+        var tokenResult = await tokenService.GetValidAccessTokenAsync(integration, cancellationToken);
         if (tokenResult.IsError)
         {
             logger.LogWarning(
-                "Webhook {EventKey} skipped: could not refresh Jira token for connection {ConnectionId}",
+                "Webhook {EventKey} skipped: could not refresh Jira token for integration {ProjectIntegrationId}",
                 definition.Key,
-                connection.Id);
+                integration.Id);
             return Result.Success;
         }
 
         var context = new JiraWebhookEventContext
         {
-            Connection = connection,
+            Connection = integration,
             EventKey = definition.Key,
             JiraEventName = definition.JiraEventName,
             Payload = root,
             AccessToken = tokenResult.Value,
         };
 
-        var ambientUserId = connection.ConnectedByUserId ?? Guid.Empty;
-        using var ambient = AmbientUserContext.Use(connection.TenantId, ambientUserId);
+        var ambientUserId = integration.ConnectedByUserId ?? Guid.Empty;
+        using var ambient = AmbientUserContext.Use(integration.TenantId, ambientUserId);
 
         try
         {
@@ -320,12 +305,68 @@ public sealed class JiraWebhookService(
         {
             logger.LogError(
                 ex,
-                "Webhook handler failed for {EventKey} on connection {ConnectionId}",
+                "Webhook handler failed for {EventKey} on integration {ProjectIntegrationId}",
                 definition.Key,
-                connection.Id);
-            // Ack to Jira to avoid endless retries on poison payloads.
+                integration.Id);
             return Result.Success;
         }
+    }
+
+    private async Task EnsureWebhooksLoadedAsync(ProjectIntegration integration, CancellationToken cancellationToken)
+    {
+        if (integration.Webhooks.Count > 0)
+        {
+            return;
+        }
+
+        var existing = await webhookRepository.GetAllAsync(
+            filter: w => w.ProjectIntegrationId == integration.Id,
+            cancellationToken: cancellationToken);
+        foreach (var row in existing)
+        {
+            integration.Webhooks.Add(row);
+        }
+    }
+
+    private async Task<IntegrationWebhook> GetOrCreatePrimaryWebhookAsync(
+        ProjectIntegration integration,
+        CancellationToken cancellationToken)
+    {
+        var existing = JiraWebhookEventSettingsHelper.PrimaryWebhook(integration);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var created = new IntegrationWebhook
+        {
+            Id = Guid.NewGuid(),
+            TenantId = integration.TenantId,
+            ProjectIntegrationId = integration.Id,
+            Secret = CreateSecret(),
+            SubscribedEventTypes = JiraWebhookEventCatalog.OAuthDynamicFlags,
+            EnabledEventTypes = JiraWebhookEventCatalog.DefaultEnabledFlags,
+        };
+        await webhookRepository.AddAsync(created, cancellationToken);
+        integration.Webhooks.Add(created);
+        return created;
+    }
+
+    private string? BuildCallbackUrl(IntegrationWebhook webhook)
+    {
+        if (string.IsNullOrWhiteSpace(webhook.Secret))
+        {
+            return null;
+        }
+
+        var baseUrl = ResolvePublicApiBaseUrl();
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            return null;
+        }
+
+        return $"{baseUrl}/api/integrations/jira/webhook"
+               + $"?token={Uri.EscapeDataString(webhook.Secret)}";
     }
 
     private string? ResolvePublicApiBaseUrl()

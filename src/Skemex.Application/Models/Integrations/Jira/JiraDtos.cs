@@ -206,6 +206,11 @@ public sealed class JiraCreatedCommentDto
     public string Id { get; init; } = string.Empty;
 }
 
+public sealed class JiraCreatedWorklogDto
+{
+    public string Id { get; init; } = string.Empty;
+}
+
 public sealed class JiraRemoteIssueDto
 {
     public string Id { get; init; } = string.Empty;
@@ -214,6 +219,7 @@ public sealed class JiraRemoteIssueDto
     public string? Description { get; init; }
     public string IssueType { get; init; } = "Task";
     public string? Status { get; init; }
+    public string? AssigneeAccountId { get; init; }
     public string? AssigneeEmail { get; init; }
     public string? AssigneeDisplayName { get; init; }
     public string? ParentKey { get; init; }
@@ -226,6 +232,7 @@ public sealed class JiraRemoteIssueDto
 
 public sealed class JiraRemoteWorklogDto
 {
+    public string? Id { get; init; }
     public DateTime StartedAt { get; init; }
     public int SpentMinutes { get; init; }
     public string? Comment { get; init; }
@@ -281,4 +288,54 @@ public sealed class ImportTasksFromJiraItemResultDto
     public string? LocalTaskCode { get; init; }
     public Guid? LocalTaskId { get; init; }
     public string? Message { get; init; }
+}
+
+public sealed class JiraEntityMappingWorkspaceDto
+{
+    public string LocalEntityType { get; init; } = string.Empty;
+    public string ExternalEntityType { get; init; } = string.Empty;
+    public IReadOnlyList<JiraMappingLocalItemDto> LocalItems { get; init; } = [];
+    public IReadOnlyList<JiraMappingRemoteItemDto> RemoteItems { get; init; } = [];
+}
+
+public sealed class JiraMappingLocalItemDto
+{
+    public Guid Id { get; init; }
+    public string DisplayName { get; init; } = string.Empty;
+    public string? SecondaryText { get; init; }
+    public Guid? ParentTaskId { get; init; }
+    public string? ParentTaskCode { get; init; }
+    public JiraMappingLinkDto? Mapping { get; init; }
+}
+
+public sealed class JiraMappingRemoteItemDto
+{
+    public string Id { get; init; } = string.Empty;
+    public string? Key { get; init; }
+    public string DisplayName { get; init; } = string.Empty;
+    public string? SecondaryText { get; init; }
+    public Guid? MappedLocalEntityId { get; init; }
+}
+
+public sealed class JiraMappingLinkDto
+{
+    public Guid Id { get; init; }
+    public string Status { get; init; } = string.Empty;
+    public string ExternalEntityId { get; init; } = string.Empty;
+    public string? ExternalEntityKey { get; init; }
+    public DateTimeOffset? LastSyncedAt { get; init; }
+}
+
+public sealed class UpsertJiraEntityMappingRequest
+{
+    public string LocalEntityType { get; set; } = string.Empty;
+    public Guid LocalEntityId { get; set; }
+    public string ExternalEntityId { get; set; } = string.Empty;
+    public string? ExternalEntityKey { get; set; }
+    public string? Status { get; set; }
+}
+
+public sealed class UpsertJiraEntityMappingResultDto
+{
+    public JiraMappingLinkDto Mapping { get; init; } = null!;
 }

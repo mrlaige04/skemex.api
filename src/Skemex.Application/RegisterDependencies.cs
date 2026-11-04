@@ -34,6 +34,7 @@ public static class RegisterDependencies
         services.AddScoped<TenantColumnSeeder>();
         services.AddScoped<ProjectColumnSeeder>();
         services.AddScoped<TenantRbacSeeder>();
+        services.AddScoped<TenantProvisioningService>();
         services.AddScoped<IProjectAccessService, ProjectAccessService>();
         services.AddTransient(typeof(IBehaviour<,>), typeof(LoggingBehaviour<,>));
         services.AddTransient(typeof(IBehaviour<,>), typeof(ValidationBehaviour<,>));

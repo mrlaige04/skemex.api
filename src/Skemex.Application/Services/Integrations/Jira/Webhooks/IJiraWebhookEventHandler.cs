@@ -16,7 +16,7 @@ public interface IJiraWebhookEventHandler
 
 public sealed class JiraWebhookEventContext
 {
-    public required IntegrationConnection Connection { get; init; }
+    public required ProjectIntegration Connection { get; init; }
     public required string EventKey { get; init; }
     public required string JiraEventName { get; init; }
     public required JsonElement Payload { get; init; }

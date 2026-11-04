@@ -2,27 +2,8 @@ using ErrorOr;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using Skemex.Application.Configuration;
-using Skemex.Application.Configuration.Ai;
 using Skemex.Application.Configuration.App;
-using Skemex.Application.Configuration.Documents;
-using Skemex.Application.Configuration.Email;
-using Skemex.Application.Configuration.Rag;
-using Skemex.Application.Configuration.Storage;
-using Skemex.Application.Services.Ai.Agents;
-using Skemex.Application.Services.Ai.Chat;
-using Skemex.Application.Services.Ai.Completions;
-using Skemex.Application.Services.Ai.Embeddings;
-using Skemex.Application.Services.Ai.Providers;
-using Skemex.Application.Services.Ai.Rag;
-using Skemex.Application.Services.Ai.Usage;
 using Skemex.Application.Services.Common;
-using Skemex.Application.Services.Documents;
-using Skemex.Application.Services.Email;
-using Skemex.Application.Services.Encryption;
-using Skemex.Application.Services.Notifications;
-using Skemex.Application.Services.Projects;
-using Skemex.Application.Services.Storage;
 using Skemex.Application.Services.Users;
 using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Users;
@@ -38,23 +19,23 @@ public sealed class AuthLoginSessionBuilder(
     TokenService tokenService,
     IUrlService urlService,
     IBaseRepository<User> userRepository,
+    TenantProvisioningService tenantProvisioning,
     IOptions<SuperAdminOptions> superAdminOptions)
 {
     public async Task<ErrorOr<LoginResponse>> BuildAsync(
         User user,
         CancellationToken cancellationToken = default)
     {
-        var token = await tokenService.GenerateGeneralLoginToken(user).ConfigureAwait(false);
-        tokenService.AssignRefreshToken(user, token);
-        await userManager.UpdateAsync(user).ConfigureAwait(false);
-
         var userFromRepo = await userRepository.GetAsync(
             u => u.Id == user.Id,
             q => q
                 .Include(u => u.Tenants)
                 .ThenInclude(tu => tu.Tenant)
                 .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role),
+                .ThenInclude(ur => ur.Role)
+                .ThenInclude(r => r.Permissions)
+                .ThenInclude(rp => rp.Permission)
+                .ThenInclude(p => p.Group),
             cancellationToken).ConfigureAwait(false);
 
         if (userFromRepo is null)
@@ -66,17 +47,108 @@ public sealed class AuthLoginSessionBuilder(
         var isSuperAdmin = isPlatformAdmin || userFromRepo.UserRoles.Any(ur =>
             ur.TenantId is null && ur.Role.Name == RoleNames.SuperAdmin);
 
-        var platformRoles = userFromRepo.UserRoles
-            .Where(ur => ur.TenantId is null)
+        if (isSuperAdmin)
+        {
+            var token = await tokenService.GenerateGeneralLoginToken(user).ConfigureAwait(false);
+            tokenService.AssignRefreshToken(user, token);
+            await userManager.UpdateAsync(user).ConfigureAwait(false);
+
+            var platformRoles = userFromRepo.UserRoles
+                .Where(ur => ur.TenantId is null)
+                .Select(ur => new RoleBaseResponse
+                {
+                    Id = ur.RoleId,
+                    Name = ur.Role.Name!,
+                    IsSystem = ur.Role.IsSystem,
+                })
+                .ToList();
+
+            return new LoginResponse
+            {
+                Token = token,
+                TenantId = null,
+                TenantName = null,
+                User = new CurrentUserResponse
+                {
+                    Id = user.Id,
+                    Email = user.Email!,
+                    FirstName = userFromRepo.FirstName,
+                    LastName = userFromRepo.LastName,
+                    IsSuperAdmin = true,
+                    AvatarUrl = await urlService
+                        .GetUserProfilePictureUrlAsync(userFromRepo.PhotoBlobId, cancellationToken)
+                        .ConfigureAwait(false),
+                    Tenants = [],
+                    Roles = platformRoles,
+                    Permissions = [],
+                },
+            };
+        }
+
+        var resolved = await ResolveOrProvisionTenantAsync(user, userFromRepo, cancellationToken)
+            .ConfigureAwait(false);
+        if (resolved.IsError)
+        {
+            return resolved.Errors;
+        }
+
+        var (tenantId, tenantName, memberships) = resolved.Value;
+
+        var tokenScoped = await tokenService.GenerateTenantScopedToken(user, tenantId).ConfigureAwait(false);
+        tokenService.AssignRefreshToken(user, tokenScoped);
+        user.LastUsedTenantId = tenantId;
+        await userManager.UpdateAsync(user).ConfigureAwait(false);
+
+        // Reload roles/permissions after possible personal-workspace provision.
+        if (memberships.All(tu => tu.TenantId != tenantId)
+            || userFromRepo.UserRoles.All(ur => ur.TenantId != tenantId))
+        {
+            userFromRepo = await userRepository.GetAsync(
+                u => u.Id == user.Id,
+                q => q
+                    .Include(u => u.Tenants)
+                    .ThenInclude(tu => tu.Tenant)
+                    .Include(u => u.UserRoles)
+                    .ThenInclude(ur => ur.Role)
+                    .ThenInclude(r => r.Permissions)
+                    .ThenInclude(rp => rp.Permission)
+                    .ThenInclude(p => p.Group),
+                cancellationToken).ConfigureAwait(false);
+
+            if (userFromRepo is null)
+            {
+                return Error.NotFound(UserErrors.NotFound, UserErrors.NotFoundDescription);
+            }
+
+            memberships = userFromRepo.Tenants.Where(tu => tu.Status == TenantUserStatus.Active).ToList();
+        }
+
+        var rolesForTenant = userFromRepo.UserRoles
+            .Where(ur => ur.TenantId == tenantId)
             .Select(ur => new RoleBaseResponse
             {
                 Id = ur.RoleId,
                 Name = ur.Role.Name!,
                 IsSystem = ur.Role.IsSystem,
             })
+            .DistinctBy(r => r.Id)
             .ToList();
 
-        var tenants = userFromRepo.Tenants
+        var permissions = userFromRepo.UserRoles
+            .Where(ur => ur.TenantId == tenantId)
+            .SelectMany(ur => ur.Role.Permissions)
+            .Where(rp => rp.Permission is not null && !string.IsNullOrWhiteSpace(rp.Permission.Name))
+            .Select(rp => new PermissionBaseResponse
+            {
+                Id = rp.PermissionId,
+                Name = rp.Permission.Name,
+                GroupName = rp.Permission.Group?.Name ?? string.Empty,
+                IsSystem = rp.Permission.IsSystem,
+            })
+            .DistinctBy(p => p.Name)
+            .ToList();
+
+        var tenants = memberships
             .Select(tu => new TenantSummaryResponse
             {
                 Id = tu.TenantId,
@@ -86,23 +158,97 @@ public sealed class AuthLoginSessionBuilder(
             })
             .ToList();
 
+        if (tenants.All(t => t.Id != tenantId))
+        {
+            tenants.Add(new TenantSummaryResponse
+            {
+                Id = tenantId,
+                Name = tenantName,
+                Status = TenantUserStatus.Active,
+            });
+        }
+
         return new LoginResponse
         {
-            Token = token,
+            Token = tokenScoped,
+            TenantId = tenantId,
+            TenantName = tenantName,
             User = new CurrentUserResponse
             {
                 Id = user.Id,
                 Email = user.Email!,
                 FirstName = userFromRepo.FirstName,
                 LastName = userFromRepo.LastName,
-                IsSuperAdmin = isSuperAdmin,
+                IsSuperAdmin = false,
                 AvatarUrl = await urlService
                     .GetUserProfilePictureUrlAsync(userFromRepo.PhotoBlobId, cancellationToken)
                     .ConfigureAwait(false),
                 Tenants = tenants,
-                Roles = platformRoles,
-                Permissions = [],
+                Roles = rolesForTenant,
+                Permissions = permissions,
             },
         };
+    }
+
+    /// <summary>
+    /// Resolves last-used or first active tenant; provisions a personal workspace when the user has none.
+    /// </summary>
+    public async Task<ErrorOr<Guid>> ResolveTenantIdForUserAsync(
+        User user,
+        CancellationToken cancellationToken = default)
+    {
+        var userFromRepo = await userRepository.GetAsync(
+            u => u.Id == user.Id,
+            q => q.Include(u => u.Tenants).ThenInclude(tu => tu.Tenant),
+            cancellationToken).ConfigureAwait(false);
+
+        if (userFromRepo is null)
+        {
+            return Error.NotFound(UserErrors.NotFound, UserErrors.NotFoundDescription);
+        }
+
+        var resolved = await ResolveOrProvisionTenantAsync(user, userFromRepo, cancellationToken)
+            .ConfigureAwait(false);
+        if (resolved.IsError)
+        {
+            return resolved.Errors;
+        }
+
+        return resolved.Value.TenantId;
+    }
+
+    private async Task<ErrorOr<(Guid TenantId, string TenantName, List<TenantUser> Memberships)>> ResolveOrProvisionTenantAsync(
+        User user,
+        User userFromRepo,
+        CancellationToken cancellationToken)
+    {
+        var memberships = userFromRepo.Tenants
+            .Where(tu => tu.Status == TenantUserStatus.Active)
+            .ToList();
+
+        if (user.LastUsedTenantId is Guid lastId)
+        {
+            var last = memberships.FirstOrDefault(tu => tu.TenantId == lastId);
+            if (last is not null)
+            {
+                return (last.TenantId, last.Tenant.Name, memberships);
+            }
+        }
+
+        var first = memberships.FirstOrDefault();
+        if (first is not null)
+        {
+            return (first.TenantId, first.Tenant.Name, memberships);
+        }
+
+        var provisioned = await tenantProvisioning.CreatePersonalWorkspaceAsync(user, cancellationToken)
+            .ConfigureAwait(false);
+        if (provisioned.IsError)
+        {
+            return provisioned.Errors;
+        }
+
+        var tenant = provisioned.Value;
+        return (tenant.Id, tenant.Name, memberships);
     }
 }

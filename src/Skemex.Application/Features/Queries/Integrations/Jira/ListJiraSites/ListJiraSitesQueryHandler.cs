@@ -13,7 +13,7 @@ namespace Skemex.Application.Features.Queries.Integrations.Jira.ListJiraSites;
 public sealed class ListJiraSitesQueryHandler(
     ICurrentUser currentUser,
     IProjectAccessService projectAccessService,
-    ITenantRepository<IntegrationConnection> connectionRepository,
+    ITenantRepository<ProjectIntegration> connectionRepository,
     IJiraConnectionTokenService tokenService,
     IJiraApiClient jiraApiClient)
     : IQueryHandler<ListJiraSitesQuery, IReadOnlyList<JiraAccessibleResourceDto>>

@@ -88,6 +88,7 @@ public class SelectTenantHandler(
 
         var token = await tokenService.GenerateTenantScopedToken(user, request.TenantId);
         tokenService.AssignRefreshToken(user, token);
+        user.LastUsedTenantId = request.TenantId;
         await userManager.UpdateAsync(user);
 
         var rolesForTenant = principal.UserRoles

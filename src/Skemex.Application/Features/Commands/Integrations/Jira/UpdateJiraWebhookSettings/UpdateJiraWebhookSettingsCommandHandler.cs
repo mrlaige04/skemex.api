@@ -1,8 +1,10 @@
 using ErrorOr;
+using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Helpers.Integrations;
 using Skemex.Application.Models.Integrations.Jira;
 using Skemex.Application.Services.Integrations.Jira;
+using Skemex.Application.Services.Integrations.Jira.Webhooks;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Integrations;
 using Skemex.Domain.Enums;
@@ -14,7 +16,8 @@ namespace Skemex.Application.Features.Commands.Integrations.Jira.UpdateJiraWebho
 public sealed class UpdateJiraWebhookSettingsCommandHandler(
     ICurrentUser currentUser,
     IProjectAccessService projectAccessService,
-    ITenantRepository<IntegrationConnection> connectionRepository,
+    ITenantRepository<ProjectIntegration> integrationRepository,
+    ITenantRepository<IntegrationWebhook> webhookRepository,
     IJiraWebhookService webhookService)
     : ICommandHandler<UpdateJiraWebhookSettingsCommand, JiraConnectionDto>
 {
@@ -35,21 +38,28 @@ public sealed class UpdateJiraWebhookSettingsCommandHandler(
             return access.Errors;
         }
 
-        var connection = await connectionRepository.GetAsync(
+        var integration = await integrationRepository.GetAsync(
             filter: c =>
                 c.ProjectId == request.ProjectId && c.Provider == IntegrationProvider.Jira,
+            include: q => q.Include(i => i.Webhooks),
             cancellationToken: cancellationToken);
 
-        if (connection is null || connection.Status != IntegrationConnectionStatus.Connected)
+        if (integration is null || integration.Status != IntegrationStatus.Connected)
         {
             return Error.Validation(
                 "Jira.NotConnected",
                 "Connect and map a Jira project before configuring webhooks.");
         }
 
-        // Local filter only — Jira registration already includes all catalog events.
-        webhookService.ApplyEventSettings(connection, request.Events);
-        await connectionRepository.UpdateAsync(connection, cancellationToken);
-        return JiraConnectionDtoHelper.Map(connection, webhookService);
+        // Local filter only — does not re-register with Jira.
+        webhookService.ApplyEventSettings(integration, request.Events);
+        var webhook = JiraWebhookEventSettingsHelper.PrimaryWebhook(integration);
+        if (webhook is not null)
+        {
+            await webhookRepository.UpdateAsync(webhook, cancellationToken);
+        }
+
+        await integrationRepository.UpdateAsync(integration, cancellationToken);
+        return JiraConnectionDtoHelper.Map(integration, webhookService);
     }
 }

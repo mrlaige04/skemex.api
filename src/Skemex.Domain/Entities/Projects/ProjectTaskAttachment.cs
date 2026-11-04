@@ -1,4 +1,5 @@
 using Skemex.Domain.Entities.Abstractions;
+using Skemex.Domain.Entities.Integrations;
 using Skemex.Domain.Entities.Users;
 
 namespace Skemex.Domain.Entities.Projects;
@@ -18,4 +19,6 @@ public class ProjectTaskAttachment : TenantEntity
 
     public Guid UploadedById { get; set; }
     public User UploadedBy { get; set; } = null!;
+
+    public IList<IntegrationMapping> IntegrationMappings { get; set; } = [];
 }

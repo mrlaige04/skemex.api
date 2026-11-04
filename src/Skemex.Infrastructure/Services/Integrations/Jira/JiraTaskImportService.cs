@@ -13,12 +13,13 @@ using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Enums;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Infrastructure.Services.Integrations.Jira.Webhooks;
 
 namespace Skemex.Infrastructure.Services.Integrations.Jira;
 
 public sealed class JiraTaskImportService(
     ICurrentUser currentUser,
-    ITenantRepository<IntegrationConnection> connectionRepository,
+    ITenantRepository<ProjectIntegration> connectionRepository,
     ITenantRepository<IntegrationMapping> mappingRepository,
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectSettings> projectSettingsRepository,
@@ -64,8 +65,8 @@ public sealed class JiraTaskImportService(
         var mappings = await mappingRepository.GetAllAsync(
             filter: m =>
                 m.ProjectId == projectId
-                && m.IntegrationConnectionId == connection.Id
-                && m.LocalEntityType == "Task",
+                && m.ProjectIntegrationId == connection.Id
+                && m.LocalEntityType == IntegrationLocalEntityTypes.Task,
             cancellationToken: cancellationToken);
 
         var byExternalId = mappings.ToDictionary(m => m.ExternalEntityId, StringComparer.Ordinal);
@@ -201,15 +202,15 @@ public sealed class JiraTaskImportService(
         var mappings = await mappingRepository.GetAllAsync(
             filter: m =>
                 m.ProjectId == projectId
-                && m.IntegrationConnectionId == connection.Id
-                && m.LocalEntityType == "Task",
+                && m.ProjectIntegrationId == connection.Id
+                && m.LocalEntityType == IntegrationLocalEntityTypes.Task,
             cancellationToken: cancellationToken);
 
         var existingCommentMappings = await mappingRepository.GetAllAsync(
             filter: m =>
                 m.ProjectId == projectId
-                && m.IntegrationConnectionId == connection.Id
-                && m.LocalEntityType == "TaskComment",
+                && m.ProjectIntegrationId == connection.Id
+                && m.LocalEntityType == IntegrationLocalEntityTypes.TaskComment,
             cancellationToken: cancellationToken);
         var importedCommentIds = existingCommentMappings
             .Select(m => m.ExternalEntityId)
@@ -330,6 +331,7 @@ public sealed class JiraTaskImportService(
                         issue,
                         existingMapping,
                         project,
+                        connection,
                         tenantId.Value,
                         reporterId.Value,
                         defaultColumn.Id,
@@ -414,7 +416,7 @@ public sealed class JiraTaskImportService(
     }
 
     public async Task<ErrorOr<Guid>> UpsertIssueFromWebhookAsync(
-        IntegrationConnection connection,
+        ProjectIntegration connection,
         string accessToken,
         string issueIdOrKey,
         CancellationToken cancellationToken = default)
@@ -505,8 +507,8 @@ public sealed class JiraTaskImportService(
 
         var existingMappings = await mappingRepository.GetAllAsync(
             filter: m =>
-                m.IntegrationConnectionId == connection.Id
-                && m.LocalEntityType == "Task"
+                m.ProjectIntegrationId == connection.Id
+                && m.LocalEntityType == IntegrationLocalEntityTypes.Task
                 && (m.ExternalEntityId == remote.Id
                     || (m.ExternalEntityKey != null && m.ExternalEntityKey == remote.Key)),
             cancellationToken: cancellationToken);
@@ -517,8 +519,8 @@ public sealed class JiraTaskImportService(
         {
             var parentMapping = await mappingRepository.GetAsync(
                 filter: m =>
-                    m.IntegrationConnectionId == connection.Id
-                    && m.LocalEntityType == "Task"
+                    m.ProjectIntegrationId == connection.Id
+                    && m.LocalEntityType == IntegrationLocalEntityTypes.Task
                     && m.ExternalEntityKey == remote.ParentKey,
                 cancellationToken: cancellationToken);
             if (parentMapping is not null)
@@ -533,6 +535,7 @@ public sealed class JiraTaskImportService(
                 remote,
                 existing,
                 project,
+                connection,
                 tenantId,
                 reporterId,
                 defaultColumn.Id,
@@ -654,6 +657,7 @@ public sealed class JiraTaskImportService(
         JiraRemoteIssueDto issue,
         IntegrationMapping mapping,
         Project project,
+        ProjectIntegration connection,
         Guid tenantId,
         Guid reporterId,
         Guid defaultColumnId,
@@ -719,11 +723,18 @@ public sealed class JiraTaskImportService(
             await projectTaskRepository.AddAsync(task, cancellationToken);
 
             mapping.LocalEntityId = task.Id;
+            mapping.TaskId = task.Id;
             mapping.ExternalEntityId = issue.Id;
             mapping.ExternalEntityKey = issue.Key;
-            mapping.LastSyncedAt = DateTimeOffset.UtcNow;
+            JiraMappingTouch.MarkActive(mapping);
             await mappingRepository.UpdateAsync(mapping, cancellationToken);
             await recreateTx.CommitAsync(cancellationToken);
+            await EnsureAssigneeUserMappingAsync(
+                connection,
+                project.Id,
+                assigneeId,
+                issue,
+                cancellationToken);
             return task;
         }
 
@@ -744,8 +755,15 @@ public sealed class JiraTaskImportService(
 
         mapping.ExternalEntityId = issue.Id;
         mapping.ExternalEntityKey = issue.Key;
-        mapping.LastSyncedAt = DateTimeOffset.UtcNow;
+        mapping.TaskId = task.Id;
+        JiraMappingTouch.MarkActive(mapping);
         await mappingRepository.UpdateAsync(mapping, cancellationToken);
+        await EnsureAssigneeUserMappingAsync(
+            connection,
+            project.Id,
+            assigneeId,
+            issue,
+            cancellationToken);
 
         return task;
     }
@@ -756,7 +774,7 @@ public sealed class JiraTaskImportService(
         Guid tenantId,
         Guid reporterId,
         Guid defaultColumnId,
-        IntegrationConnection connection,
+        ProjectIntegration connection,
         IReadOnlyDictionary<string, Guid> userIdByEmail,
         IReadOnlyDictionary<string, Guid> userIdByFullName,
         IReadOnlyDictionary<string, Guid> jiraKeyToLocalId,
@@ -823,10 +841,11 @@ public sealed class JiraTaskImportService(
                 workLogUserId = authorId;
             }
 
+            var workLogId = Guid.NewGuid();
             await workLogRepository.AddAsync(
                 new ProjectTaskWorkLog
                 {
-                    Id = Guid.NewGuid(),
+                    Id = workLogId,
                     TenantId = tenantId,
                     ProjectId = project.Id,
                     TaskId = task.Id,
@@ -839,25 +858,74 @@ public sealed class JiraTaskImportService(
                         : wl.Comment.Trim(),
                 },
                 cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(wl.Id))
+            {
+                await mappingRepository.AddAsync(
+                    IntegrationMappingFactory.ForWorkLog(
+                        tenantId,
+                        project.Id,
+                        connection.Id,
+                        workLogId,
+                        wl.Id,
+                        $"{issue.Key}:{wl.Id}"),
+                    cancellationToken);
+            }
         }
 
-        var mapping = new IntegrationMapping
-        {
-            Id = Guid.NewGuid(),
-            TenantId = tenantId,
-            ProjectId = project.Id,
-            IntegrationConnectionId = connection.Id,
-            LocalEntityType = "Task",
-            LocalEntityId = task.Id,
-            ExternalEntityType = "Issue",
-            ExternalEntityId = issue.Id,
-            ExternalEntityKey = issue.Key,
-            LastSyncedAt = DateTimeOffset.UtcNow,
-        };
+        var mapping = IntegrationMappingFactory.ForTask(
+            tenantId,
+            project.Id,
+            connection.Id,
+            task.Id,
+            issue.Id,
+            issue.Key);
         await mappingRepository.AddAsync(mapping, cancellationToken);
+        await EnsureAssigneeUserMappingAsync(
+            connection,
+            project.Id,
+            assigneeId,
+            issue,
+            cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
         return (task, mapping);
+    }
+
+    private async Task EnsureAssigneeUserMappingAsync(
+        ProjectIntegration connection,
+        Guid projectId,
+        Guid? assigneeUserId,
+        JiraRemoteIssueDto issue,
+        CancellationToken cancellationToken)
+    {
+        if (assigneeUserId is null || string.IsNullOrWhiteSpace(issue.AssigneeAccountId))
+        {
+            return;
+        }
+
+        var projectUser = await projectUserRepository.GetAsync(
+            filter: pu => pu.ProjectId == projectId && pu.UserId == assigneeUserId.Value,
+            cancellationToken: cancellationToken);
+        if (projectUser is null)
+        {
+            return;
+        }
+
+        await JiraMappingTouch.EnsureProjectUserMappingAsync(
+            mappingRepository,
+            connection,
+            projectUser.Id,
+            issue.AssigneeAccountId,
+            issue.AssigneeEmail,
+            new
+            {
+                accountId = issue.AssigneeAccountId,
+                email = issue.AssigneeEmail,
+                displayName = issue.AssigneeDisplayName,
+                userId = assigneeUserId.Value,
+            },
+            cancellationToken);
     }
 
     private static string NormalizeTitle(JiraRemoteIssueDto issue)
@@ -866,7 +934,7 @@ public sealed class JiraTaskImportService(
         return title.Length > 500 ? title[..500] : title;
     }
 
-    private async Task<ErrorOr<(IntegrationConnection Connection, string AccessToken)>> LoadConnectedContextAsync(
+    private async Task<ErrorOr<(ProjectIntegration Connection, string AccessToken)>> LoadConnectedContextAsync(
         Guid projectId,
         CancellationToken cancellationToken)
     {
@@ -875,7 +943,7 @@ public sealed class JiraTaskImportService(
             cancellationToken: cancellationToken);
 
         if (connection is null
-            || connection.Status != IntegrationConnectionStatus.Connected
+            || connection.Status != IntegrationStatus.Connected
             || string.IsNullOrWhiteSpace(connection.CloudId)
             || string.IsNullOrWhiteSpace(connection.ExternalProjectKey))
         {
@@ -988,19 +1056,13 @@ public sealed class JiraTaskImportService(
             await commentRepository.AddAsync(comment, cancellationToken);
 
             await mappingRepository.AddAsync(
-                new IntegrationMapping
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = tenantId,
-                    ProjectId = projectId,
-                    IntegrationConnectionId = connectionId,
-                    LocalEntityType = "TaskComment",
-                    LocalEntityId = comment.Id,
-                    ExternalEntityType = "Comment",
-                    ExternalEntityId = remote.Id,
-                    ExternalEntityKey = $"{issueKey}:{remote.Id}",
-                    LastSyncedAt = DateTimeOffset.UtcNow,
-                },
+                IntegrationMappingFactory.ForComment(
+                    tenantId,
+                    projectId,
+                    connectionId,
+                    comment.Id,
+                    remote.Id,
+                    $"{issueKey}:{remote.Id}"),
                 cancellationToken);
 
             importedCommentIds.Add(remote.Id);

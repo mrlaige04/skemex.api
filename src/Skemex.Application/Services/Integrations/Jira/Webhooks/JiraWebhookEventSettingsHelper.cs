@@ -1,59 +1,42 @@
-using System.Text.Json;
 using Skemex.Domain.Entities.Integrations;
+using Skemex.Domain.Enums;
 
 namespace Skemex.Application.Services.Integrations.Jira.Webhooks;
 
 public static class JiraWebhookEventSettingsHelper
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false,
-    };
+    public static IntegrationWebhook? PrimaryWebhook(ProjectIntegration integration) =>
+        integration.Webhooks.OrderBy(w => w.CreatedAt).FirstOrDefault();
 
-    public static Dictionary<string, bool> Read(IntegrationConnection connection) =>
-        MergeJson(connection.WebhookEventSettingsJson);
+    public static bool IsEnabled(IntegrationWebhook? webhook, JiraWebhookEventType flag) =>
+        webhook is not null && webhook.EnabledEventTypes.HasFlag(flag);
 
-    public static void Write(IntegrationConnection connection, IReadOnlyDictionary<string, bool> settings)
+    public static bool IsEnabled(IntegrationWebhook? webhook, string eventKey)
     {
-        var merged = JiraWebhookEventCatalog.MergeWithDefaults(settings);
-        connection.WebhookEventSettingsJson = JsonSerializer.Serialize(merged, JsonOptions);
+        var def = JiraWebhookEventCatalog.FindByKey(eventKey);
+        return def is not null && IsEnabled(webhook, def.Flag);
     }
 
-    public static bool IsEnabled(IntegrationConnection connection, string eventKey)
+    public static void ApplyEnabledMap(IntegrationWebhook webhook, IReadOnlyDictionary<string, bool> enabledByKey)
     {
-        var settings = Read(connection);
-        return settings.TryGetValue(eventKey, out var enabled) && enabled;
+        webhook.EnabledEventTypes = JiraWebhookEventCatalog.FlagsFromEnabledMap(enabledByKey);
     }
 
-    public static void EnsureDefaults(IntegrationConnection connection)
+    public static void EnsureDefaults(IntegrationWebhook webhook)
     {
-        if (string.IsNullOrWhiteSpace(connection.WebhookEventSettingsJson))
+        if (webhook.SubscribedEventTypes == JiraWebhookEventType.None)
         {
-            Write(connection, JiraWebhookEventCatalog.CreateDefaultSettings());
+            webhook.SubscribedEventTypes = JiraWebhookEventCatalog.OAuthDynamicFlags;
+        }
+
+        if (webhook.EnabledEventTypes == JiraWebhookEventType.None)
+        {
+            webhook.EnabledEventTypes = JiraWebhookEventCatalog.DefaultEnabledFlags;
         }
         else
         {
-            // Re-merge so newly added catalog events appear with defaults.
-            Write(connection, Read(connection));
-        }
-    }
-
-    private static Dictionary<string, bool> MergeJson(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return JiraWebhookEventCatalog.CreateDefaultSettings();
-        }
-
-        try
-        {
-            var parsed = JsonSerializer.Deserialize<Dictionary<string, bool>>(json, JsonOptions);
-            return JiraWebhookEventCatalog.MergeWithDefaults(parsed);
-        }
-        catch (JsonException)
-        {
-            return JiraWebhookEventCatalog.CreateDefaultSettings();
+            // Keep unknown future flags off; ensure known defaults for newly added flags stay unset unless present.
+            // No-op merge: existing EnabledEventTypes wins.
         }
     }
 }
