@@ -1,5 +1,6 @@
 using Skemex.Domain.Entities.Abstractions;
 using Skemex.Domain.Entities.Ai;
+using Skemex.Domain.Entities.Integrations;
 using Skemex.Domain.Entities.Users;
 
 namespace Skemex.Domain.Entities.Projects;
@@ -17,6 +18,7 @@ public class Project : TenantEntity
     public IList<ProjectTask> Tasks { get; set; } = [];
     public IList<ProjectDocument> Documents { get; set; } = [];
     public IList<AiChat> AiChats { get; set; } = [];
+    public IList<ProjectIntegration> ProjectIntegrations { get; set; } = [];
     public ProjectTaskCounter? TaskCounter { get; set; }
     public ProjectSettings? Settings { get; set; }
 }

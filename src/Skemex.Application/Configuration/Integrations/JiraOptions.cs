@@ -20,6 +20,13 @@ public sealed class JiraOptions
     /// </summary>
     public string RedirectUri { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Public API origin used for inbound Jira webhooks (no trailing slash).
+    /// When empty, derived from <see cref="RedirectUri"/> or <c>Auth:External:CallbackBaseUrl</c>.
+    /// Must be reachable from the internet for Jira Cloud to deliver events.
+    /// </summary>
+    public string PublicApiBaseUrl { get; set; } = string.Empty;
+
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(ClientId) && !string.IsNullOrWhiteSpace(ClientSecret);
 }

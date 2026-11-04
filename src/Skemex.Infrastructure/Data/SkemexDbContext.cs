@@ -22,6 +22,7 @@ public class SkemexDbContext(DbContextOptions<SkemexDbContext> options) : Identi
     public DbSet<ProjectColumn> ProjectColumns { get; set; } = null!;
     public DbSet<ProjectTask> ProjectTasks { get; set; } = null!;
     public DbSet<ProjectTaskWorkLog> ProjectTaskWorkLogs { get; set; } = null!;
+    public DbSet<ProjectTaskComment> ProjectTaskComments { get; set; } = null!;
     public DbSet<ProjectTaskAttachment> ProjectTaskAttachments { get; set; } = null!;
     public DbSet<ProjectDocument> ProjectDocuments { get; set; } = null!;
     public DbSet<ProjectDocumentChunk> ProjectDocumentChunks { get; set; } = null!;
@@ -37,7 +38,8 @@ public class SkemexDbContext(DbContextOptions<SkemexDbContext> options) : Identi
     public DbSet<AiUsageActivity> AiUsageActivities { get; set; } = null!;
     public DbSet<AiExecution> AiExecutions { get; set; } = null!;
     public DbSet<Notification> Notifications { get; set; } = null!;
-    public DbSet<IntegrationConnection> IntegrationConnections { get; set; } = null!;
+    public DbSet<ProjectIntegration> ProjectIntegrations { get; set; } = null!;
+    public DbSet<IntegrationWebhook> IntegrationWebhooks { get; set; } = null!;
     public DbSet<IntegrationMapping> IntegrationMappings { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder builder)

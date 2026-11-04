@@ -755,7 +755,153 @@ namespace Skemex.Infrastructure.Migrations
                     b.ToTable("email_templates", (string)null);
                 });
 
-            modelBuilder.Entity("Skemex.Domain.Entities.Integrations.IntegrationConnection", b =>
+            modelBuilder.Entity("Skemex.Domain.Entities.Integrations.IntegrationMapping", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ExternalDataJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ExternalEntityId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("ExternalEntityKey")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("ExternalEntityType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("LocalEntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LocalEntityType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProjectIntegrationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ProjectUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid?>("TaskAttachmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TaskCommentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TaskWorkLogId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("ProjectIntegrationId");
+
+                    b.HasIndex("ProjectUserId");
+
+                    b.HasIndex("TaskAttachmentId");
+
+                    b.HasIndex("TaskCommentId");
+
+                    b.HasIndex("TaskId");
+
+                    b.HasIndex("TaskWorkLogId");
+
+                    b.HasIndex("TenantId", "ProjectIntegrationId", "ExternalEntityType", "ExternalEntityId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "ProjectId", "Provider", "LocalEntityType", "LocalEntityId")
+                        .IsUnique();
+
+                    b.ToTable("integration_mappings", (string)null);
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Integrations.IntegrationWebhook", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("EnabledEventTypes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ExternalWebhookId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("ProjectIntegrationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RegisteredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Secret")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<long>("SubscribedEventTypes")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectIntegrationId");
+
+                    b.HasIndex("Secret")
+                        .IsUnique()
+                        .HasFilter("\"Secret\" IS NOT NULL AND \"Secret\" <> ''");
+
+                    b.ToTable("integration_webhooks", (string)null);
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Integrations.ProjectIntegration", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -836,68 +982,7 @@ namespace Skemex.Infrastructure.Migrations
                     b.HasIndex("TenantId", "ProjectId", "Provider")
                         .IsUnique();
 
-                    b.ToTable("integration_connections", (string)null);
-                });
-
-            modelBuilder.Entity("Skemex.Domain.Entities.Integrations.IntegrationMapping", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ExternalEntityId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("ExternalEntityKey")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("ExternalEntityType")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<Guid>("IntegrationConnectionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("LastSyncedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("LocalEntityId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("LocalEntityType")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("IntegrationConnectionId");
-
-                    b.HasIndex("ProjectId");
-
-                    b.HasIndex("TenantId", "IntegrationConnectionId", "ExternalEntityType", "ExternalEntityId")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "IntegrationConnectionId", "LocalEntityType", "LocalEntityId")
-                        .IsUnique();
-
-                    b.ToTable("integration_mappings", (string)null);
+                    b.ToTable("project_integrations", (string)null);
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Notifications.Notification", b =>
@@ -1360,6 +1445,46 @@ namespace Skemex.Infrastructure.Migrations
                     b.HasIndex("TenantId", "ProjectId");
 
                     b.ToTable("project_task_attachments", (string)null);
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskComment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AuthorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(50000)
+                        .HasColumnType("character varying(50000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuthorId");
+
+                    b.HasIndex("ProjectId", "AuthorId");
+
+                    b.HasIndex("TaskId", "CreatedAt");
+
+                    b.ToTable("project_task_comments", (string)null);
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskCounter", b =>
@@ -1831,6 +1956,9 @@ namespace Skemex.Infrastructure.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<Guid?>("LastUsedTenantId")
+                        .HasColumnType("uuid");
+
                     b.Property<bool>("LockoutEnabled")
                         .HasColumnType("boolean");
 
@@ -2142,32 +2270,78 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Skemex.Domain.Entities.Integrations.IntegrationConnection", b =>
-                {
-                    b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
-                        .WithMany()
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
-                });
-
             modelBuilder.Entity("Skemex.Domain.Entities.Integrations.IntegrationMapping", b =>
                 {
-                    b.HasOne("Skemex.Domain.Entities.Integrations.IntegrationConnection", "Connection")
-                        .WithMany("Mappings")
-                        .HasForeignKey("IntegrationConnectionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
                         .WithMany()
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("Connection");
+                    b.HasOne("Skemex.Domain.Entities.Integrations.ProjectIntegration", "ProjectIntegration")
+                        .WithMany("Mappings")
+                        .HasForeignKey("ProjectIntegrationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectUser", "ProjectUser")
+                        .WithMany("IntegrationMappings")
+                        .HasForeignKey("ProjectUserId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectTaskAttachment", "TaskAttachment")
+                        .WithMany("IntegrationMappings")
+                        .HasForeignKey("TaskAttachmentId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectTaskComment", "TaskComment")
+                        .WithMany("IntegrationMappings")
+                        .HasForeignKey("TaskCommentId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectTask", "Task")
+                        .WithMany("IntegrationMappings")
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectTaskWorkLog", "TaskWorkLog")
+                        .WithMany("IntegrationMappings")
+                        .HasForeignKey("TaskWorkLogId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Project");
+
+                    b.Navigation("ProjectIntegration");
+
+                    b.Navigation("ProjectUser");
+
+                    b.Navigation("Task");
+
+                    b.Navigation("TaskAttachment");
+
+                    b.Navigation("TaskComment");
+
+                    b.Navigation("TaskWorkLog");
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Integrations.IntegrationWebhook", b =>
+                {
+                    b.HasOne("Skemex.Domain.Entities.Integrations.ProjectIntegration", "ProjectIntegration")
+                        .WithMany("Webhooks")
+                        .HasForeignKey("ProjectIntegrationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ProjectIntegration");
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Integrations.ProjectIntegration", b =>
+                {
+                    b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
+                        .WithMany("ProjectIntegrations")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Project");
                 });
@@ -2335,6 +2509,33 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("Task");
 
                     b.Navigation("UploadedBy");
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskComment", b =>
+                {
+                    b.HasOne("Skemex.Domain.Entities.Users.User", "Author")
+                        .WithMany()
+                        .HasForeignKey("AuthorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectTask", "Task")
+                        .WithMany("Comments")
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Author");
+
+                    b.Navigation("Project");
+
+                    b.Navigation("Task");
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskCounter", b =>
@@ -2544,9 +2745,11 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("Activities");
                 });
 
-            modelBuilder.Entity("Skemex.Domain.Entities.Integrations.IntegrationConnection", b =>
+            modelBuilder.Entity("Skemex.Domain.Entities.Integrations.ProjectIntegration", b =>
                 {
                     b.Navigation("Mappings");
+
+                    b.Navigation("Webhooks");
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.Project", b =>
@@ -2556,6 +2759,8 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("Columns");
 
                     b.Navigation("Documents");
+
+                    b.Navigation("ProjectIntegrations");
 
                     b.Navigation("Settings");
 
@@ -2575,9 +2780,33 @@ namespace Skemex.Infrastructure.Migrations
                 {
                     b.Navigation("Attachments");
 
+                    b.Navigation("Comments");
+
+                    b.Navigation("IntegrationMappings");
+
                     b.Navigation("Subtasks");
 
                     b.Navigation("WorkLogs");
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskAttachment", b =>
+                {
+                    b.Navigation("IntegrationMappings");
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskComment", b =>
+                {
+                    b.Navigation("IntegrationMappings");
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskWorkLog", b =>
+                {
+                    b.Navigation("IntegrationMappings");
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectUser", b =>
+                {
+                    b.Navigation("IntegrationMappings");
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Users.Permission", b =>

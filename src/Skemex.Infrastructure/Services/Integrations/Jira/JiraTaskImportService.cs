@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text;
 using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -11,12 +13,13 @@ using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Enums;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
+using Skemex.Infrastructure.Services.Integrations.Jira.Webhooks;
 
 namespace Skemex.Infrastructure.Services.Integrations.Jira;
 
 public sealed class JiraTaskImportService(
     ICurrentUser currentUser,
-    ITenantRepository<IntegrationConnection> connectionRepository,
+    ITenantRepository<ProjectIntegration> connectionRepository,
     ITenantRepository<IntegrationMapping> mappingRepository,
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectSettings> projectSettingsRepository,
@@ -24,6 +27,7 @@ public sealed class JiraTaskImportService(
     ITenantRepository<ProjectUser> projectUserRepository,
     ITenantRepository<ProjectTask> projectTaskRepository,
     ITenantRepository<ProjectTaskWorkLog> workLogRepository,
+    ITenantRepository<ProjectTaskComment> commentRepository,
     IProjectTaskCodeAllocator taskCodeAllocator,
     IJiraConnectionTokenService tokenService,
     IJiraApiClient jiraApiClient,
@@ -61,8 +65,8 @@ public sealed class JiraTaskImportService(
         var mappings = await mappingRepository.GetAllAsync(
             filter: m =>
                 m.ProjectId == projectId
-                && m.IntegrationConnectionId == connection.Id
-                && m.LocalEntityType == "Task",
+                && m.ProjectIntegrationId == connection.Id
+                && m.LocalEntityType == IntegrationLocalEntityTypes.Task,
             cancellationToken: cancellationToken);
 
         var byExternalId = mappings.ToDictionary(m => m.ExternalEntityId, StringComparer.Ordinal);
@@ -198,9 +202,19 @@ public sealed class JiraTaskImportService(
         var mappings = await mappingRepository.GetAllAsync(
             filter: m =>
                 m.ProjectId == projectId
-                && m.IntegrationConnectionId == connection.Id
-                && m.LocalEntityType == "Task",
+                && m.ProjectIntegrationId == connection.Id
+                && m.LocalEntityType == IntegrationLocalEntityTypes.Task,
             cancellationToken: cancellationToken);
+
+        var existingCommentMappings = await mappingRepository.GetAllAsync(
+            filter: m =>
+                m.ProjectId == projectId
+                && m.ProjectIntegrationId == connection.Id
+                && m.LocalEntityType == IntegrationLocalEntityTypes.TaskComment,
+            cancellationToken: cancellationToken);
+        var importedCommentIds = existingCommentMappings
+            .Select(m => m.ExternalEntityId)
+            .ToHashSet(StringComparer.Ordinal);
 
         var mappedByExternalKey = mappings
             .Where(m => !string.IsNullOrWhiteSpace(m.ExternalEntityKey))
@@ -214,7 +228,7 @@ public sealed class JiraTaskImportService(
         var userIdByEmail = members
             .Where(m => m.User is not null && !string.IsNullOrWhiteSpace(m.User.Email))
             .GroupBy(m => m.User.Email, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First().UserId, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(g => g.Key!, g => g.First().UserId, StringComparer.OrdinalIgnoreCase);
         var userIdByFullName = members
             .Where(m => m.User is not null)
             .Select(m => new
@@ -249,45 +263,133 @@ public sealed class JiraTaskImportService(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (request.SkipAlreadyImported
-                && (mappedByExternalId.ContainsKey(issue.Id)
-                    || mappedByExternalKey.ContainsKey(issue.Key)))
+            var existingMapping = FindMapping(issue, mappedByExternalId, mappedByExternalKey);
+            if (existingMapping is not null && request.SkipAlreadyImported)
             {
-                skipped++;
-                var existing = mappedByExternalId.GetValueOrDefault(issue.Id)
-                               ?? mappedByExternalKey.GetValueOrDefault(issue.Key);
-                items.Add(new ImportTasksFromJiraItemResultDto
+                jiraKeyToLocalId[issue.Key] = existingMapping.LocalEntityId;
+                var commentsSynced = 0;
+                try
                 {
-                    JiraIssueKey = issue.Key,
-                    Status = "Skipped",
-                    LocalTaskId = existing?.LocalEntityId,
-                    Message = "Already imported.",
-                });
+                    commentsSynced = await ImportCommentsAsync(
+                        accessToken,
+                        connection.CloudId!,
+                        issue.Key,
+                        existingMapping.LocalEntityId,
+                        project.Id,
+                        tenantId.Value,
+                        connection.Id,
+                        reporterId.Value,
+                        userIdByEmail,
+                        userIdByFullName,
+                        importedCommentIds,
+                        cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(
+                        ex,
+                        "Comment sync failed for already-linked Jira issue {IssueKey}",
+                        issue.Key);
+                }
+
+                if (commentsSynced > 0)
+                {
+                    imported++;
+                    items.Add(new ImportTasksFromJiraItemResultDto
+                    {
+                        JiraIssueKey = issue.Key,
+                        Status = "Updated",
+                        LocalTaskId = existingMapping.LocalEntityId,
+                        Message = $"Already linked; imported {commentsSynced} new comment(s).",
+                    });
+                }
+                else
+                {
+                    skipped++;
+                    items.Add(new ImportTasksFromJiraItemResultDto
+                    {
+                        JiraIssueKey = issue.Key,
+                        Status = "Skipped",
+                        LocalTaskId = existingMapping.LocalEntityId,
+                        Message = "Already linked to a Skemex task.",
+                    });
+                }
+
                 continue;
             }
 
             try
             {
-                var created = await ImportOneAsync(
-                    issue,
-                    project,
+                ProjectTask task;
+                string status;
+                string? message = null;
+
+                if (existingMapping is not null)
+                {
+                    // Never insert a second mapping for the same Jira issue id/key.
+                    task = await SyncExistingAsync(
+                        issue,
+                        existingMapping,
+                        project,
+                        connection,
+                        tenantId.Value,
+                        reporterId.Value,
+                        defaultColumn.Id,
+                        userIdByEmail,
+                        userIdByFullName,
+                        jiraKeyToLocalId,
+                        cancellationToken);
+                    status = "Updated";
+                    message = "Existing mapping reused; local task refreshed.";
+                    TrackMapping(existingMapping, mappedByExternalId, mappedByExternalKey);
+                }
+                else
+                {
+                    var created = await ImportOneAsync(
+                        issue,
+                        project,
+                        tenantId.Value,
+                        reporterId.Value,
+                        defaultColumn.Id,
+                        connection,
+                        userIdByEmail,
+                        userIdByFullName,
+                        jiraKeyToLocalId,
+                        cancellationToken);
+                    task = created.Task;
+                    TrackMapping(created.Mapping, mappedByExternalId, mappedByExternalKey);
+                    status = "Imported";
+                }
+
+                var commentsImported = await ImportCommentsAsync(
+                    accessToken,
+                    connection.CloudId!,
+                    issue.Key,
+                    task.Id,
+                    project.Id,
                     tenantId.Value,
+                    connection.Id,
                     reporterId.Value,
-                    defaultColumn.Id,
-                    connection,
                     userIdByEmail,
                     userIdByFullName,
-                    jiraKeyToLocalId,
+                    importedCommentIds,
                     cancellationToken);
+                if (commentsImported > 0)
+                {
+                    message = string.IsNullOrWhiteSpace(message)
+                        ? $"Imported {commentsImported} comment(s)."
+                        : $"{message} Imported {commentsImported} comment(s).";
+                }
 
-                jiraKeyToLocalId[issue.Key] = created.Id;
+                jiraKeyToLocalId[issue.Key] = task.Id;
                 imported++;
                 items.Add(new ImportTasksFromJiraItemResultDto
                 {
                     JiraIssueKey = issue.Key,
-                    Status = "Imported",
-                    LocalTaskCode = created.Code,
-                    LocalTaskId = created.Id,
+                    Status = status,
+                    LocalTaskCode = task.Code,
+                    LocalTaskId = task.Id,
+                    Message = message,
                 });
             }
             catch (Exception ex)
@@ -313,13 +415,366 @@ public sealed class JiraTaskImportService(
         };
     }
 
-    private async Task<ProjectTask> ImportOneAsync(
+    public async Task<ErrorOr<Guid>> UpsertIssueFromWebhookAsync(
+        ProjectIntegration connection,
+        string accessToken,
+        string issueIdOrKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(issueIdOrKey)
+            || string.IsNullOrWhiteSpace(connection.CloudId))
+        {
+            return Error.Validation("Jira.IssueRequired", "Jira issue key or id is required.");
+        }
+
+        var tenantId = connection.TenantId;
+        var projectId = connection.ProjectId;
+
+        var project = await projectRepository.GetAsync(
+            filter: p => p.Id == projectId,
+            cancellationToken: cancellationToken);
+        if (project is null)
+        {
+            return Error.NotFound("Project.NotFound", "Project was not found.");
+        }
+
+        var settings = await projectSettingsRepository.GetAsync(
+            filter: s => s.ProjectId == projectId,
+            cancellationToken: cancellationToken);
+        if (settings is null)
+        {
+            return Error.NotFound("ProjectSettings.NotFound", "Project settings were not found.");
+        }
+
+        var defaultColumn = await projectColumnRepository.GetAsync(
+            filter: c => c.Id == settings.DefaultTaskColumnId && c.ProjectId == projectId,
+            cancellationToken: cancellationToken);
+        if (defaultColumn is null)
+        {
+            return Error.Validation(
+                "ProjectSettings.InvalidDefaultColumn",
+                "Default task column is not configured for this project.");
+        }
+
+        JiraRemoteIssueDto? remote;
+        try
+        {
+            remote = await jiraApiClient.GetRemoteIssueAsync(
+                accessToken,
+                connection.CloudId!,
+                issueIdOrKey.Trim(),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Webhook upsert failed to load Jira issue {Issue}", issueIdOrKey);
+            return Error.Failure("Jira.IssueLoadFailed", Truncate(ex.Message, 400));
+        }
+
+        if (remote is null)
+        {
+            return Error.NotFound("Jira.IssueNotFound", "Jira issue was not found.");
+        }
+
+        var members = await projectUserRepository.GetAllAsync(
+            filter: m => m.ProjectId == projectId,
+            include: q => q.Include(m => m.User),
+            cancellationToken: cancellationToken);
+        var userIdByEmail = members
+            .Where(m => m.User is not null && !string.IsNullOrWhiteSpace(m.User.Email))
+            .GroupBy(m => m.User.Email!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().UserId, StringComparer.OrdinalIgnoreCase);
+        var userIdByFullName = members
+            .Where(m => m.User is not null)
+            .Select(m => new
+            {
+                m.UserId,
+                FullName = $"{m.User.FirstName} {m.User.LastName}".Trim(),
+            })
+            .Where(x => !string.IsNullOrWhiteSpace(x.FullName))
+            .GroupBy(x => x.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().UserId, StringComparer.OrdinalIgnoreCase);
+
+        var reporterId = connection.ConnectedByUserId
+            ?? members.Select(m => (Guid?)m.UserId).FirstOrDefault()
+            ?? Guid.Empty;
+        if (reporterId == Guid.Empty)
+        {
+            return Error.Validation(
+                "Jira.NoProjectMember",
+                "Cannot create a task from webhook without a project member to use as reporter.");
+        }
+
+        var existingMappings = await mappingRepository.GetAllAsync(
+            filter: m =>
+                m.ProjectIntegrationId == connection.Id
+                && m.LocalEntityType == IntegrationLocalEntityTypes.Task
+                && (m.ExternalEntityId == remote.Id
+                    || (m.ExternalEntityKey != null && m.ExternalEntityKey == remote.Key)),
+            cancellationToken: cancellationToken);
+        var existing = existingMappings.FirstOrDefault();
+
+        var jiraKeyToLocalId = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(remote.ParentKey))
+        {
+            var parentMapping = await mappingRepository.GetAsync(
+                filter: m =>
+                    m.ProjectIntegrationId == connection.Id
+                    && m.LocalEntityType == IntegrationLocalEntityTypes.Task
+                    && m.ExternalEntityKey == remote.ParentKey,
+                cancellationToken: cancellationToken);
+            if (parentMapping is not null)
+            {
+                jiraKeyToLocalId[remote.ParentKey!] = parentMapping.LocalEntityId;
+            }
+        }
+
+        if (existing is not null)
+        {
+            var task = await SyncExistingAsync(
+                remote,
+                existing,
+                project,
+                connection,
+                tenantId,
+                reporterId,
+                defaultColumn.Id,
+                userIdByEmail,
+                userIdByFullName,
+                jiraKeyToLocalId,
+                cancellationToken);
+            logger.LogInformation(
+                "Webhook refreshed Jira {IssueKey} → local task {TaskCode}",
+                remote.Key,
+                task.Code);
+            return task.Id;
+        }
+
+        var created = await ImportOneAsync(
+            remote,
+            project,
+            tenantId,
+            reporterId,
+            defaultColumn.Id,
+            connection,
+            userIdByEmail,
+            userIdByFullName,
+            jiraKeyToLocalId,
+            cancellationToken);
+
+        // Align column with Jira status when possible.
+        var columns = await projectColumnRepository.GetAllAsync(
+            filter: c => c.ProjectId == projectId,
+            cancellationToken: cancellationToken);
+        var statusColumn = ResolveWebhookColumnId(remote.Status, columns);
+        if (statusColumn is not null && statusColumn != created.Task.ProjectColumnId)
+        {
+            created.Task.ProjectColumnId = statusColumn.Value;
+            await projectTaskRepository.UpdateAsync(created.Task, cancellationToken);
+        }
+
+        logger.LogInformation(
+            "Webhook created local task {TaskCode} from Jira {IssueKey}",
+            created.Task.Code,
+            remote.Key);
+        return created.Task.Id;
+    }
+
+    private static Guid? ResolveWebhookColumnId(string? jiraStatus, IReadOnlyList<ProjectColumn> columns)
+    {
+        if (string.IsNullOrWhiteSpace(jiraStatus) || columns.Count == 0)
+        {
+            return null;
+        }
+
+        static string Normalize(string value) =>
+            string.Join(
+                ' ',
+                value.Trim().ToLowerInvariant().Replace('_', ' ').Replace('-', ' ')
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+        var normalized = Normalize(jiraStatus);
+        foreach (var column in columns)
+        {
+            if (Normalize(column.Title) == normalized
+                || Normalize(column.Key) == normalized
+                || Normalize(column.Key.Replace('-', ' ')) == normalized)
+            {
+                return column.Id;
+            }
+        }
+
+        var aliasKey = normalized switch
+        {
+            "backlog" => "backlog",
+            "to do" or "todo" or "open" or "new" => "todo",
+            "in progress" or "inprogress" or "progress" or "doing" => "in-progress",
+            "in qa" or "inqa" or "qa" or "testing" or "in review" or "review" => "in-qa",
+            "done" or "closed" or "resolved" or "complete" or "completed" => "done",
+            _ => null,
+        };
+
+        return aliasKey is null
+            ? null
+            : columns.FirstOrDefault(c => string.Equals(c.Key, aliasKey, StringComparison.OrdinalIgnoreCase))?.Id;
+    }
+
+    private static IntegrationMapping? FindMapping(
+        JiraRemoteIssueDto issue,
+        IReadOnlyDictionary<string, IntegrationMapping> byExternalId,
+        IReadOnlyDictionary<string, IntegrationMapping> byExternalKey)
+    {
+        if (byExternalId.TryGetValue(issue.Id, out var byId))
+        {
+            return byId;
+        }
+
+        if (byExternalKey.TryGetValue(issue.Key, out var byKey))
+        {
+            return byKey;
+        }
+
+        return null;
+    }
+
+    private static void TrackMapping(
+        IntegrationMapping mapping,
+        Dictionary<string, IntegrationMapping> byExternalId,
+        Dictionary<string, IntegrationMapping> byExternalKey)
+    {
+        if (!string.IsNullOrWhiteSpace(mapping.ExternalEntityId))
+        {
+            byExternalId[mapping.ExternalEntityId] = mapping;
+        }
+
+        if (!string.IsNullOrWhiteSpace(mapping.ExternalEntityKey))
+        {
+            byExternalKey[mapping.ExternalEntityKey!] = mapping;
+        }
+    }
+
+    private async Task<ProjectTask> SyncExistingAsync(
+        JiraRemoteIssueDto issue,
+        IntegrationMapping mapping,
+        Project project,
+        ProjectIntegration connection,
+        Guid tenantId,
+        Guid reporterId,
+        Guid defaultColumnId,
+        IReadOnlyDictionary<string, Guid> userIdByEmail,
+        IReadOnlyDictionary<string, Guid> userIdByFullName,
+        IReadOnlyDictionary<string, Guid> jiraKeyToLocalId,
+        CancellationToken cancellationToken)
+    {
+        Guid? parentId = null;
+        var columnId = defaultColumnId;
+        if (!string.IsNullOrWhiteSpace(issue.ParentKey)
+            && jiraKeyToLocalId.TryGetValue(issue.ParentKey, out var mappedParentId))
+        {
+            parentId = mappedParentId;
+            var parent = await projectTaskRepository.GetAsync(
+                filter: t => t.Id == mappedParentId,
+                cancellationToken: cancellationToken);
+            if (parent is not null)
+            {
+                columnId = parent.ProjectColumnId;
+            }
+        }
+
+        var assigneeId = ResolveLocalUserId(
+            issue.AssigneeEmail,
+            issue.AssigneeDisplayName,
+            userIdByEmail,
+            userIdByFullName);
+        var type = MapIssueType(issue.IssueType, parentId is not null);
+        var title = NormalizeTitle(issue);
+
+        var task = await projectTaskRepository.GetAsync(
+            filter: t => t.Id == mapping.LocalEntityId,
+            cancellationToken: cancellationToken);
+
+        if (task is null)
+        {
+            // Mapping survived but local task was deleted — recreate task, keep mapping row.
+            await using var recreateTx = await projectTaskRepository.BeginTransactionAsync(cancellationToken);
+            var taskNumber = await taskCodeAllocator.AllocateNextNumberAsync(
+                tenantId,
+                project.Id,
+                cancellationToken);
+
+            task = new ProjectTask
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                ProjectId = project.Id,
+                ProjectColumnId = columnId,
+                ParentId = parentId,
+                Code = ProjectTaskCodeHelper.Format(project.Code, taskNumber),
+                Title = title,
+                Type = type,
+                Description = string.IsNullOrWhiteSpace(issue.Description) ? null : issue.Description.Trim(),
+                Tags = issue.Labels.Take(50).ToList(),
+                OriginalEstimateMinutes = issue.OriginalEstimateMinutes,
+                RemainingEstimateMinutes = issue.RemainingEstimateMinutes,
+                SpentMinutes = issue.TimeSpentMinutes ?? issue.Worklogs.Sum(w => w.SpentMinutes),
+                AssigneeId = assigneeId,
+                ReporterId = reporterId,
+            };
+            await projectTaskRepository.AddAsync(task, cancellationToken);
+
+            mapping.LocalEntityId = task.Id;
+            mapping.TaskId = task.Id;
+            mapping.ExternalEntityId = issue.Id;
+            mapping.ExternalEntityKey = issue.Key;
+            JiraMappingTouch.MarkActive(mapping);
+            await mappingRepository.UpdateAsync(mapping, cancellationToken);
+            await recreateTx.CommitAsync(cancellationToken);
+            await EnsureAssigneeUserMappingAsync(
+                connection,
+                project.Id,
+                assigneeId,
+                issue,
+                cancellationToken);
+            return task;
+        }
+
+        task.Title = title;
+        task.Type = type;
+        task.Description = string.IsNullOrWhiteSpace(issue.Description) ? null : issue.Description.Trim();
+        task.Tags = issue.Labels.Take(50).ToList();
+        task.OriginalEstimateMinutes = issue.OriginalEstimateMinutes;
+        task.RemainingEstimateMinutes = issue.RemainingEstimateMinutes;
+        task.AssigneeId = assigneeId;
+        if (parentId is not null)
+        {
+            task.ParentId = parentId;
+            task.ProjectColumnId = columnId;
+        }
+
+        await projectTaskRepository.UpdateAsync(task, cancellationToken);
+
+        mapping.ExternalEntityId = issue.Id;
+        mapping.ExternalEntityKey = issue.Key;
+        mapping.TaskId = task.Id;
+        JiraMappingTouch.MarkActive(mapping);
+        await mappingRepository.UpdateAsync(mapping, cancellationToken);
+        await EnsureAssigneeUserMappingAsync(
+            connection,
+            project.Id,
+            assigneeId,
+            issue,
+            cancellationToken);
+
+        return task;
+    }
+
+    private async Task<(ProjectTask Task, IntegrationMapping Mapping)> ImportOneAsync(
         JiraRemoteIssueDto issue,
         Project project,
         Guid tenantId,
         Guid reporterId,
         Guid defaultColumnId,
-        IntegrationConnection connection,
+        ProjectIntegration connection,
         IReadOnlyDictionary<string, Guid> userIdByEmail,
         IReadOnlyDictionary<string, Guid> userIdByFullName,
         IReadOnlyDictionary<string, Guid> jiraKeyToLocalId,
@@ -347,11 +802,7 @@ public sealed class JiraTaskImportService(
             userIdByFullName);
 
         var type = MapIssueType(issue.IssueType, parentId is not null);
-        var title = string.IsNullOrWhiteSpace(issue.Summary) ? issue.Key : issue.Summary.Trim();
-        if (title.Length > 500)
-        {
-            title = title[..500];
-        }
+        var title = NormalizeTitle(issue);
 
         await using var transaction = await projectTaskRepository.BeginTransactionAsync(cancellationToken);
         var taskNumber = await taskCodeAllocator.AllocateNextNumberAsync(
@@ -390,10 +841,11 @@ public sealed class JiraTaskImportService(
                 workLogUserId = authorId;
             }
 
+            var workLogId = Guid.NewGuid();
             await workLogRepository.AddAsync(
                 new ProjectTaskWorkLog
                 {
-                    Id = Guid.NewGuid(),
+                    Id = workLogId,
                     TenantId = tenantId,
                     ProjectId = project.Id,
                     TaskId = task.Id,
@@ -406,29 +858,83 @@ public sealed class JiraTaskImportService(
                         : wl.Comment.Trim(),
                 },
                 cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(wl.Id))
+            {
+                await mappingRepository.AddAsync(
+                    IntegrationMappingFactory.ForWorkLog(
+                        tenantId,
+                        project.Id,
+                        connection.Id,
+                        workLogId,
+                        wl.Id,
+                        $"{issue.Key}:{wl.Id}"),
+                    cancellationToken);
+            }
         }
 
-        await mappingRepository.AddAsync(
-            new IntegrationMapping
-            {
-                Id = Guid.NewGuid(),
-                TenantId = tenantId,
-                ProjectId = project.Id,
-                IntegrationConnectionId = connection.Id,
-                LocalEntityType = "Task",
-                LocalEntityId = task.Id,
-                ExternalEntityType = "Issue",
-                ExternalEntityId = issue.Id,
-                ExternalEntityKey = issue.Key,
-                LastSyncedAt = DateTimeOffset.UtcNow,
-            },
+        var mapping = IntegrationMappingFactory.ForTask(
+            tenantId,
+            project.Id,
+            connection.Id,
+            task.Id,
+            issue.Id,
+            issue.Key);
+        await mappingRepository.AddAsync(mapping, cancellationToken);
+        await EnsureAssigneeUserMappingAsync(
+            connection,
+            project.Id,
+            assigneeId,
+            issue,
             cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
-        return task;
+        return (task, mapping);
     }
 
-    private async Task<ErrorOr<(IntegrationConnection Connection, string AccessToken)>> LoadConnectedContextAsync(
+    private async Task EnsureAssigneeUserMappingAsync(
+        ProjectIntegration connection,
+        Guid projectId,
+        Guid? assigneeUserId,
+        JiraRemoteIssueDto issue,
+        CancellationToken cancellationToken)
+    {
+        if (assigneeUserId is null || string.IsNullOrWhiteSpace(issue.AssigneeAccountId))
+        {
+            return;
+        }
+
+        var projectUser = await projectUserRepository.GetAsync(
+            filter: pu => pu.ProjectId == projectId && pu.UserId == assigneeUserId.Value,
+            cancellationToken: cancellationToken);
+        if (projectUser is null)
+        {
+            return;
+        }
+
+        await JiraMappingTouch.EnsureProjectUserMappingAsync(
+            mappingRepository,
+            connection,
+            projectUser.Id,
+            issue.AssigneeAccountId,
+            issue.AssigneeEmail,
+            new
+            {
+                accountId = issue.AssigneeAccountId,
+                email = issue.AssigneeEmail,
+                displayName = issue.AssigneeDisplayName,
+                userId = assigneeUserId.Value,
+            },
+            cancellationToken);
+    }
+
+    private static string NormalizeTitle(JiraRemoteIssueDto issue)
+    {
+        var title = string.IsNullOrWhiteSpace(issue.Summary) ? issue.Key : issue.Summary.Trim();
+        return title.Length > 500 ? title[..500] : title;
+    }
+
+    private async Task<ErrorOr<(ProjectIntegration Connection, string AccessToken)>> LoadConnectedContextAsync(
         Guid projectId,
         CancellationToken cancellationToken)
     {
@@ -437,7 +943,7 @@ public sealed class JiraTaskImportService(
             cancellationToken: cancellationToken);
 
         if (connection is null
-            || connection.Status != IntegrationConnectionStatus.Connected
+            || connection.Status != IntegrationStatus.Connected
             || string.IsNullOrWhiteSpace(connection.CloudId)
             || string.IsNullOrWhiteSpace(connection.ExternalProjectKey))
         {
@@ -474,6 +980,126 @@ public sealed class JiraTaskImportService(
         }
 
         return null;
+    }
+
+    private async Task<int> ImportCommentsAsync(
+        string accessToken,
+        string cloudId,
+        string issueKey,
+        Guid taskId,
+        Guid projectId,
+        Guid tenantId,
+        Guid connectionId,
+        Guid fallbackAuthorId,
+        IReadOnlyDictionary<string, Guid> userIdByEmail,
+        IReadOnlyDictionary<string, Guid> userIdByFullName,
+        HashSet<string> importedCommentIds,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<JiraRemoteCommentDto> remoteComments;
+        try
+        {
+            remoteComments = await jiraApiClient.GetIssueCommentsAsync(
+                accessToken,
+                cloudId,
+                issueKey,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to load Jira comments for issue {IssueKey}", issueKey);
+            return 0;
+        }
+
+        if (remoteComments.Count == 0)
+        {
+            return 0;
+        }
+
+        var imported = 0;
+        foreach (var remote in remoteComments
+                     .OrderBy(c => c.CreatedAt ?? DateTime.MaxValue)
+                     .ThenBy(c => c.Id, StringComparer.Ordinal))
+        {
+            if (importedCommentIds.Contains(remote.Id))
+            {
+                continue;
+            }
+
+            var html = PlainTextToRichHtml(remote.Body);
+            if (string.IsNullOrWhiteSpace(html))
+            {
+                continue;
+            }
+
+            if (html.Length > ProjectTaskCommentDtoHelper.MaxBodyLength)
+            {
+                html = html[..ProjectTaskCommentDtoHelper.MaxBodyLength];
+            }
+
+            var authorId = ResolveLocalUserId(
+                               remote.AuthorEmail,
+                               remote.AuthorDisplayName,
+                               userIdByEmail,
+                               userIdByFullName)
+                           ?? fallbackAuthorId;
+
+            var comment = new ProjectTaskComment
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                ProjectId = projectId,
+                TaskId = taskId,
+                AuthorId = authorId,
+                Body = html,
+            };
+            await commentRepository.AddAsync(comment, cancellationToken);
+
+            await mappingRepository.AddAsync(
+                IntegrationMappingFactory.ForComment(
+                    tenantId,
+                    projectId,
+                    connectionId,
+                    comment.Id,
+                    remote.Id,
+                    $"{issueKey}:{remote.Id}"),
+                cancellationToken);
+
+            importedCommentIds.Add(remote.Id);
+            imported++;
+        }
+
+        return imported;
+    }
+
+    /// <summary>Wraps Jira plain-text comments as simple Quill-compatible HTML.</summary>
+    private static string PlainTextToRichHtml(string? plain)
+    {
+        if (string.IsNullOrWhiteSpace(plain))
+        {
+            return string.Empty;
+        }
+
+        var normalized = plain.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Trim();
+        if (normalized.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var blocks = normalized.Split("\n\n", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (blocks.Length == 0)
+        {
+            blocks = [normalized];
+        }
+
+        var sb = new StringBuilder();
+        foreach (var block in blocks)
+        {
+            var encoded = WebUtility.HtmlEncode(block).Replace("\n", "<br>", StringComparison.Ordinal);
+            sb.Append("<p>").Append(encoded).Append("</p>");
+        }
+
+        return sb.ToString();
     }
 
     private static ProjectTaskType MapIssueType(string issueType, bool hasParent)

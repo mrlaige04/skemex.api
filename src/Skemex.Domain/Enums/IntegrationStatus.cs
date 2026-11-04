@@ -1,6 +1,6 @@
 namespace Skemex.Domain.Enums;
 
-public enum IntegrationConnectionStatus
+public enum IntegrationStatus
 {
     PendingProjectMapping = 1,
     Connected = 2,

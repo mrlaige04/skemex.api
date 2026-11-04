@@ -13,7 +13,7 @@ namespace Skemex.Application.Features.Queries.Integrations.Jira.ListJiraProjects
 public sealed class ListJiraProjectsQueryHandler(
     ICurrentUser currentUser,
     IProjectAccessService projectAccessService,
-    ITenantRepository<IntegrationConnection> connectionRepository,
+    ITenantRepository<ProjectIntegration> connectionRepository,
     IJiraConnectionTokenService tokenService,
     IJiraApiClient jiraApiClient)
     : IQueryHandler<ListJiraProjectsQuery, IReadOnlyList<JiraProjectDto>>

@@ -1,5 +1,7 @@
 using ErrorOr;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
+using Skemex.Application.Configuration.App;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Domain.Entities.Users;
 using Skemex.Infrastructure.Authentication.Models;
@@ -9,7 +11,9 @@ namespace Skemex.Infrastructure.Authentication.RefreshToken;
 
 public sealed class RefreshTokenHandler(
     UserManager<User> userManager,
-    TokenService tokenService)
+    TokenService tokenService,
+    AuthLoginSessionBuilder loginSessionBuilder,
+    IOptions<SuperAdminOptions> superAdminOptions)
     : ICommandHandler<RefreshTokenCommand, AccessTokenResponse>
 {
     public async Task<ErrorOr<AccessTokenResponse>> Handle(
@@ -36,9 +40,28 @@ public sealed class RefreshTokenHandler(
             return Error.Unauthorized(UserErrors.InvalidRefreshToken, UserErrors.InvalidRefreshTokenDescription);
         }
 
-        var token = context.TenantId is Guid tenantId
-            ? await tokenService.GenerateTenantScopedToken(user, tenantId).ConfigureAwait(false)
-            : await tokenService.GenerateGeneralLoginToken(user).ConfigureAwait(false);
+        AccessTokenResponse token;
+        if (context.TenantId is Guid tenantId)
+        {
+            token = await tokenService.GenerateTenantScopedToken(user, tenantId).ConfigureAwait(false);
+        }
+        else if (superAdminOptions.Value.MatchesEmail(user.Email))
+        {
+            token = await tokenService.GenerateGeneralLoginToken(user).ConfigureAwait(false);
+        }
+        else
+        {
+            // Upgrade legacy unscoped refresh sessions to a tenant-scoped token.
+            var resolved = await loginSessionBuilder.ResolveTenantIdForUserAsync(user, cancellationToken)
+                .ConfigureAwait(false);
+            if (resolved.IsError)
+            {
+                return resolved.Errors;
+            }
+
+            token = await tokenService.GenerateTenantScopedToken(user, resolved.Value).ConfigureAwait(false);
+            user.LastUsedTenantId = resolved.Value;
+        }
 
         tokenService.AssignRefreshToken(user, token);
 

@@ -24,11 +24,11 @@ public sealed class JiraOAuthService(
     IJiraApiClient jiraApiClient,
     IEncryptService encryptService,
     ITenantRepository<Project> projectRepository,
-    ITenantRepository<IntegrationConnection> connectionRepository,
+    ITenantRepository<ProjectIntegration> connectionRepository,
     ILogger<JiraOAuthService> logger) : IJiraOAuthService
 {
     public const string AuthorizeScopes =
-        "read:jira-work write:jira-work read:jira-user offline_access";
+        "read:jira-work write:jira-work read:jira-user manage:jira-webhook offline_access";
 
     private static readonly TimeSpan StateTtl = TimeSpan.FromMinutes(15);
 
@@ -155,7 +155,7 @@ public sealed class JiraOAuthService(
                 cancellationToken: cancellationToken);
 
             var isNew = connection is null;
-            connection ??= new IntegrationConnection
+            connection ??= new ProjectIntegration
             {
                 Id = Guid.NewGuid(),
                 TenantId = oauthState.TenantId,
@@ -163,7 +163,7 @@ public sealed class JiraOAuthService(
                 Provider = IntegrationProvider.Jira,
             };
 
-            connection.Status = IntegrationConnectionStatus.PendingProjectMapping;
+            connection.Status = IntegrationStatus.PendingProjectMapping;
             connection.CloudId = site.Id;
             connection.SiteUrl = site.Url;
             connection.SiteName = site.Name;
@@ -228,11 +228,10 @@ public sealed class JiraOAuthService(
     {
         var path = string.IsNullOrWhiteSpace(projectCode)
             ? "/"
-            : $"/{Uri.EscapeDataString(projectCode.Trim())}/settings";
+            : $"/{Uri.EscapeDataString(projectCode.Trim())}/integrations/jira/settings";
 
         var parts = new List<string>
         {
-            "tab=integrations",
             $"jira={(success ? "connected" : "error")}",
         };
         if (!string.IsNullOrWhiteSpace(message))

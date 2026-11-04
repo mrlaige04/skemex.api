@@ -39,6 +39,10 @@ public static class PermissionNames
     public const string SettingsRolesEdit = "settings:roles_edit";
     public const string SettingsRolesDelete = "settings:roles_delete";
 
+    // Settings — Workspace
+    public const string SettingsWorkspaceView = "settings:workspace_view";
+    public const string SettingsWorkspaceEdit = "settings:workspace_edit";
+
     // Tasks
     public const string TasksCreate = "tasks:create";
     public const string TasksView = "tasks:view";
@@ -77,6 +81,8 @@ public static class PermissionNames
         SettingsRolesCreate,
         SettingsRolesEdit,
         SettingsRolesDelete,
+        SettingsWorkspaceView,
+        SettingsWorkspaceEdit,
         TasksCreate,
         TasksView,
         TasksEdit,

@@ -8,6 +8,7 @@ public static class PermissionGroupNames
     public const string SettingsColumns = "Settings — Columns";
     public const string SettingsSpecializations = "Settings — Specializations";
     public const string SettingsRoles = "Settings — Roles";
+    public const string SettingsWorkspace = "Settings — Workspace";
     public const string Tasks = "Tasks";
     public const string Users = "Users";
 
@@ -48,6 +49,10 @@ public static class PermissionGroupNames
             PermissionNames.SettingsRolesCreate,
             PermissionNames.SettingsRolesEdit,
             PermissionNames.SettingsRolesDelete,
+        ]),
+        (SettingsWorkspace, [
+            PermissionNames.SettingsWorkspaceView,
+            PermissionNames.SettingsWorkspaceEdit,
         ]),
         (Tasks, [
             PermissionNames.TasksCreate,

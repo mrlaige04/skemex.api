@@ -1,5 +1,7 @@
 using ErrorOr;
+using Microsoft.EntityFrameworkCore;
 using Skemex.Application.Features.Abstractions;
+using Skemex.Application.Services.Integrations.Jira;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Integrations;
 using Skemex.Domain.Enums;
@@ -11,7 +13,9 @@ namespace Skemex.Application.Features.Commands.Integrations.Jira.DisconnectJira;
 public sealed class DisconnectJiraCommandHandler(
     ICurrentUser currentUser,
     IProjectAccessService projectAccessService,
-    ITenantRepository<IntegrationConnection> connectionRepository)
+    ITenantRepository<ProjectIntegration> integrationRepository,
+    IJiraConnectionTokenService tokenService,
+    IJiraWebhookService webhookService)
     : ICommandHandler<DisconnectJiraCommand>
 {
     public async Task<ErrorOr<Success>> Handle(
@@ -31,17 +35,27 @@ public sealed class DisconnectJiraCommandHandler(
             return access.Errors;
         }
 
-        var connection = await connectionRepository.GetAsync(
+        var integration = await integrationRepository.GetAsync(
             filter: c =>
                 c.ProjectId == request.ProjectId && c.Provider == IntegrationProvider.Jira,
+            include: q => q.Include(i => i.Webhooks),
             cancellationToken: cancellationToken);
 
-        if (connection is null)
+        if (integration is null)
         {
             return Result.Success;
         }
 
-        await connectionRepository.DeleteAsync(connection, cancellationToken);
+        string? accessToken = null;
+        var tokenResult = await tokenService.GetValidAccessTokenAsync(integration, cancellationToken);
+        if (!tokenResult.IsError)
+        {
+            accessToken = tokenResult.Value;
+        }
+
+        await webhookService.TryUnregisterAsync(integration, accessToken, cancellationToken);
+        await integrationRepository.DeleteAsync(integration, cancellationToken);
         return Result.Success;
     }
 }
+

@@ -13,7 +13,7 @@ namespace Skemex.Application.Features.Queries.Integrations.Jira.ListJiraUsers;
 public sealed class ListJiraUsersQueryHandler(
     ICurrentUser currentUser,
     IProjectAccessService projectAccessService,
-    ITenantRepository<IntegrationConnection> connectionRepository,
+    ITenantRepository<ProjectIntegration> connectionRepository,
     IJiraConnectionTokenService tokenService,
     IJiraApiClient jiraApiClient)
     : IQueryHandler<ListJiraUsersQuery, IReadOnlyList<JiraUserDto>>
@@ -43,7 +43,7 @@ public sealed class ListJiraUsersQueryHandler(
             cancellationToken: cancellationToken);
 
         if (connection is null
-            || connection.Status != IntegrationConnectionStatus.Connected
+            || connection.Status != IntegrationStatus.Connected
             || string.IsNullOrWhiteSpace(connection.CloudId)
             || string.IsNullOrWhiteSpace(connection.ExternalProjectKey))
         {
