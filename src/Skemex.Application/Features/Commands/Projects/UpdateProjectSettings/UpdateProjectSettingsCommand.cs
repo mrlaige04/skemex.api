@@ -10,12 +10,6 @@ public sealed class UpdateProjectSettingsCommand : ICommand<ProjectSettingsDto>
     /// <summary>When set, updates the default column for new tasks.</summary>
     public Guid? DefaultTaskColumnId { get; set; }
 
-    /// <summary>When set, updates AI task-tree max depth (1–8).</summary>
-    public int? AiMaxTreeDepth { get; set; }
-
-    /// <summary>When set, updates AI task-tree max node count (1–64).</summary>
-    public int? AiMaxNodes { get; set; }
-
     /// <summary>When set, updates the default AI model for new chats.</summary>
     public Guid? DefaultAiModelId { get; set; }
 
