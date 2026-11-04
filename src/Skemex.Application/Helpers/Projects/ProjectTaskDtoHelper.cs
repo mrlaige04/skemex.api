@@ -37,6 +37,7 @@ public static class ProjectTaskDtoHelper
             Assignee = task.Assignee is null ? null : MapUser(task.Assignee, avatarUrlsByBlobId),
             Reporter = MapUser(task.Reporter, avatarUrlsByBlobId),
             Subtasks = [],
+            Relations = [],
         };
     }
 
@@ -167,6 +168,7 @@ public static class ProjectTaskDtoHelper
             Assignee = task.Assignee is null ? null : MapUser(task.Assignee, avatarUrlsByBlobId),
             Reporter = MapUser(task.Reporter, avatarUrlsByBlobId),
             Subtasks = subtasks,
+            Relations = [],
         };
     }
 

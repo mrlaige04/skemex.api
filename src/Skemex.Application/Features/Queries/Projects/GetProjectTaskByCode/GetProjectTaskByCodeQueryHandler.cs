@@ -30,6 +30,7 @@ public sealed class GetProjectTaskByCodeQueryHandler(
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectTask> projectTaskRepository,
     ITenantRepository<ProjectTaskWorkLog> workLogRepository,
+    ITenantRepository<ProjectTaskRelation> taskRelationRepository,
     IUrlService urlService)
     : IQueryHandler<GetProjectTaskByCodeQuery, ProjectTaskDto>
 {
@@ -96,6 +97,14 @@ public sealed class GetProjectTaskByCodeQueryHandler(
             .LoadAvatarUrlsAsync(orderedLogs, urlService, cancellationToken)
             .ConfigureAwait(false);
 
+        var relations = await taskRelationRepository.GetAllAsync(
+            filter: relation =>
+                relation.SourceTaskId == task.Id || relation.TargetTaskId == task.Id,
+            include: query => query
+                .Include(relation => relation.SourceTask)
+                .Include(relation => relation.TargetTask),
+            cancellationToken: cancellationToken);
+
         return new ProjectTaskDto
         {
             Id = dto.Id,
@@ -124,6 +133,7 @@ public sealed class GetProjectTaskByCodeQueryHandler(
             Assignee = dto.Assignee,
             Reporter = dto.Reporter,
             Subtasks = dto.Subtasks,
+            Relations = ProjectTaskRelationDtoHelper.MapForTask(task.Id, relations),
         };
     }
 }

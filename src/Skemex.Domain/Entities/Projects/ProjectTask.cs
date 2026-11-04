@@ -32,6 +32,9 @@ public class ProjectTask : TenantEntity
     public IList<ProjectTaskComment> Comments { get; set; } = [];
     public IList<IntegrationMapping> IntegrationMappings { get; set; } = [];
 
+    /// <summary>Directed relations starting from this task (source → target).</summary>
+    public IList<ProjectTaskRelation> Relations { get; set; } = [];
+
     public Guid? AssigneeId { get; set; }
     public User? Assignee { get; set; }
 
