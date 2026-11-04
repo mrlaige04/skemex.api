@@ -35,4 +35,22 @@ public sealed class ProjectTaskDto
     public ProjectTaskUserDto? Assignee { get; init; }
     public ProjectTaskUserDto Reporter { get; init; } = null!;
     public IReadOnlyList<ProjectTaskDto> Subtasks { get; init; } = [];
+    public IReadOnlyList<ProjectTaskRelationDto> Relations { get; init; } = [];
+}
+
+/// <summary>A directed task link involving the current task (as source or target).</summary>
+public sealed class ProjectTaskRelationDto
+{
+    public Guid Id { get; init; }
+
+    /// <summary><see cref="Skemex.Domain.Enums.TaskRelationType"/> name.</summary>
+    public string RelationType { get; init; } = string.Empty;
+
+    /// <summary><c>Outgoing</c> when the current task is the source; otherwise <c>Incoming</c>.</summary>
+    public string Direction { get; init; } = string.Empty;
+
+    public Guid RelatedTaskId { get; init; }
+    public string RelatedTaskCode { get; init; } = string.Empty;
+    public string RelatedTaskTitle { get; init; } = string.Empty;
+    public string RelatedTaskType { get; init; } = "Task";
 }

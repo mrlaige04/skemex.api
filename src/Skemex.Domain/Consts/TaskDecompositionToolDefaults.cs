@@ -12,6 +12,7 @@ public static class TaskDecompositionToolDefaults
         "or turning requirements into actionable board items. Do not use it for general Q&A unrelated to backlog creation.";
 
     // Explicit \n keeps EF HasData / snapshots OS-stable (raw """ strings inherit CRLF on Windows).
+    // Runtime EffectiveSystemPrompt is loaded from agent_tools in the DB — keep this seed aligned with the snapshot.
     public const string SystemPrompt =
         "You are a Senior Software Architect and Technical Lead responsible for turning product goals into a Jira-like backlog.\n" +
         "Reply with ONLY one JSON object. No markdown fences. No commentary outside JSON.\n" +

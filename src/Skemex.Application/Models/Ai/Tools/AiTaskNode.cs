@@ -4,6 +4,13 @@ namespace Skemex.Application.Models.Ai.Tools;
 
 public sealed class AiTaskNode
 {
+    /// <summary>
+    /// Optional Guid the model assigns so sibling nodes can reference each other in <see cref="Relations"/>.
+    /// When present and valid, used as the persisted <c>ProjectTask.Id</c>.
+    /// </summary>
+    [JsonPropertyName("id")]
+    public Guid? Id { get; set; }
+
     /// <summary>Work item type: Feature, Task, or Bug. Empty until JSON provides a value (do not default to Task).</summary>
     [JsonPropertyName("type")]
     public string Type { get; set; } = string.Empty;
@@ -49,6 +56,13 @@ public sealed class AiTaskNode
     /// <summary>User id of suggested assignee; null for Features or when no match.</summary>
     [JsonPropertyName("assigneeId")]
     public Guid? AssigneeId { get; set; }
+
+    /// <summary>
+    /// Directed links from this node to another generated or existing backlog task.
+    /// Owning node = relation source; each entry's <c>sourceTaskId</c> = related task (target).
+    /// </summary>
+    [JsonPropertyName("relations")]
+    public List<AiTaskRelation> Relations { get; set; } = [];
 
     [JsonPropertyName("subtasks")]
     public List<AiTaskNode> Subtasks { get; set; } = [];

@@ -1516,6 +1516,42 @@ namespace Skemex.Infrastructure.Migrations
                     b.ToTable("project_task_counters", (string)null);
                 });
 
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskRelation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("RelationType")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SourceTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TargetTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TargetTaskId");
+
+                    b.HasIndex("TenantId", "SourceTaskId");
+
+                    b.HasIndex("SourceTaskId", "TargetTaskId", "RelationType")
+                        .IsUnique();
+
+                    b.ToTable("project_task_relations", (string)null);
+                });
+
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskWorkLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2549,6 +2585,25 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("Project");
                 });
 
+            modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskRelation", b =>
+                {
+                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectTask", "SourceTask")
+                        .WithMany("Relations")
+                        .HasForeignKey("SourceTaskId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Skemex.Domain.Entities.Projects.ProjectTask", "TargetTask")
+                        .WithMany()
+                        .HasForeignKey("TargetTaskId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("SourceTask");
+
+                    b.Navigation("TargetTask");
+                });
+
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectTaskWorkLog", b =>
                 {
                     b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
@@ -2783,6 +2838,8 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("Comments");
 
                     b.Navigation("IntegrationMappings");
+
+                    b.Navigation("Relations");
 
                     b.Navigation("Subtasks");
 

@@ -25,6 +25,7 @@ using Skemex.Application.Helpers.Users;
 using Skemex.Application.Services.Ai.Chat;
 using Skemex.Application.Services.Ai.Completions;
 using Skemex.Domain.Consts;
+using Skemex.Domain.Enums;
 using Skemex.Application.Services.Ai.Rag;
 
 namespace Skemex.Infrastructure.Services.Ai.Tools;
@@ -34,6 +35,7 @@ public sealed partial class TaskDecompositionTool(
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectSettings> projectSettingsRepository,
     ITenantRepository<ProjectTask> projectTaskRepository,
+    ITenantRepository<ProjectTaskRelation> projectTaskRelationRepository,
     ITenantRepository<ProjectColumn> projectColumnRepository,
     IProjectTaskCodeAllocator taskCodeAllocator,
     IAiService aiService,
@@ -99,6 +101,7 @@ public sealed partial class TaskDecompositionTool(
                 "remainingHours",
                 "storyPoints",
                 "assigneeId",
+                "relations",
                 "subtasks"
               ],
               "properties": {
@@ -127,13 +130,37 @@ public sealed partial class TaskDecompositionTool(
                 "estimatedHours": { "type": ["number", "null"] },
                 "remainingHours": { "type": ["number", "null"] },
                 "storyPoints": { "type": ["number", "null"] },
+                "id": {
+                  "type": ["string", "null"],
+                  "description": "Optional UUID for this node. Required for in-tree relations so siblings can reference each other; also accepted as ProjectTask id when valid."
+                },
                 "assigneeId": {
                   "type": ["string", "null"],
                   "description": "UUID from [PROJECT_MEMBERS] for Task/Bug; always null for Feature."
                 },
+                "relations": {
+                  "type": "array",
+                  "description": "Directed links from this node (source) to related tasks. Empty when independent.",
+                  "items": { "$ref": "#/$defs/taskRelation" }
+                },
                 "subtasks": {
                   "type": "array",
                   "items": { "$ref": "#/$defs/taskNode" }
+                }
+              }
+            },
+            "taskRelation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["sourceTaskId", "relationType"],
+              "properties": {
+                "sourceTaskId": {
+                  "type": "string",
+                  "description": "Related task UUID: another node's id in this tree, or an existing backlog task Id from ### RECENT_TASKS. Owning node is the relation source."
+                },
+                "relationType": {
+                  "type": "string",
+                  "enum": ["BlockedBy", "RelatesTo", "Duplicates"]
                 }
               }
             },
@@ -548,59 +575,91 @@ public sealed partial class TaskDecompositionTool(
             return null;
         }
 
+        var builder = new StringBuilder();
+
         var members = await LoadActiveProjectMembersAsync(
                 context.TenantId,
                 projectId,
                 cancellationToken)
             .ConfigureAwait(false);
 
-        if (members.Count == 0)
+        if (members.Count > 0)
         {
-            return null;
+            var specializations = members
+                .SelectMany(member => member.Specializations)
+                .GroupBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .OrderBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            builder.AppendLine("[ACTIVE_SPECIALIZATIONS: title|description]");
+            foreach (var specialization in specializations)
+            {
+                builder.Append(CompactCell(specialization.Title));
+                builder.Append('|');
+                builder.AppendLine(CompactCell(specialization.Description));
+            }
+
+            builder.AppendLine();
+            builder.AppendLine("[PROJECT_MEMBERS: id|specializations|skills]");
+            foreach (var member in members.OrderBy(item => item.UserId))
+            {
+                var specializationTitles = string.Join(
+                    ',',
+                    member.Specializations
+                        .Select(item => CompactCell(item.Title))
+                        .Where(title => title.Length > 0)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(title => title, StringComparer.OrdinalIgnoreCase));
+
+                var skills = string.Join(
+                    ',',
+                    TenantUserSkillMergeHelper.NormalizeSkills(member.Skills)
+                        .Select(CompactCell)
+                        .Where(skill => skill.Length > 0));
+
+                builder.Append(member.UserId.ToString("D"));
+                builder.Append('|');
+                builder.Append(specializationTitles);
+                builder.Append('|');
+                builder.AppendLine(skills);
+            }
         }
 
-        var specializations = members
-            .SelectMany(member => member.Specializations)
-            .GroupBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.First())
-            .OrderBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var builder = new StringBuilder();
-        builder.AppendLine("[ACTIVE_SPECIALIZATIONS: title|description]");
-        foreach (var specialization in specializations)
+        var recentTasks = await LoadRecentTasksAsync(projectId, cancellationToken)
+            .ConfigureAwait(false);
+        if (recentTasks.Count > 0)
         {
-            builder.Append(CompactCell(specialization.Title));
-            builder.Append('|');
-            builder.AppendLine(CompactCell(specialization.Description));
+            if (builder.Length > 0)
+            {
+                builder.AppendLine();
+            }
+
+            builder.AppendLine(
+                ProjectTaskDependencyMarkdownHelper.BuildRecentTasksTable(recentTasks));
+            builder.AppendLine();
+            builder.AppendLine(
+                "Use Ids from ### RECENT_TASKS as relation sourceTaskId values when linking new work to existing backlog items. " +
+                "For links between newly generated siblings, assign each involved node an \"id\" UUID and reference those Ids in relations.");
         }
 
-        builder.AppendLine();
-        builder.AppendLine("[PROJECT_MEMBERS: id|specializations|skills]");
-        foreach (var member in members.OrderBy(item => item.UserId))
-        {
-            var specializationTitles = string.Join(
-                ',',
-                member.Specializations
-                    .Select(item => CompactCell(item.Title))
-                    .Where(title => title.Length > 0)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(title => title, StringComparer.OrdinalIgnoreCase));
+        return builder.Length == 0 ? null : builder.ToString().TrimEnd();
+    }
 
-            var skills = string.Join(
-                ',',
-                TenantUserSkillMergeHelper.NormalizeSkills(member.Skills)
-                    .Select(CompactCell)
-                    .Where(skill => skill.Length > 0));
-
-            builder.Append(member.UserId.ToString("D"));
-            builder.Append('|');
-            builder.Append(specializationTitles);
-            builder.Append('|');
-            builder.AppendLine(skills);
-        }
-
-        return builder.ToString().TrimEnd();
+    private async Task<IReadOnlyList<ProjectTask>> LoadRecentTasksAsync(
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var query = await projectTaskRepository.GetQuery(cancellationToken).ConfigureAwait(false);
+        return await query
+            .AsNoTracking()
+            .Where(task => task.ProjectId == projectId)
+            .Include(task => task.Column)
+            .OrderByDescending(task => task.UpdatedAt)
+            .ThenByDescending(task => task.CreatedAt)
+            .Take(ProjectTaskDependencyMarkdownHelper.DefaultWindowSize)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static string BuildUserPrompt(
@@ -1174,6 +1233,9 @@ public sealed partial class TaskDecompositionTool(
 
         await using var transaction = await projectTaskRepository.BeginTransactionAsync(cancellationToken);
 
+        var createdIds = new HashSet<Guid>();
+        var pendingRelations = new List<(Guid SourceTaskId, AiTaskRelation Relation)>();
+
         var rootId = await CreateNodeAsync(
             tenantId,
             projectId,
@@ -1183,10 +1245,122 @@ public sealed partial class TaskDecompositionTool(
             parentId: null,
             tree.Root,
             validAssigneeIds,
+            createdIds,
+            pendingRelations,
             cancellationToken);
+
+        await PersistGeneratedRelationsAsync(
+                tenantId,
+                projectId,
+                createdIds,
+                pendingRelations,
+                cancellationToken)
+            .ConfigureAwait(false);
 
         await transaction.CommitAsync(cancellationToken);
         return rootId;
+    }
+
+    private async Task PersistGeneratedRelationsAsync(
+        Guid tenantId,
+        Guid projectId,
+        IReadOnlySet<Guid> createdIds,
+        IReadOnlyList<(Guid SourceTaskId, AiTaskRelation Relation)> pendingRelations,
+        CancellationToken cancellationToken)
+    {
+        if (pendingRelations.Count == 0)
+        {
+            return;
+        }
+
+        var resolved = new List<(Guid SourceId, Guid TargetId, TaskRelationType Type)>();
+        foreach (var (sourceTaskId, relation) in pendingRelations)
+        {
+            if (!ProjectTaskRelationPersistenceHelper.TryParseRelationType(
+                    relation.RelationType,
+                    out var relationType))
+            {
+                continue;
+            }
+
+            if (!ProjectTaskRelationPersistenceHelper.TryParseTaskId(
+                    relation.SourceTaskId,
+                    out var targetTaskId))
+            {
+                continue;
+            }
+
+            resolved.Add((sourceTaskId, targetTaskId, relationType));
+        }
+
+        if (resolved.Count == 0)
+        {
+            return;
+        }
+
+        var externalTargetIds = resolved
+            .Select(item => item.TargetId)
+            .Where(id => !createdIds.Contains(id))
+            .Distinct()
+            .ToList();
+
+        var knownTaskIds = new HashSet<Guid>(createdIds);
+        if (externalTargetIds.Count > 0)
+        {
+            var existingTargets = await projectTaskRepository
+                .GetAllWithSelectorAsync(
+                    task => task.Id,
+                    filter: task =>
+                        task.ProjectId == projectId && externalTargetIds.Contains(task.Id),
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var id in existingTargets)
+            {
+                knownTaskIds.Add(id);
+            }
+        }
+
+        var sourceIds = resolved.Select(item => item.SourceId).Distinct().ToList();
+        var existingRelations = await projectTaskRelationRepository
+            .GetAllAsync(
+                filter: relation => sourceIds.Contains(relation.SourceTaskId),
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+
+        var existingKeys = existingRelations
+            .Select(relation => (relation.SourceTaskId, relation.TargetTaskId, relation.RelationType))
+            .ToHashSet();
+
+        var accepted = ProjectTaskRelationPersistenceHelper.FilterCandidates(
+            resolved,
+            knownTaskIds,
+            existingKeys);
+
+        if (accepted.Count == 0)
+        {
+            return;
+        }
+
+        var entities = accepted
+            .Select(item => new ProjectTaskRelation
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                SourceTaskId = item.SourceId,
+                TargetTaskId = item.TargetId,
+                RelationType = item.Type,
+            })
+            .ToList();
+
+        await projectTaskRelationRepository
+            .AddRangeAsync(entities, cancellationToken)
+            .ConfigureAwait(false);
+
+        Logger.LogInformation(
+            "Persisted {Count} task relation(s) from decomposition for project {ProjectId}",
+            entities.Count,
+            projectId);
     }
 
     private async Task<Guid> CreateNodeAsync(
@@ -1198,6 +1372,8 @@ public sealed partial class TaskDecompositionTool(
         Guid? parentId,
         AiTaskNode node,
         IReadOnlySet<Guid> validAssigneeIds,
+        ISet<Guid> createdIds,
+        ICollection<(Guid SourceTaskId, AiTaskRelation Relation)> pendingRelations,
         CancellationToken cancellationToken)
     {
         var taskNumber = await taskCodeAllocator.AllocateNextNumberAsync(
@@ -1208,9 +1384,28 @@ public sealed partial class TaskDecompositionTool(
         var taskType = ProjectTaskTypeExtensions.ParseOrDefault(node.Type);
         var assigneeId = ResolveAssigneeId(node, taskType, validAssigneeIds);
 
+        Guid taskId;
+        if (node.Id is { } proposedId && proposedId != Guid.Empty && createdIds.Add(proposedId))
+        {
+            taskId = proposedId;
+        }
+        else
+        {
+            if (node.Id is { } duplicate && duplicate != Guid.Empty)
+            {
+                Logger.LogWarning(
+                    "Duplicate or invalid node id '{NodeId}' in decomposition tree for project {ProjectId}; generating a new id",
+                    duplicate,
+                    projectId);
+            }
+
+            taskId = Guid.NewGuid();
+            createdIds.Add(taskId);
+        }
+
         var task = new ProjectTask
         {
-            Id = Guid.NewGuid(),
+            Id = taskId,
             TenantId = tenantId,
             ProjectId = projectId,
             ProjectColumnId = columnId,
@@ -1239,6 +1434,11 @@ public sealed partial class TaskDecompositionTool(
 
         await projectTaskRepository.AddAsync(task, cancellationToken);
 
+        foreach (var relation in node.Relations)
+        {
+            pendingRelations.Add((task.Id, relation));
+        }
+
         foreach (var child in node.Subtasks)
         {
             await CreateNodeAsync(
@@ -1250,6 +1450,8 @@ public sealed partial class TaskDecompositionTool(
                 task.Id,
                 child,
                 validAssigneeIds,
+                createdIds,
+                pendingRelations,
                 cancellationToken);
         }
 
