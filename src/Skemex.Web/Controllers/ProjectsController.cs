@@ -44,6 +44,7 @@ using Skemex.Application.Features.Queries.Projects.GetProjectColumns;
 using Skemex.Application.Features.Queries.Projects.GetProjectDocumentById;
 using Skemex.Application.Features.Queries.Projects.GetProjectDocuments;
 using Skemex.Application.Features.Queries.Projects.GetProjectTaskByCode;
+using Skemex.Application.Features.Queries.Projects.GetProjectTaskGraph;
 using Skemex.Application.Features.Queries.Projects.ExportProjectTasks;
 using Skemex.Application.Features.Queries.Projects.GetProjectTasks;
 using Skemex.Application.Features.Queries.Projects.GetProjectTasksByColumnId;
@@ -184,6 +185,18 @@ public class ProjectsController(ISender sender) : BaseController
                 PageNumber = page,
                 PageSize = pageSize,
             },
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [Permission(PermissionNames.TasksView)]
+    [HttpGet("{id:guid}/tasks/graph")]
+    public async Task<IActionResult> GetTaskGraph(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new GetProjectTaskGraphQuery { ProjectId = id },
             cancellationToken);
         return result.Match(Ok, Problem);
     }

@@ -1,5 +1,6 @@
 using ErrorOr;
 using Skemex.Application.Features.Abstractions;
+using Skemex.Application.Helpers.Projects;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
@@ -9,7 +10,8 @@ namespace Skemex.Application.Features.Commands.Projects.BulkDeleteProjectTasks;
 public sealed class BulkDeleteProjectTasksCommandHandler(
     ICurrentUser currentUser,
     ITenantRepository<Project> projectRepository,
-    ITenantRepository<ProjectTask> projectTaskRepository)
+    ITenantRepository<ProjectTask> projectTaskRepository,
+    ITenantRepository<ProjectTaskRelation> projectTaskRelationRepository)
     : ICommandHandler<BulkDeleteProjectTasksCommand>
 {
     private const int MaxBatchSize = 100;
@@ -56,6 +58,21 @@ public sealed class BulkDeleteProjectTasksCommandHandler(
         {
             return Error.NotFound("ProjectTask.NotFound", "No matching issues were found.");
         }
+
+        var affectedIds = await ProjectTaskRelationCleanupHelper
+            .ExpandWithDescendantsAsync(
+                projectTaskRepository,
+                request.ProjectId,
+                tasks.Select(task => task.Id),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        await ProjectTaskRelationCleanupHelper
+            .DeleteRelationsForTasksAsync(
+                projectTaskRelationRepository,
+                affectedIds,
+                cancellationToken)
+            .ConfigureAwait(false);
 
         await projectTaskRepository.DeleteRangeAsync(tasks, cancellationToken);
         return Result.Success;

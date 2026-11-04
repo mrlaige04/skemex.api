@@ -13,7 +13,9 @@ public sealed class DeleteProjectColumnCommandHandler(
     ITenantRepository<Project> projectRepository,
     ITenantRepository<ProjectColumn> projectColumnRepository,
     ITenantRepository<ProjectSettings> projectSettingsRepository,
-    ITenantRepository<TenantColumn> tenantColumnRepository)
+    ITenantRepository<TenantColumn> tenantColumnRepository,
+    ITenantRepository<ProjectTask> projectTaskRepository,
+    ITenantRepository<ProjectTaskRelation> projectTaskRelationRepository)
     : ICommandHandler<DeleteProjectColumnCommand>
 {
     public async Task<ErrorOr<Success>> Handle(
@@ -72,6 +74,32 @@ public sealed class DeleteProjectColumnCommandHandler(
 
             settings.DefaultTaskColumnId = replacement.Id;
             await projectSettingsRepository.UpdateAsync(settings, cancellationToken);
+        }
+
+        var columnTaskIds = await projectTaskRepository
+            .GetAllWithSelectorAsync(
+                task => task.Id,
+                filter: task =>
+                    task.ProjectId == request.ProjectId && task.ProjectColumnId == request.ColumnId,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+
+        if (columnTaskIds.Count > 0)
+        {
+            var affectedIds = await ProjectTaskRelationCleanupHelper
+                .ExpandWithDescendantsAsync(
+                    projectTaskRepository,
+                    request.ProjectId,
+                    columnTaskIds,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            await ProjectTaskRelationCleanupHelper
+                .DeleteRelationsForTasksAsync(
+                    projectTaskRelationRepository,
+                    affectedIds,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         await projectColumnRepository.DeleteAsync(column, cancellationToken);

@@ -12,6 +12,7 @@ using Skemex.Application.Services.Documents;
 using Skemex.Application.Services.Email;
 using Skemex.Application.Services.Encryption;
 using Skemex.Application.Services.Notifications;
+using Skemex.Application.Helpers.Projects;
 using Skemex.Application.Services.Projects;
 using Skemex.Application.Services.Storage;
 using Skemex.Application.Services.Users;
@@ -24,6 +25,8 @@ namespace Skemex.Application.Features.Commands.Projects.DeleteProject;
 public sealed class DeleteProjectCommandHandler(
     ICurrentUser currentUser,
     ITenantRepository<Project> projectRepository,
+    ITenantRepository<ProjectTask> projectTaskRepository,
+    ITenantRepository<ProjectTaskRelation> projectTaskRelationRepository,
     IProjectLogoService projectLogos)
     : ICommandHandler<DeleteProjectCommand>
 {
@@ -44,6 +47,20 @@ public sealed class DeleteProjectCommandHandler(
         {
             return Error.NotFound("Project.NotFound", "Project was not found.");
         }
+
+        var taskIds = await projectTaskRepository
+            .GetAllWithSelectorAsync(
+                task => task.Id,
+                filter: task => task.ProjectId == request.ProjectId,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+
+        await ProjectTaskRelationCleanupHelper
+            .DeleteRelationsForTasksAsync(
+                projectTaskRelationRepository,
+                taskIds,
+                cancellationToken)
+            .ConfigureAwait(false);
 
         var logoBlobId = project.LogoBlobId;
         await projectRepository.DeleteAsync(project, cancellationToken);
