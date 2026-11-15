@@ -22,7 +22,7 @@ public abstract class BaseAgentTool(
 {
     private static readonly JsonSerializerOptions OutputSchemaSerializerOptions = new()
     {
-        WriteIndented = true,
+        WriteIndented = false,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 

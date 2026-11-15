@@ -163,6 +163,15 @@ namespace Skemex.Infrastructure.Migrations
                             SystemName = "project_qa",
                             SystemPrompt = "You are a project knowledge assistant for an engineering delivery product.\nAnswer the user's question using ONLY the information under ### CONTEXT.\nIf context is missing, incomplete, or contradictory, say what you cannot verify — never invent facts.\nCite concrete sources when available: task keys (e.g. ABC-12) and document titles/file names.\nRespond in clear Markdown (headings, bullet lists, short paragraphs as needed).\nAlways write in the same primary language as the user's request.\nDo not output JSON. Do not wrap the entire answer in a markdown code fence.",
                             UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
+                        },
+                        new
+                        {
+                            Id = new Guid("a1b2c3d4-e5f6-4789-a012-3456789abcde"),
+                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Description = "Use this tool when the user message is not a project question and not a request to create or decompose backlog work. Prefer it for offtopic chat, spam, gibberish, jokes, greetings with no actionable ask, or anything outside Skemex project Q&A / task decomposition. Do not use it for architecture/docs/backlog questions (use project_qa) or for breaking down features into tasks (use task_decomposition).",
+                            SystemName = "unsupported_request",
+                            SystemPrompt = "",
+                            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
                         });
                 });
 
@@ -1828,6 +1837,12 @@ namespace Skemex.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<double>("AiTemperature")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(3, 2)
+                        .HasColumnType("double precision")
+                        .HasDefaultValue(0.20000000000000001);
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");

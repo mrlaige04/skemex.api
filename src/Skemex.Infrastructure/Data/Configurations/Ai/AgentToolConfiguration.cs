@@ -36,6 +36,15 @@ public class AgentToolConfiguration : IEntityTypeConfiguration<AgentTool>
                 SystemPrompt = ProjectQaToolDefaults.SystemPrompt,
                 CreatedAt = ProjectQaToolDefaults.SeedTimestamp,
                 UpdatedAt = ProjectQaToolDefaults.SeedTimestamp,
+            },
+            new AgentTool
+            {
+                Id = UnsupportedRequestToolDefaults.SeedId,
+                SystemName = UnsupportedRequestToolDefaults.SystemName,
+                Description = UnsupportedRequestToolDefaults.Description,
+                SystemPrompt = UnsupportedRequestToolDefaults.SystemPrompt,
+                CreatedAt = UnsupportedRequestToolDefaults.SeedTimestamp,
+                UpdatedAt = UnsupportedRequestToolDefaults.SeedTimestamp,
             });
     }
 }

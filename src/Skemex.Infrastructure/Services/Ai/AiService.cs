@@ -44,6 +44,7 @@ public sealed class AiService(
                     UserPrompt = request.UserPrompt,
                     Model = modelExternalId,
                     PreferJsonObject = request.PreferJsonObject,
+                    Temperature = request.Temperature,
                     Attachments = request.Attachments,
                 },
                 cancellationToken)
@@ -78,6 +79,7 @@ public sealed class AiService(
                     UserPrompt = request.UserPrompt,
                     Model = modelExternalId,
                     Tools = request.Tools,
+                    Temperature = request.Temperature,
                 },
                 cancellationToken)
             .ConfigureAwait(false);

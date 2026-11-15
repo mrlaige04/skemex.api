@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.OpenApi;
+using Skemex.Application.Services.Projects;
 using Skemex.Domain.Services;
+using Skemex.Web.Hubs;
 using Skemex.Web.Infrastructure;
 using Skemex.Web.OpenApi;
 using Skemex.Web.Services;
@@ -28,6 +30,8 @@ public static class RegisterDependencies
         services.AddScoped<RequestPermissionCache>();
         services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
         services.AddControllers();
+        services.AddSignalR();
+        services.AddSingleton<IProjectBoardRealtimePublisher, SignalRProjectBoardRealtimePublisher>();
 
         var origins = ResolveAllowedOrigins(configuration);
         services.AddCors(cors =>

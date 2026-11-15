@@ -12,6 +12,9 @@ public sealed record AgentExecutionContext
     public Guid? AgentJobId { get; init; }
     public string? Model { get; init; }
 
+    /// <summary>Tenant-configured LLM temperature for this execution.</summary>
+    public double Temperature { get; init; }
+
     /// <summary>Genuine human user request; never Stage-1 rewrites or synthetic instructions.</summary>
     public required string UserInput { get; init; }
 

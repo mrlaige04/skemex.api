@@ -36,6 +36,7 @@ public sealed class AgentOrchestrator(
     ITenantRepository<AiChat> chatRepository,
     ITenantRepository<AiExecution> executionRepository,
     ITenantRepository<Project> projectRepository,
+    IBaseRepository<Domain.Entities.Users.Tenant> tenantRepository,
     IAiService aiService,
     IAiSemanticRetry semanticRetry,
     IProjectRagContextService ragContextService,
@@ -60,6 +61,7 @@ public sealed class AgentOrchestrator(
         When a tool schema includes refinedQueryEn and keywords, always fill them for retrieval:
         - refinedQueryEn: a canonical, grammatically normalized technical English search query for the user's goal (even if the user wrote in another language or slang).
         - keywords: 4–8 technical English terms, identifiers, and concepts for exact keyword matching.
+        If the message is offtopic, spam, gibberish, a greeting with no actionable ask, or otherwise not project Q&A and not backlog decomposition, call unsupported_request.
         Do not answer the user directly. Do not invent tools. Prefer the most specific matching tool.
         """;
 
@@ -287,6 +289,9 @@ public sealed class AgentOrchestrator(
     {
         using var usageScope = EnsureUsageCorrelation(request);
 
+        request.Temperature ??= await ResolveTenantTemperatureAsync(request.TenantId, cancellationToken)
+            .ConfigureAwait(false);
+
         var toolMap = tools.ToDictionary(tool => tool.SystemName, StringComparer.OrdinalIgnoreCase);
         var dbTools = await toolRepository.GetAllAsync(cancellationToken: cancellationToken);
         var dbByName = dbTools.ToDictionary(tool => tool.SystemName, StringComparer.OrdinalIgnoreCase);
@@ -428,6 +433,7 @@ public sealed class AgentOrchestrator(
                                 UserPrompt = stage1UserPrompt,
                                 Model = request.Model,
                                 Tools = definitions,
+                                Temperature = request.Temperature ?? AiSamplingDefaults.Temperature,
                             },
                             ct);
 
@@ -585,6 +591,7 @@ public sealed class AgentOrchestrator(
         {
             "task_decomposition" => "Starting task breakdown…",
             "project_qa" => "Looking up an answer in this project…",
+            "unsupported_request" => "Checking your request…",
             _ => "Running the next step…",
         };
 
@@ -810,6 +817,7 @@ public sealed class AgentOrchestrator(
             ChatId = request.ChatId,
             AgentJobId = request.AgentJobId,
             Model = request.Model,
+            Temperature = request.Temperature ?? AiSamplingDefaults.Temperature,
             UserInput = request.UserInput?.Trim() ?? string.Empty,
             EffectiveDescription = description,
             EffectiveSystemPrompt = systemPrompt,
@@ -818,6 +826,26 @@ public sealed class AgentOrchestrator(
             ArtefactRefs = request.ArtefactRefs,
             ArtefactContext = request.ArtefactContext,
         };
+    }
+
+    private async Task<double> ResolveTenantTemperatureAsync(
+        Guid tenantId,
+        CancellationToken cancellationToken)
+    {
+        var tenant = await tenantRepository.GetAsync(
+                filter: entry => entry.Id == tenantId,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+
+        if (tenant is null)
+        {
+            return AiSamplingDefaults.Temperature;
+        }
+
+        return Math.Clamp(
+            tenant.AiTemperature,
+            AiSamplingDefaults.MinTemperature,
+            AiSamplingDefaults.MaxTemperature);
     }
 
     private static IReadOnlyList<AiChatArtefactRef> ParseArtefactRefs(string? artefactsJson)

@@ -2,6 +2,7 @@ using ErrorOr;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Helpers.Projects;
 using Skemex.Domain.Entities.Projects;
+using Skemex.Domain.Events.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
 
@@ -65,6 +66,13 @@ public sealed class DeleteProjectTaskCommandHandler(
                 affectedIds,
                 cancellationToken)
             .ConfigureAwait(false);
+
+        task.RaiseEvent(new ProjectBoardChangedDomainEvent
+        {
+            ProjectId = request.ProjectId,
+            TaskId = task.Id,
+            ChangeKind = "Deleted",
+        });
 
         await projectTaskRepository.DeleteAsync(task, cancellationToken);
         return Result.Success;

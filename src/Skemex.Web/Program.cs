@@ -5,6 +5,7 @@ using Skemex.Application;
 using Skemex.Infrastructure;
 using Skemex.Web;
 using Skemex.Web.Extensions;
+using Skemex.Web.Hubs;
 using Skemex.Web.Middleware;
 
 Log.Logger = new LoggerConfiguration()
@@ -49,6 +50,7 @@ try
     }
 
     app.MapControllers();
+    app.MapHub<ProjectBoardHub>(ProjectBoardHub.HubPath);
     app.MapGet("ping", () => "Hello World!");
 
     await app.RunAsync();
