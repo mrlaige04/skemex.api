@@ -21,6 +21,15 @@ public sealed class AiExecutionFinishedNotificationHandler(
             return;
         }
 
+        // Fixed polite decline — no success toast needed.
+        if (string.Equals(
+                domainEvent.ToolName,
+                "unsupported_request",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         try
         {
             var toolLabel = ResolveToolDisplayName(domainEvent.ToolName ?? domainEvent.ArtifactType);
@@ -72,6 +81,7 @@ public sealed class AiExecutionFinishedNotificationHandler(
         {
             "task_decomposition" or "taskdecomposition" => "Task decomposition",
             "project_qa" or "projectqa" => "Project Q&A",
+            "unsupported_request" or "unsupportedrequest" => "Unsupported request",
             "chat" => "AI chat",
             "error" => "AI task",
             _ => HumanizeIdentifier(toolOrArtifact.Trim()),

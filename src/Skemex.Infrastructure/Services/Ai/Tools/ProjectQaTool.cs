@@ -229,6 +229,7 @@ public sealed class ProjectQaTool(
                                 UserPrompt = userPrompt,
                                 Model = preparedContext.ModelExternalId,
                                 PreferJsonObject = false,
+                                Temperature = executionContext.Temperature,
                                 Attachments = executionContext.CompletionAttachments,
                             },
                             ct);

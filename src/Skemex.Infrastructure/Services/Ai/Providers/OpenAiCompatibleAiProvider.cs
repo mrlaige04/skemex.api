@@ -11,6 +11,7 @@ using Skemex.Application.Models.Ai.Providers;
 using Skemex.Application.Models.Ai.Tools;
 using Skemex.Application.Models.Ai.Usage;
 using Skemex.Application.Services.Ai.Providers;
+using Skemex.Domain.Consts;
 
 namespace Skemex.Infrastructure.Services.Ai.Providers;
 
@@ -96,6 +97,7 @@ public sealed class OpenAiCompatibleAiProvider(
                 tools: null,
                 useJsonObjectFormat,
                 request.Attachments,
+                request.Temperature,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -129,6 +131,7 @@ public sealed class OpenAiCompatibleAiProvider(
                     tools: null,
                     useJsonObjectFormat: false,
                     request.Attachments,
+                    request.Temperature,
                     cancellationToken)
                 .ConfigureAwait(false);
 
@@ -164,6 +167,7 @@ public sealed class OpenAiCompatibleAiProvider(
                 request.Tools,
                 useJsonObjectFormat: false,
                 attachments: null,
+                request.Temperature,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -280,6 +284,7 @@ public sealed class OpenAiCompatibleAiProvider(
         IReadOnlyList<AiToolDefinition>? tools,
         bool useJsonObjectFormat,
         IReadOnlyList<AiCompletionAttachment>? attachments,
+        double? temperature,
         CancellationToken cancellationToken)
     {
         using var httpRequest = CreateRequest(HttpMethod.Post, "chat/completions");
@@ -290,6 +295,11 @@ public sealed class OpenAiCompatibleAiProvider(
             new { role = "system", content = systemPrompt },
             new { role = "user", content = userContent },
         };
+
+        var resolvedTemperature = Math.Clamp(
+            temperature ?? AiSamplingDefaults.Temperature,
+            AiSamplingDefaults.MinTemperature,
+            AiSamplingDefaults.MaxTemperature);
 
         object body;
         if (tools is { Count: > 0 })
@@ -308,6 +318,7 @@ public sealed class OpenAiCompatibleAiProvider(
             body = new
             {
                 model = modelId,
+                temperature = resolvedTemperature,
                 messages,
                 tools = toolPayload,
                 tool_choice = "auto",
@@ -318,6 +329,7 @@ public sealed class OpenAiCompatibleAiProvider(
             body = new
             {
                 model = modelId,
+                temperature = resolvedTemperature,
                 response_format = new { type = "json_object" },
                 messages,
             };
@@ -327,6 +339,7 @@ public sealed class OpenAiCompatibleAiProvider(
             body = new
             {
                 model = modelId,
+                temperature = resolvedTemperature,
                 messages,
             };
         }

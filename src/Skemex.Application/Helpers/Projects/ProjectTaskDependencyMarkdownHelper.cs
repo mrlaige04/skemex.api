@@ -10,15 +10,15 @@ public static class ProjectTaskDependencyMarkdownHelper
 
     public static string BuildRecentTasksTable(IReadOnlyList<ProjectTask> tasks)
     {
+        if (tasks.Count == 0)
+        {
+            return string.Empty;
+        }
+
         var builder = new StringBuilder();
         builder.AppendLine("### RECENT_TASKS");
         builder.AppendLine("| Id | Title | Status |");
         builder.AppendLine("|---|---|---|");
-
-        if (tasks.Count == 0)
-        {
-            return builder.ToString().TrimEnd();
-        }
 
         foreach (var task in tasks)
         {

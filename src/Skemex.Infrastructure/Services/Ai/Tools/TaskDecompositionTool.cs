@@ -1,32 +1,31 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Skemex.Application.Models.Ai.Agents;
-using Skemex.Application.Models.Ai.Chat;
-using Skemex.Application.Models.Ai.Completions;
-using Skemex.Application.Models.Ai.Providers;
-using Skemex.Application.Models.Ai.Tools;
-using Skemex.Application.Models.Ai.Usage;
-using Skemex.Application.Services.Projects;
-using Skemex.Application.Services.Users;
-using Skemex.Domain.Entities.Ai;
-using Skemex.Domain.Entities.Projects;
-using Skemex.Domain.Entities.Users;
-using Skemex.Domain.Repositories.Abstractions;
-using Skemex.Infrastructure.Data;
-using Skemex.Infrastructure.Services;
-using Skemex.Application.Services.Ai.Agents;
 using Skemex.Application.Helpers.Ai;
 using Skemex.Application.Helpers.Projects;
 using Skemex.Application.Helpers.Users;
+using Skemex.Application.Models.Ai.Agents;
+using Skemex.Application.Models.Ai.Chat;
+using Skemex.Application.Models.Ai.Completions;
+using Skemex.Application.Models.Ai.Tools;
+using Skemex.Application.Models.Rag;
+using Skemex.Application.Services.Ai.Agents;
 using Skemex.Application.Services.Ai.Chat;
 using Skemex.Application.Services.Ai.Completions;
-using Skemex.Domain.Consts;
-using Skemex.Domain.Enums;
 using Skemex.Application.Services.Ai.Rag;
+using Skemex.Application.Services.Projects;
+using Skemex.Domain.Consts;
+using Skemex.Domain.Entities.Ai;
+using Skemex.Domain.Entities.Projects;
+using Skemex.Domain.Entities.Users;
+using Skemex.Domain.Enums;
+using Skemex.Domain.Events.Projects;
+using Skemex.Domain.Repositories.Abstractions;
+using Skemex.Infrastructure.Data;
 
 namespace Skemex.Infrastructure.Services.Ai.Tools;
 
@@ -107,14 +106,10 @@ public sealed partial class TaskDecompositionTool(
               "properties": {
                 "type": {
                   "type": "string",
-                  "enum": ["Feature", "Task", "Bug"],
-                  "description": "Feature when node has children; Task or Bug for leaves."
+                  "enum": ["Feature", "Task", "Bug"]
                 },
                 "title": { "type": "string" },
-                "description": {
-                  "type": "string",
-                  "description": "HTML brief covering Goal, Approach, and Expected result."
-                },
+                "description": { "type": "string" },
                 "acceptanceCriteria": {
                   "type": "array",
                   "items": { "type": "string" }
@@ -130,17 +125,10 @@ public sealed partial class TaskDecompositionTool(
                 "estimatedHours": { "type": ["number", "null"] },
                 "remainingHours": { "type": ["number", "null"] },
                 "storyPoints": { "type": ["number", "null"] },
-                "id": {
-                  "type": ["string", "null"],
-                  "description": "Optional UUID for this node. Required for in-tree relations so siblings can reference each other; also accepted as ProjectTask id when valid."
-                },
-                "assigneeId": {
-                  "type": ["string", "null"],
-                  "description": "UUID from [PROJECT_MEMBERS] for Task/Bug; always null for Feature."
-                },
+                "id": { "type": ["string", "null"] },
+                "assigneeId": { "type": ["string", "null"] },
                 "relations": {
                   "type": "array",
-                  "description": "Directed links from this node (source) to related tasks. Empty when independent.",
                   "items": { "$ref": "#/$defs/taskRelation" }
                 },
                 "subtasks": {
@@ -154,10 +142,7 @@ public sealed partial class TaskDecompositionTool(
               "additionalProperties": false,
               "required": ["sourceTaskId", "relationType"],
               "properties": {
-                "sourceTaskId": {
-                  "type": "string",
-                  "description": "Related task UUID: another node's id in this tree, or an existing backlog task Id from ### RECENT_TASKS. Owning node is the relation source."
-                },
+                "sourceTaskId": { "type": "string" },
                 "relationType": {
                   "type": "string",
                   "enum": ["BlockedBy", "RelatesTo", "Duplicates"]
@@ -366,6 +351,7 @@ public sealed partial class TaskDecompositionTool(
                                 UserPrompt = userPrompt,
                                 Model = preparedContext.ModelExternalId,
                                 PreferJsonObject = true,
+                                Temperature = executionContext.Temperature,
                                 Attachments = executionContext.CompletionAttachments,
                             },
                             ct);
@@ -434,11 +420,27 @@ public sealed partial class TaskDecompositionTool(
         var rootTask = await projectTaskRepository.GetAsync(
             filter: task => task.Id == rootTaskId,
             cancellationToken: cancellationToken);
-        var code = rootTask?.Code;
+        if (rootTask is null)
+        {
+            var missing =
+                "I prepared a task breakdown, but couldn't load the created root task. Please try again.";
+            return new AiToolExecutionResult(false, missing, "task_tree", null, missing);
+        }
+
+        rootTask.RaiseEvent(new ProjectBoardChangedDomainEvent
+        {
+            ProjectId = projectId,
+            TaskId = rootTask.Id,
+            ChangeKind = "Created",
+        });
+        rootTask.UpdatedAt = DateTime.UtcNow;
+        await projectTaskRepository.UpdateAsync(rootTask, cancellationToken).ConfigureAwait(false);
+
+        var code = rootTask.Code;
         var successLines = new List<string>
         {
             "Done — I created a task tree from your goal.",
-            $"Root task: {code} — {rootTask!.Title}",
+            $"Root task: {code} — {rootTask.Title}",
         };
         if (rootTask.OriginalEstimateMinutes is int minutes and > 0)
         {
@@ -446,10 +448,10 @@ public sealed partial class TaskDecompositionTool(
         }
 
         successLines.Add("Estimates were provided by the model using bottom-up estimation.");
-        successLines.Add("Refresh the board or Issues to see the new tasks.");
+        successLines.Add("New tasks are on the board.");
 
         var successContent = string.IsNullOrWhiteSpace(code)
-            ? "Done — the task tree was created. Refresh the board or Issues to see the new tasks."
+            ? "Done — the task tree was created. New tasks are on the board."
             : string.Join(Environment.NewLine, successLines);
 
         return new AiToolExecutionResult(
@@ -490,16 +492,18 @@ public sealed partial class TaskDecompositionTool(
         var maxEstimateHours = ProjectTaskTimeLimits.MaxEstimateHours;
 
         return template
-            .Replace("__MAX_DEPTH__", maxDepth.ToString())
-            .Replace("__MAX_CHILDREN__", maxChildrenHint.ToString())
-            .Replace("__MAX_NODES__", maxNodes.ToString())
-            .Replace("__MAX_TITLE__", MaxTitleLength.ToString())
-            .Replace("__MAX_DESCRIPTION__", MaxDescriptionLength.ToString())
-            .Replace("__MAX_AC_ITEM__", MaxAcceptanceCriterionLength.ToString())
-            .Replace("__MAX_RISKS__", MaxRisks.ToString())
-            .Replace("__MAX_RISK_ITEM__", MaxRiskLength.ToString())
-            .Replace("__MAX_TEST_FIELD__", MaxTestCaseFieldLength.ToString())
-            .Replace("__MAX_ESTIMATE_HOURS__", maxEstimateHours.ToString());
+            .Replace("__MAX_DEPTH__", maxDepth.ToString(CultureInfo.InvariantCulture))
+            .Replace("__MAX_CHILDREN__", maxChildrenHint.ToString(CultureInfo.InvariantCulture))
+            .Replace("__MAX_NODES__", maxNodes.ToString(CultureInfo.InvariantCulture))
+            .Replace("__MAX_TITLE__", MaxTitleLength.ToString(CultureInfo.InvariantCulture))
+            .Replace("__MAX_DESCRIPTION__", MaxDescriptionLength.ToString(CultureInfo.InvariantCulture))
+            .Replace("__MAX_AC_ITEM__", MaxAcceptanceCriterionLength.ToString(CultureInfo.InvariantCulture))
+            .Replace("__MAX_RISKS__", MaxRisks.ToString(CultureInfo.InvariantCulture))
+            .Replace("__MAX_RISK_ITEM__", MaxRiskLength.ToString(CultureInfo.InvariantCulture))
+            .Replace("__MAX_TEST_FIELD__", MaxTestCaseFieldLength.ToString(CultureInfo.InvariantCulture))
+            .Replace(
+                "__MAX_ESTIMATE_HOURS__",
+                maxEstimateHours.ToString("0.##", CultureInfo.InvariantCulture));
     }
 
     private async Task<string?> ResolveRagContextAsync(
@@ -517,7 +521,7 @@ public sealed partial class TaskDecompositionTool(
         return await RagContextService
             .BuildContextAsync(
                 projectId,
-                new Application.Models.Rag.RagSearchRequest
+                new RagSearchRequest
                 {
                     RefinedQueryEn = query,
                     Keywords = keywords ?? [],
@@ -592,15 +596,20 @@ public sealed partial class TaskDecompositionTool(
                 .OrderBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            builder.AppendLine("[ACTIVE_SPECIALIZATIONS: title|description]");
-            foreach (var specialization in specializations)
+            // Skip empty tables — headers alone waste tokens and confuse the model.
+            if (specializations.Count > 0)
             {
-                builder.Append(CompactCell(specialization.Title));
-                builder.Append('|');
-                builder.AppendLine(CompactCell(specialization.Description));
+                builder.AppendLine("[ACTIVE_SPECIALIZATIONS: title|description]");
+                foreach (var specialization in specializations)
+                {
+                    builder.Append(CompactCell(specialization.Title));
+                    builder.Append('|');
+                    builder.AppendLine(CompactCell(specialization.Description));
+                }
+
+                builder.AppendLine();
             }
 
-            builder.AppendLine();
             builder.AppendLine("[PROJECT_MEMBERS: id|specializations|skills]");
             foreach (var member in members.OrderBy(item => item.UserId))
             {

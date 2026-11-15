@@ -20,6 +20,7 @@ using Skemex.Application.Services.Users;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Entities.Users;
+using Skemex.Domain.Events.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
 using Skemex.Application.Helpers.Projects;
@@ -246,6 +247,12 @@ public sealed class UpdateProjectTaskCommandHandler(
         }
 
         task.UpdatedAt = DateTime.UtcNow;
+        task.RaiseEvent(new ProjectBoardChangedDomainEvent
+        {
+            ProjectId = request.ProjectId,
+            TaskId = task.Id,
+            ChangeKind = "Updated",
+        });
         await projectTaskRepository.UpdateAsync(task, cancellationToken);
 
         var reloaded = await projectTaskRepository.GetAsync(

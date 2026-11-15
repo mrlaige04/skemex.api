@@ -7,4 +7,10 @@ public sealed class AiFunctionCallRequest
     public required string UserPrompt { get; init; }
     public required string Model { get; init; }
     public required IReadOnlyList<AiToolDefinition> Tools { get; init; }
+
+    /// <summary>
+    /// Sampling temperature. When null, the provider uses
+    /// <see cref="Domain.Consts.AiSamplingDefaults.Temperature"/>.
+    /// </summary>
+    public double? Temperature { get; init; }
 }

@@ -145,6 +145,8 @@ public static class RegisterDependencies
         services.AddScoped<IAgentTool>(sp => sp.GetRequiredService<TaskDecompositionTool>());
         services.AddScoped<ProjectQaTool>();
         services.AddScoped<IAgentTool>(sp => sp.GetRequiredService<ProjectQaTool>());
+        services.AddScoped<UnsupportedRequestTool>();
+        services.AddScoped<IAgentTool>(sp => sp.GetRequiredService<UnsupportedRequestTool>());
         services.AddScoped<AiService>();
         services.AddScoped<IAiService, MeteringAiService>();
         services.AddScoped<IAiUsageMeteringService, AiUsageMeteringService>();
@@ -440,6 +442,21 @@ public static class RegisterDependencies
                 options.RequireHttpsMetadata = false;
                 options.MapInboundClaims = false;
                 options.TokenValidationParameters = jwtOptions.ToTokenValidationParameters();
+                options.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        var accessToken = context.Request.Query["access_token"];
+                        var path = context.HttpContext.Request.Path;
+                        if (!string.IsNullOrEmpty(accessToken)
+                            && path.StartsWithSegments("/hubs"))
+                        {
+                            context.Token = accessToken;
+                        }
+
+                        return Task.CompletedTask;
+                    },
+                };
             });
 
         services

@@ -2,6 +2,7 @@ using ErrorOr;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Helpers.Projects;
 using Skemex.Domain.Entities.Projects;
+using Skemex.Domain.Events.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
 
@@ -73,6 +74,13 @@ public sealed class BulkDeleteProjectTasksCommandHandler(
                 affectedIds,
                 cancellationToken)
             .ConfigureAwait(false);
+
+        tasks[0].RaiseEvent(new ProjectBoardChangedDomainEvent
+        {
+            ProjectId = request.ProjectId,
+            TaskId = tasks[0].Id,
+            ChangeKind = "Deleted",
+        });
 
         await projectTaskRepository.DeleteRangeAsync(tasks, cancellationToken);
         return Result.Success;

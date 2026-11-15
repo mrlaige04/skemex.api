@@ -20,6 +20,7 @@ using Skemex.Application.Services.Users;
 using Skemex.Application.Services.Projects;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Entities.Users;
+using Skemex.Domain.Events.Projects;
 using Skemex.Domain.Repositories.Abstractions;
 using Skemex.Domain.Services;
 using Skemex.Application.Helpers.Projects;
@@ -140,6 +141,13 @@ public sealed class CreateProjectTaskCommandHandler(
             AssigneeId = request.AssigneeId,
             ReporterId = reporterId.Value,
         };
+
+        task.RaiseEvent(new ProjectBoardChangedDomainEvent
+        {
+            ProjectId = request.ProjectId,
+            TaskId = task.Id,
+            ChangeKind = "Created",
+        });
 
         await projectTaskRepository.AddAsync(task, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
