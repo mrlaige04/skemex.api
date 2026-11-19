@@ -1,12 +1,10 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Pgvector;
 using Skemex.Application.Configuration;
 using Skemex.Application.Configuration.Ai;
 using Skemex.Application.Configuration.App;
-using Skemex.Application.Configuration.Documents;
 using Skemex.Application.Configuration.Email;
 using Skemex.Application.Configuration.Rag;
 using Skemex.Application.Configuration.Storage;
@@ -45,7 +43,6 @@ public sealed class DocumentVectorizationService(
     IDocumentChunkEnrichmentService chunkEnrichmentService,
     IEmbeddingService embeddingService,
     IAiExecutionService executionService,
-    IOptions<DocumentIngestionOptions> ingestionOptions,
     ILogger<DocumentVectorizationService> logger) : IDocumentVectorizationService
 {
     public string Enqueue(Guid documentId, Guid projectId, Guid tenantId, Guid requestedByUserId) =>
@@ -255,26 +252,28 @@ public sealed class DocumentVectorizationService(
         Guid projectId,
         CancellationToken cancellationToken)
     {
-        var configured = ingestionOptions.Value.EnrichmentModel?.Trim();
-        if (!string.IsNullOrWhiteSpace(configured))
-        {
-            return configured;
-        }
-
         var settings = await projectSettingsRepository.GetAsync(
             filter: entry => entry.ProjectId == projectId,
-            include: query => query.Include(entry => entry.DefaultAiModel),
+            include: query => query
+                .Include(entry => entry.AiSettings.EnrichmentModel)
+                .Include(entry => entry.AiSettings.DefaultModel),
             cancellationToken: cancellationToken);
 
-        var fromProject = settings?.DefaultAiModel?.ExternalId?.Trim();
-        if (!string.IsNullOrWhiteSpace(fromProject))
+        var fromEnrichment = settings?.AiSettings.EnrichmentModel?.ExternalId?.Trim();
+        if (!string.IsNullOrWhiteSpace(fromEnrichment))
         {
-            return fromProject;
+            return fromEnrichment;
+        }
+
+        var fromDefault = settings?.AiSettings.DefaultModel?.ExternalId?.Trim();
+        if (!string.IsNullOrWhiteSpace(fromDefault))
+        {
+            return fromDefault;
         }
 
         throw new InvalidOperationException(
-            "No enrichment model configured. Set DocumentIngestion:EnrichmentModel in appsettings, " +
-            "or configure a project default AI model.");
+            "No enrichment model configured. Set Enrichment AI model (or Default AI model) " +
+            "in Project Settings → AI.");
     }
 
     private static string BuildEmbeddingInput(EnrichedChunk chunk)

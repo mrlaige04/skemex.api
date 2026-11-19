@@ -1,6 +1,7 @@
 using ErrorOr;
 using Skemex.Application.Features.Abstractions;
 using Skemex.Application.Models.Projects;
+using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Repositories.Abstractions;
@@ -56,7 +57,7 @@ public sealed class UpdateProjectSettingsCommandHandler(
 
         if (request.ClearDefaultAiModel)
         {
-            settings.DefaultAiModelId = null;
+            settings.AiSettings.DefaultModelId = null;
         }
         else if (request.DefaultAiModelId is { } modelId)
         {
@@ -68,7 +69,32 @@ public sealed class UpdateProjectSettingsCommandHandler(
                 return Error.NotFound("AiModel.NotFound", "AI model was not found.");
             }
 
-            settings.DefaultAiModelId = modelId;
+            settings.AiSettings.DefaultModelId = modelId;
+        }
+
+        if (request.ClearEnrichmentAiModel)
+        {
+            settings.AiSettings.EnrichmentModelId = null;
+        }
+        else if (request.EnrichmentAiModelId is { } enrichmentModelId)
+        {
+            var enrichmentModelExists = await aiModelRepository.ExistsAsync(
+                filter: model => model.Id == enrichmentModelId && model.IsActive,
+                cancellationToken: cancellationToken);
+            if (!enrichmentModelExists)
+            {
+                return Error.NotFound("AiModel.NotFound", "Enrichment AI model was not found.");
+            }
+
+            settings.AiSettings.EnrichmentModelId = enrichmentModelId;
+        }
+
+        if (request.AiTemperature is { } temperature)
+        {
+            settings.AiSettings.Temperature = Math.Clamp(
+                temperature,
+                AiSamplingDefaults.MinTemperature,
+                AiSamplingDefaults.MaxTemperature);
         }
 
         await projectSettingsRepository.UpdateAsync(settings, cancellationToken);

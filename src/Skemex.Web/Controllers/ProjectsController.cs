@@ -564,6 +564,9 @@ public class ProjectsController(ISender sender) : BaseController
                 DefaultTaskColumnId = body.DefaultTaskColumnId,
                 DefaultAiModelId = body.DefaultAiModelId,
                 ClearDefaultAiModel = body.ClearDefaultAiModel,
+                EnrichmentAiModelId = body.EnrichmentAiModelId,
+                ClearEnrichmentAiModel = body.ClearEnrichmentAiModel,
+                AiTemperature = body.AiTemperature,
             },
             cancellationToken);
         return result.Match(Ok, Problem);

@@ -266,8 +266,8 @@ public sealed partial class TaskDecompositionTool(
         CancellationToken cancellationToken)
     {
         var projectId = preparedContext.ProjectId;
-        var maxDepth = Math.Clamp(preparedContext.Settings.AiMaxTreeDepth, 1, 8);
-        var maxNodes = Math.Clamp(preparedContext.Settings.AiMaxNodes, 1, 64);
+        var maxDepth = Math.Clamp(preparedContext.Settings.AiSettings.MaxTreeDepth, 1, 8);
+        var maxNodes = Math.Clamp(preparedContext.Settings.AiSettings.MaxNodes, 1, 64);
 
         if (!TryParseInvocationArgs(
                 preparedContext.ArgumentsJson,
@@ -483,7 +483,7 @@ public sealed partial class TaskDecompositionTool(
             }
         }
 
-        return settings.DefaultAiModel?.ExternalId;
+        return settings.AiSettings.DefaultModel?.ExternalId;
     }
 
     private static string ApplyPromptLimits(string template, int maxDepth, int maxNodes)

@@ -17,6 +17,7 @@ public sealed class TenantProvisioningService(
     IBaseRepository<UserRole> userRoleRepository,
     IBaseRepository<Role> roleRepository,
     TenantColumnSeeder tenantColumnSeeder,
+    TenantSettingsSeeder tenantSettingsSeeder,
     TenantRbacSeeder tenantRbacSeeder)
 {
     public async Task<ErrorOr<Tenant>> CreateWorkspaceAsync(
@@ -128,6 +129,7 @@ public sealed class TenantProvisioningService(
         }
 
         await tenantColumnSeeder.EnsureDefaultsAsync(tenant.Id, cancellationToken);
+        await tenantSettingsSeeder.EnsureDefaultsAsync(tenant.Id, cancellationToken);
         return tenant;
     }
 

@@ -58,7 +58,7 @@ public sealed class DocumentChunkEnrichmentService(
         {
             throw new InvalidOperationException(
                 "No AI model is configured for document chunk enrichment. " +
-                "Set DocumentIngestion:EnrichmentModel in appsettings.");
+                "Set Enrichment AI model in Project Settings → AI.");
         }
 
         var batchSize = Math.Clamp(options.Value.EnrichmentBatchSize, 5, 8);

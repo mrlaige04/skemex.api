@@ -32,6 +32,7 @@ public static class RegisterDependencies
         services.AddScoped<ISender, Sender>();
         services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
         services.AddScoped<TenantColumnSeeder>();
+        services.AddScoped<TenantSettingsSeeder>();
         services.AddScoped<ProjectColumnSeeder>();
         services.AddScoped<TenantRbacSeeder>();
         services.AddScoped<TenantProvisioningService>();

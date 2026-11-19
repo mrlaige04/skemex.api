@@ -162,7 +162,7 @@ public static class RegisterDependencies
         AddAiHttpResilience(
             services.AddHttpClient(OpenAiCompatibleAiProvider.HttpClientName, client =>
             {
-                client.Timeout = TimeSpan.FromSeconds(120);
+                client.Timeout = TimeSpan.FromSeconds(1500);
             }),
             configuration);
     }
@@ -289,7 +289,7 @@ public static class RegisterDependencies
         services.Configure<RagSettings>(configuration.GetSection(RagSettings.SectionName));
         services.AddHttpClient(GoogleGeminiEmbeddingService.HttpClientName, client =>
         {
-            client.Timeout = TimeSpan.FromSeconds(120);
+            client.Timeout = TimeSpan.FromSeconds(1500);
         });
         services.AddScoped<GoogleGeminiEmbeddingService>();
         services.AddScoped<IEmbeddingService, MeteringEmbeddingService>();

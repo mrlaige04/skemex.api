@@ -42,6 +42,7 @@ public sealed class CreateSaTenantCommandHandler(
     IUrlService urlService,
     IOptions<SuperAdminOptions> superAdminOptions,
     TenantColumnSeeder tenantColumnSeeder,
+    TenantSettingsSeeder tenantSettingsSeeder,
     TenantRbacSeeder tenantRbacSeeder)
     : ICommandHandler<CreateSaTenantCommand, SaTenantDto>
 {
@@ -146,6 +147,7 @@ public sealed class CreateSaTenantCommandHandler(
         }
 
         await tenantColumnSeeder.EnsureDefaultsAsync(tenant.Id, cancellationToken);
+        await tenantSettingsSeeder.EnsureDefaultsAsync(tenant.Id, cancellationToken);
 
         return new SaTenantDto
         {

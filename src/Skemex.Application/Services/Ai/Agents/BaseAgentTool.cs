@@ -66,7 +66,7 @@ public abstract class BaseAgentTool(
 
         var settings = await ProjectSettingsRepository.GetAsync(
                 filter: entry => entry.ProjectId == projectId,
-                include: query => query.Include(entry => entry.DefaultAiModel),
+                include: query => query.Include(entry => entry.AiSettings.DefaultModel),
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
@@ -136,7 +136,7 @@ public abstract class BaseAgentTool(
             return context.Model.Trim();
         }
 
-        return settings.DefaultAiModel?.ExternalId;
+        return settings.AiSettings.DefaultModel?.ExternalId;
     }
 
     protected virtual AiToolExecutionResult Fail(string error)

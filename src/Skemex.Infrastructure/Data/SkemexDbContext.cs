@@ -13,6 +13,7 @@ namespace Skemex.Infrastructure.Data;
 public class SkemexDbContext(DbContextOptions<SkemexDbContext> options) : IdentityDbContext<User, Role, Guid>(options)
 {
     public DbSet<Tenant> Tenants { get; set; } = null!;
+    public DbSet<TenantSettings> TenantSettings { get; set; } = null!;
 
     public DbSet<EmailTemplate> EmailTemplates { get; set; } = null!;
 

@@ -36,7 +36,6 @@ public sealed class AgentOrchestrator(
     ITenantRepository<AiChat> chatRepository,
     ITenantRepository<AiExecution> executionRepository,
     ITenantRepository<Project> projectRepository,
-    IBaseRepository<Domain.Entities.Users.Tenant> tenantRepository,
     IAiService aiService,
     IAiSemanticRetry semanticRetry,
     IProjectRagContextService ragContextService,
@@ -145,9 +144,9 @@ public sealed class AgentOrchestrator(
             {
                 var settings = await projectSettingsRepository.GetAsync(
                     filter: entry => entry.ProjectId == projectId,
-                    include: query => query.Include(entry => entry.DefaultAiModel),
+                    include: query => query.Include(entry => entry.AiSettings.DefaultModel),
                     cancellationToken: cancellationToken);
-                model = settings?.DefaultAiModel?.ExternalId;
+                model = settings?.AiSettings.DefaultModel?.ExternalId;
 
                 if (string.IsNullOrWhiteSpace(model) && job.AiChatId is { } chatId)
                 {
@@ -289,7 +288,7 @@ public sealed class AgentOrchestrator(
     {
         using var usageScope = EnsureUsageCorrelation(request);
 
-        request.Temperature ??= await ResolveTenantTemperatureAsync(request.TenantId, cancellationToken)
+        request.Temperature ??= await ResolveProjectTemperatureAsync(request.ProjectId, cancellationToken)
             .ConfigureAwait(false);
 
         var toolMap = tools.ToDictionary(tool => tool.SystemName, StringComparer.OrdinalIgnoreCase);
@@ -828,22 +827,27 @@ public sealed class AgentOrchestrator(
         };
     }
 
-    private async Task<double> ResolveTenantTemperatureAsync(
-        Guid tenantId,
+    private async Task<double> ResolveProjectTemperatureAsync(
+        Guid? projectId,
         CancellationToken cancellationToken)
     {
-        var tenant = await tenantRepository.GetAsync(
-                filter: entry => entry.Id == tenantId,
+        if (projectId is null)
+        {
+            return AiSamplingDefaults.Temperature;
+        }
+
+        var settings = await projectSettingsRepository.GetAsync(
+                filter: entry => entry.ProjectId == projectId.Value,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
-        if (tenant is null)
+        if (settings is null)
         {
             return AiSamplingDefaults.Temperature;
         }
 
         return Math.Clamp(
-            tenant.AiTemperature,
+            settings.AiSettings.Temperature,
             AiSamplingDefaults.MinTemperature,
             AiSamplingDefaults.MaxTemperature);
     }
