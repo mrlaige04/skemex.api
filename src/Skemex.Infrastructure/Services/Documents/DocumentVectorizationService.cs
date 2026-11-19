@@ -255,17 +255,17 @@ public sealed class DocumentVectorizationService(
         var settings = await projectSettingsRepository.GetAsync(
             filter: entry => entry.ProjectId == projectId,
             include: query => query
-                .Include(entry => entry.EnrichmentAiModel)
-                .Include(entry => entry.DefaultAiModel),
+                .Include(entry => entry.AiSettings.EnrichmentModel)
+                .Include(entry => entry.AiSettings.DefaultModel),
             cancellationToken: cancellationToken);
 
-        var fromEnrichment = settings?.EnrichmentAiModel?.ExternalId?.Trim();
+        var fromEnrichment = settings?.AiSettings.EnrichmentModel?.ExternalId?.Trim();
         if (!string.IsNullOrWhiteSpace(fromEnrichment))
         {
             return fromEnrichment;
         }
 
-        var fromDefault = settings?.DefaultAiModel?.ExternalId?.Trim();
+        var fromDefault = settings?.AiSettings.DefaultModel?.ExternalId?.Trim();
         if (!string.IsNullOrWhiteSpace(fromDefault))
         {
             return fromDefault;

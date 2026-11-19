@@ -1257,26 +1257,10 @@ namespace Skemex.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<int>("AiMaxNodes")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(16);
-
-                    b.Property<int>("AiMaxTreeDepth")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(2);
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid?>("DefaultAiModelId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid>("DefaultTaskColumnId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("EnrichmentAiModelId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("ProjectId")
@@ -1290,11 +1274,7 @@ namespace Skemex.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("DefaultAiModelId");
-
                     b.HasIndex("DefaultTaskColumnId");
-
-                    b.HasIndex("EnrichmentAiModelId");
 
                     b.HasIndex("ProjectId")
                         .IsUnique();
@@ -1843,12 +1823,6 @@ namespace Skemex.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<double>("AiTemperature")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(3, 2)
-                        .HasColumnType("double precision")
-                        .HasDefaultValue(0.20000000000000001);
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1875,6 +1849,29 @@ namespace Skemex.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("tenants", (string)null);
+                });
+
+            modelBuilder.Entity("Skemex.Domain.Entities.Users.TenantSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique();
+
+                    b.ToTable("tenant_settings", (string)null);
                 });
 
             modelBuilder.Entity("Skemex.Domain.Entities.Users.TenantSpecialization", b =>
@@ -2475,21 +2472,11 @@ namespace Skemex.Infrastructure.Migrations
 
             modelBuilder.Entity("Skemex.Domain.Entities.Projects.ProjectSettings", b =>
                 {
-                    b.HasOne("Skemex.Domain.Entities.Ai.AiModel", "DefaultAiModel")
-                        .WithMany()
-                        .HasForeignKey("DefaultAiModelId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("Skemex.Domain.Entities.Projects.ProjectColumn", "DefaultTaskColumn")
                         .WithMany()
                         .HasForeignKey("DefaultTaskColumnId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.HasOne("Skemex.Domain.Entities.Ai.AiModel", "EnrichmentAiModel")
-                        .WithMany()
-                        .HasForeignKey("EnrichmentAiModelId")
-                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
                         .WithOne("Settings")
@@ -2497,11 +2484,68 @@ namespace Skemex.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("DefaultAiModel");
+                    b.OwnsOne("Skemex.Domain.Entities.Ai.AiSettings", "AiSettings", b1 =>
+                        {
+                            b1.Property<Guid>("ProjectSettingsId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<Guid?>("DefaultModelId")
+                                .HasColumnType("uuid")
+                                .HasColumnName("DefaultAiModelId");
+
+                            b1.Property<Guid?>("EnrichmentModelId")
+                                .HasColumnType("uuid")
+                                .HasColumnName("EnrichmentAiModelId");
+
+                            b1.Property<int>("MaxNodes")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer")
+                                .HasDefaultValue(16)
+                                .HasColumnName("AiMaxNodes");
+
+                            b1.Property<int>("MaxTreeDepth")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer")
+                                .HasDefaultValue(2)
+                                .HasColumnName("AiMaxTreeDepth");
+
+                            b1.Property<double>("Temperature")
+                                .ValueGeneratedOnAdd()
+                                .HasPrecision(3, 2)
+                                .HasColumnType("double precision")
+                                .HasDefaultValue(0.20000000000000001)
+                                .HasColumnName("AiTemperature");
+
+                            b1.HasKey("ProjectSettingsId");
+
+                            b1.HasIndex("DefaultModelId");
+
+                            b1.HasIndex("EnrichmentModelId");
+
+                            b1.ToTable("project_settings");
+
+                            b1.HasOne("Skemex.Domain.Entities.Ai.AiModel", "DefaultModel")
+                                .WithMany()
+                                .HasForeignKey("DefaultModelId")
+                                .OnDelete(DeleteBehavior.SetNull);
+
+                            b1.HasOne("Skemex.Domain.Entities.Ai.AiModel", "EnrichmentModel")
+                                .WithMany()
+                                .HasForeignKey("EnrichmentModelId")
+                                .OnDelete(DeleteBehavior.SetNull);
+
+                            b1.WithOwner()
+                                .HasForeignKey("ProjectSettingsId");
+
+                            b1.Navigation("DefaultModel");
+
+                            b1.Navigation("EnrichmentModel");
+                        });
+
+                    b.Navigation("AiSettings")
+                        .IsRequired();
 
                     b.Navigation("DefaultTaskColumn");
-
-                    b.Navigation("EnrichmentAiModel");
 
                     b.Navigation("Project");
                 });
@@ -2737,6 +2781,73 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("Role");
                 });
 
+            modelBuilder.Entity("Skemex.Domain.Entities.Users.TenantSettings", b =>
+                {
+                    b.HasOne("Skemex.Domain.Entities.Users.Tenant", "Tenant")
+                        .WithOne("Settings")
+                        .HasForeignKey("Skemex.Domain.Entities.Users.TenantSettings", "TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.OwnsOne("Skemex.Domain.Entities.Ai.AiSettings", "AiSettings", b1 =>
+                        {
+                            b1.Property<Guid>("TenantSettingsId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<Guid?>("DefaultModelId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<Guid?>("EnrichmentModelId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<int>("MaxNodes")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer")
+                                .HasDefaultValue(16);
+
+                            b1.Property<int>("MaxTreeDepth")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer")
+                                .HasDefaultValue(2);
+
+                            b1.Property<double>("Temperature")
+                                .ValueGeneratedOnAdd()
+                                .HasPrecision(3, 2)
+                                .HasColumnType("double precision")
+                                .HasDefaultValue(0.20000000000000001);
+
+                            b1.HasKey("TenantSettingsId");
+
+                            b1.HasIndex("DefaultModelId");
+
+                            b1.HasIndex("EnrichmentModelId");
+
+                            b1.ToTable("tenant_settings");
+
+                            b1.HasOne("Skemex.Domain.Entities.Ai.AiModel", "DefaultModel")
+                                .WithMany()
+                                .HasForeignKey("DefaultModelId")
+                                .OnDelete(DeleteBehavior.SetNull);
+
+                            b1.HasOne("Skemex.Domain.Entities.Ai.AiModel", "EnrichmentModel")
+                                .WithMany()
+                                .HasForeignKey("EnrichmentModelId")
+                                .OnDelete(DeleteBehavior.SetNull);
+
+                            b1.WithOwner()
+                                .HasForeignKey("TenantSettingsId");
+
+                            b1.Navigation("DefaultModel");
+
+                            b1.Navigation("EnrichmentModel");
+                        });
+
+                    b.Navigation("AiSettings")
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
+                });
+
             modelBuilder.Entity("Skemex.Domain.Entities.Users.TenantSpecialization", b =>
                 {
                     b.HasOne("Skemex.Domain.Entities.Users.Tenant", "Tenant")
@@ -2919,6 +3030,8 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("Projects");
 
                     b.Navigation("Roles");
+
+                    b.Navigation("Settings");
 
                     b.Navigation("Specializations");
 

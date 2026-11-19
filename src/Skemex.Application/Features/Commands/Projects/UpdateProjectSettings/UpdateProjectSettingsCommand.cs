@@ -21,4 +21,7 @@ public sealed class UpdateProjectSettingsCommand : ICommand<ProjectSettingsDto>
 
     /// <summary>When true, clears the enrichment AI model.</summary>
     public bool ClearEnrichmentAiModel { get; set; }
+
+    /// <summary>When set, updates the project LLM sampling temperature.</summary>
+    public double? AiTemperature { get; set; }
 }

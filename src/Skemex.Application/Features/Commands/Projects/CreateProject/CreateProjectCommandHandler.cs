@@ -18,6 +18,7 @@ using Skemex.Application.Services.Projects;
 using Skemex.Application.Services.Storage;
 using Skemex.Application.Services.Users;
 using Skemex.Application.Services.Projects;
+using Skemex.Domain.Entities.Ai;
 using Skemex.Domain.Entities.Projects;
 using Skemex.Domain.Entities.Users;
 using Skemex.Domain.Repositories.Abstractions;
@@ -29,9 +30,11 @@ public sealed class CreateProjectCommandHandler(
     ICurrentUser currentUser,
     ITenantRepository<Project> projectRepository,
     ITenantRepository<TenantUser> tenantUserRepository,
+    ITenantRepository<TenantSettings> tenantSettingsRepository,
     IProjectLogoService projectLogos,
     IUrlService urlService,
-    ProjectColumnSeeder projectColumnSeeder)
+    ProjectColumnSeeder projectColumnSeeder,
+    TenantSettingsSeeder tenantSettingsSeeder)
     : ICommandHandler<CreateProjectCommand, ProjectDto>
 {
     private const long MaxImageBytes = 5 * 1024 * 1024;
@@ -129,6 +132,12 @@ public sealed class CreateProjectCommandHandler(
             .ThenBy(column => column.Title)
             .First();
 
+        await tenantSettingsSeeder.EnsureDefaultsAsync(tenantId.Value, cancellationToken);
+        var tenantSettings = await tenantSettingsRepository.GetAsync(
+            filter: settings => settings.TenantId == tenantId.Value,
+            cancellationToken: cancellationToken);
+        var projectAiSettings = tenantSettings?.AiSettings.Clone() ?? AiSettings.CreateDefault();
+
         var project = new Project
         {
             Id = projectId,
@@ -158,8 +167,7 @@ public sealed class CreateProjectCommandHandler(
                 TenantId = tenantId.Value,
                 ProjectId = projectId,
                 DefaultTaskColumnId = defaultColumn.Id,
-                AiMaxTreeDepth = 2,
-                AiMaxNodes = 16,
+                AiSettings = projectAiSettings,
             },
         };
 

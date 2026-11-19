@@ -16,9 +16,6 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
 
         builder.Property(t => t.Name).IsRequired();
         builder.Property(t => t.Email).IsRequired();
-        builder.Property(t => t.AiTemperature)
-            .HasPrecision(3, 2)
-            .HasDefaultValue(Domain.Consts.AiSamplingDefaults.Temperature);
 
         builder
             .HasMany(t => t.Users)

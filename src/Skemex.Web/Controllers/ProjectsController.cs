@@ -566,6 +566,7 @@ public class ProjectsController(ISender sender) : BaseController
                 ClearDefaultAiModel = body.ClearDefaultAiModel,
                 EnrichmentAiModelId = body.EnrichmentAiModelId,
                 ClearEnrichmentAiModel = body.ClearEnrichmentAiModel,
+                AiTemperature = body.AiTemperature,
             },
             cancellationToken);
         return result.Match(Ok, Problem);

@@ -1,4 +1,5 @@
 using FluentValidation;
+using Skemex.Domain.Consts;
 
 namespace Skemex.Application.Features.Commands.Projects.UpdateProjectSettings;
 
@@ -12,7 +13,8 @@ public sealed class UpdateProjectSettingsCommandValidator : AbstractValidator<Up
                 || command.DefaultAiModelId.HasValue
                 || command.ClearDefaultAiModel
                 || command.EnrichmentAiModelId.HasValue
-                || command.ClearEnrichmentAiModel)
+                || command.ClearEnrichmentAiModel
+                || command.AiTemperature.HasValue)
             .WithMessage("At least one settings field must be provided.");
 
         RuleFor(command => command.DefaultTaskColumnId)
@@ -26,5 +28,9 @@ public sealed class UpdateProjectSettingsCommandValidator : AbstractValidator<Up
         RuleFor(command => command.EnrichmentAiModelId)
             .NotEmpty()
             .When(command => command.EnrichmentAiModelId.HasValue && !command.ClearEnrichmentAiModel);
+
+        RuleFor(command => command.AiTemperature)
+            .InclusiveBetween(AiSamplingDefaults.MinTemperature, AiSamplingDefaults.MaxTemperature)
+            .When(command => command.AiTemperature.HasValue);
     }
 }

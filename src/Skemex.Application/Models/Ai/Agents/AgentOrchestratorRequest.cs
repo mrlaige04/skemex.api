@@ -18,7 +18,7 @@ public sealed class AgentOrchestratorRequest
     public required string UserInput { get; init; }
     public string? Model { get; init; }
 
-    /// <summary>Tenant-configured LLM temperature (resolved at orchestrator entry when unset).</summary>
+    /// <summary>Project-configured LLM temperature (resolved at orchestrator entry when unset).</summary>
     public double? Temperature { get; set; }
 
     /// <summary>Optional JSON object of direct tool arguments (merged with userInput).</summary>

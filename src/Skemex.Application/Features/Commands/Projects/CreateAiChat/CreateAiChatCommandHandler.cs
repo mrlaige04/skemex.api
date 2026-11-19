@@ -45,7 +45,7 @@ public sealed class CreateAiChatCommandHandler(
             var settings = await projectSettingsRepository.GetAsync(
                 filter: entry => entry.ProjectId == request.ProjectId,
                 cancellationToken: cancellationToken);
-            modelId = settings?.DefaultAiModelId;
+            modelId = settings?.AiSettings.DefaultModelId;
         }
 
         if (modelId is { } selectedModelId)

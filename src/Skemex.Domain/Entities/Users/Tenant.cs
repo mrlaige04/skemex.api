@@ -1,4 +1,3 @@
-using Skemex.Domain.Consts;
 using Skemex.Domain.Entities.Abstractions;
 using Skemex.Domain.Entities.Projects;
 
@@ -12,11 +11,7 @@ public class Tenant : BaseEntity
     /// <summary>Blob identifier (storage object key) for the tenant logo; use <c>IUrlService</c> to build a download URL.</summary>
     public string? LogoBlobId { get; set; }
 
-    /// <summary>
-    /// LLM sampling temperature for workspace AI calls (completions + function calling).
-    /// Lower = more deterministic. Default <see cref="AiSamplingDefaults.Temperature"/>.
-    /// </summary>
-    public double AiTemperature { get; set; } = AiSamplingDefaults.Temperature;
+    public TenantSettings? Settings { get; set; }
 
     public IList<TenantUser> Users { get; set; } = [];
     public IList<Project> Projects { get; set; } = [];
