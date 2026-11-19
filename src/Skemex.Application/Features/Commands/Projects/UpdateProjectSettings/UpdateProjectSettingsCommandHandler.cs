@@ -71,6 +71,23 @@ public sealed class UpdateProjectSettingsCommandHandler(
             settings.DefaultAiModelId = modelId;
         }
 
+        if (request.ClearEnrichmentAiModel)
+        {
+            settings.EnrichmentAiModelId = null;
+        }
+        else if (request.EnrichmentAiModelId is { } enrichmentModelId)
+        {
+            var enrichmentModelExists = await aiModelRepository.ExistsAsync(
+                filter: model => model.Id == enrichmentModelId && model.IsActive,
+                cancellationToken: cancellationToken);
+            if (!enrichmentModelExists)
+            {
+                return Error.NotFound("AiModel.NotFound", "Enrichment AI model was not found.");
+            }
+
+            settings.EnrichmentAiModelId = enrichmentModelId;
+        }
+
         await projectSettingsRepository.UpdateAsync(settings, cancellationToken);
 
         return ProjectSettingsDto.FromEntity(settings);

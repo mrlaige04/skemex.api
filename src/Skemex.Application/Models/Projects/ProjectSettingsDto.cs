@@ -5,6 +5,7 @@ public sealed class ProjectSettingsDto
     public Guid ProjectId { get; init; }
     public Guid DefaultTaskColumnId { get; init; }
     public Guid? DefaultAiModelId { get; init; }
+    public Guid? EnrichmentAiModelId { get; init; }
 
     public static ProjectSettingsDto FromEntity(Domain.Entities.Projects.ProjectSettings settings) =>
         new()
@@ -12,5 +13,6 @@ public sealed class ProjectSettingsDto
             ProjectId = settings.ProjectId,
             DefaultTaskColumnId = settings.DefaultTaskColumnId,
             DefaultAiModelId = settings.DefaultAiModelId,
+            EnrichmentAiModelId = settings.EnrichmentAiModelId,
         };
 }

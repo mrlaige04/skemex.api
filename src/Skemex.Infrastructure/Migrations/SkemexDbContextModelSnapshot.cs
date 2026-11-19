@@ -1276,6 +1276,9 @@ namespace Skemex.Infrastructure.Migrations
                     b.Property<Guid>("DefaultTaskColumnId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("EnrichmentAiModelId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
 
@@ -1290,6 +1293,8 @@ namespace Skemex.Infrastructure.Migrations
                     b.HasIndex("DefaultAiModelId");
 
                     b.HasIndex("DefaultTaskColumnId");
+
+                    b.HasIndex("EnrichmentAiModelId");
 
                     b.HasIndex("ProjectId")
                         .IsUnique();
@@ -2481,6 +2486,11 @@ namespace Skemex.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Skemex.Domain.Entities.Ai.AiModel", "EnrichmentAiModel")
+                        .WithMany()
+                        .HasForeignKey("EnrichmentAiModelId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Skemex.Domain.Entities.Projects.Project", "Project")
                         .WithOne("Settings")
                         .HasForeignKey("Skemex.Domain.Entities.Projects.ProjectSettings", "ProjectId")
@@ -2490,6 +2500,8 @@ namespace Skemex.Infrastructure.Migrations
                     b.Navigation("DefaultAiModel");
 
                     b.Navigation("DefaultTaskColumn");
+
+                    b.Navigation("EnrichmentAiModel");
 
                     b.Navigation("Project");
                 });

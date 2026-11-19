@@ -32,5 +32,11 @@ public class ProjectSettingsConfiguration : IEntityTypeConfiguration<ProjectSett
             .WithMany()
             .HasForeignKey(settings => settings.DefaultAiModelId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        builder
+            .HasOne(settings => settings.EnrichmentAiModel)
+            .WithMany()
+            .HasForeignKey(settings => settings.EnrichmentAiModelId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

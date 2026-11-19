@@ -20,4 +20,8 @@ public class ProjectSettings : TenantEntity
     /// <summary>Default LLM for new AI chats in this project.</summary>
     public Guid? DefaultAiModelId { get; set; }
     public AiModel? DefaultAiModel { get; set; }
+
+    /// <summary>LLM used for document chunk enrichment (translation / keywords) before embedding.</summary>
+    public Guid? EnrichmentAiModelId { get; set; }
+    public AiModel? EnrichmentAiModel { get; set; }
 }
